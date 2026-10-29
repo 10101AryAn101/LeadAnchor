@@ -6,6 +6,7 @@ import type { Effects } from "../../db/unit-of-work";
 import { env } from "../../config/env";
 import { QUEUES } from "../../jobs/queue";
 import { channels, consentLedger } from "../../container";
+import { approvedForTexting } from "../compliance/registration.service";
 import { decide } from "./policy";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -33,7 +34,7 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
     .limit(1);
 
   const [registration] = await tx
-    .select({ status: carrierRegistrations.status })
+    .select({ status: carrierRegistrations.status, provider: carrierRegistrations.provider })
     .from(carrierRegistrations)
     .where(eq(carrierRegistrations.tenantId, intent.tenant.id))
     .limit(1);
@@ -59,7 +60,7 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
     purpose: intent.purpose,
     preferredChannels: intent.preferredChannels ?? ["sms", "whatsapp"],
     smsConsent: consent?.action ?? null,
-    carrierApproved: registration?.status === "approved",
+    carrierApproved: registration ? approvedForTexting(registration) : false,
     whatsappWindowOpen: Boolean(recentInboundWhatsApp),
     whatsappConfigured: channels.whatsapp !== null,
     recipientLocalHour: localHour(intent.tenant.timezone),

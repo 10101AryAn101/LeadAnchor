@@ -10,6 +10,7 @@ import {
   IconHeadset,
   IconPhoneX,
   IconRecordMail,
+  IconShieldCheck,
   IconTrendingUp,
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -31,6 +32,7 @@ const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   intake_submitted: { icon: IconFileText, tone: "bg-primary-subtle text-primary-subtle-foreground" },
   photo_analyzed: { icon: IconCamera, tone: "bg-info-subtle text-info-strong" },
   value_proof: { icon: IconTrendingUp, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  registration: { icon: IconShieldCheck, tone: "bg-info-subtle text-info-strong" },
 };
 
 export function NotificationsButton({ className }: { className?: string }) {

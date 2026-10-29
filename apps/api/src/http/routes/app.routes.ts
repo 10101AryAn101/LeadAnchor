@@ -8,6 +8,7 @@ import {
   requestDetailsInput,
   noteInput,
   onboardingInput,
+  registrationCodeInput,
   registrationInput,
   serviceInput,
   serviceOrderInput,
@@ -28,7 +29,13 @@ import { listCalls } from "../../modules/calls/call.queries";
 import { createService, listServices, reorderServices, updateService } from "../../modules/catalog/catalog.service";
 import { getCustomer, listCustomers } from "../../modules/customers/customer.queries";
 import { consentLedger } from "../../container";
-import { getRegistration, submitRegistration } from "../../modules/compliance/registration.service";
+import {
+  confirmRegistrationCode,
+  getRegistration,
+  resendRegistrationCode,
+  retryRegistration,
+  submitRegistration,
+} from "../../modules/compliance/registration.service";
 import { getDashboard } from "../../modules/dashboard/dashboard.service";
 import { integrationStatuses } from "../../modules/integrations/integration-status";
 import { addNote, getLeadDetail, listBoard, recordContact, requestDetails, updateLead } from "../../modules/leads/lead.service";
@@ -193,6 +200,23 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/compliance/registration", async (req) => {
     const ctx = await tenantContext(req, ["owner"]);
     return submitRegistration(ctx.tenantId, ctx.userId, parseInput(registrationInput, req.body));
+  });
+
+  /** Sole proprietors confirm their mobile with the code the carriers texted (C-43). */
+  app.post("/api/compliance/registration/code", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return confirmRegistrationCode(ctx.tenantId, ctx.userId, parseInput(registrationCodeInput, req.body).code);
+  });
+
+  app.post("/api/compliance/registration/code/resend", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return resendRegistrationCode(ctx.tenantId, ctx.userId);
+  });
+
+  /** Files the texting plan (or the number hookup) again after the carriers turned it down. */
+  app.post("/api/compliance/registration/retry", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return retryRegistration(ctx.tenantId, ctx.userId);
   });
 
   app.get("/api/compliance/consent", async (req) => {

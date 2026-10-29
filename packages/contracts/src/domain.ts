@@ -157,7 +157,8 @@ export type CallerType = (typeof CALLER_TYPES)[number];
 export const MESSAGE_CHANNELS = ["sms", "rcs", "whatsapp", "email"] as const;
 export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
 
-export const MESSAGE_PURPOSES = ["transactional", "conversational", "marketing"] as const;
+/** keyword_reply: the one-off answer to a customer's own STOP, START or HELP, which carriers require. */
+export const MESSAGE_PURPOSES = ["transactional", "conversational", "marketing", "keyword_reply"] as const;
 export type MessagePurpose = (typeof MESSAGE_PURPOSES)[number];
 
 export const MESSAGE_DIRECTIONS = ["outbound", "inbound"] as const;
@@ -180,16 +181,28 @@ export type ConsentSource = (typeof CONSENT_SOURCES)[number];
 export const REGISTRATION_PATHS = ["standard", "sole_proprietor"] as const;
 export type RegistrationPath = (typeof REGISTRATION_PATHS)[number];
 
-export const REGISTRATION_STATUSES = ["not_started", "submitted", "in_review", "approved", "rejected"] as const;
+export const REGISTRATION_STATUSES = ["not_started", "submitted", "verify_mobile", "in_review", "approved", "rejected"] as const;
 export type RegistrationStatus = (typeof REGISTRATION_STATUSES)[number];
 
 export const REGISTRATION_STATUS_COPY: Record<RegistrationStatus, string> = {
   not_started: "Not started — texting customers is switched off until carriers approve you.",
-  submitted: "Submitted — we've sent your details to the carriers.",
+  submitted: "Submitted — we're sending your details to the carriers.",
+  verify_mobile: "Check your phone — enter the code the carriers texted you to confirm your mobile number.",
   in_review: "Carrier approval: in review — usually 1–3 weeks.",
   approved: "Approved — automatic texts are on.",
   rejected: "Needs a fix — the carriers asked us to correct something.",
 };
+
+/** The review runs in order: the business is checked, then the texting plan, then the number is connected. */
+export const REGISTRATION_STAGES = ["brand", "campaign", "number"] as const;
+export type RegistrationStage = (typeof REGISTRATION_STAGES)[number];
+
+/** Simulator only: what the pretend carriers decide (like the `mock` brands Telnyx offers for testing). */
+export const REGISTRY_TEST_OUTCOMES = ["approve", "reject_brand", "reject_campaign"] as const;
+export type RegistryTestOutcome = (typeof REGISTRY_TEST_OUTCOMES)[number];
+
+/** Retention (C-43): the full EIN and date of birth are deleted this many days after approval. */
+export const REGISTRATION_ID_RETENTION_DAYS = 30;
 
 export const NOTIFICATION_KINDS = [
   "ghost_call",
@@ -198,6 +211,7 @@ export const NOTIFICATION_KINDS = [
   "intake_submitted",
   "photo_analyzed",
   "value_proof",
+  "registration",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

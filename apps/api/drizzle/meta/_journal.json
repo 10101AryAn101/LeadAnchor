@@ -43,6 +43,13 @@
       "when": 1793266420356,
       "tag": "0005_forwarding_check",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793268212460,
+      "tag": "0006_carrier_registry",
+      "breakpoints": true
     }
   ]
 }

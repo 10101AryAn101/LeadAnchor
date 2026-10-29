@@ -7,7 +7,7 @@ import { messages, phoneNumbers } from "../../db/schema";
 import { HttpError, badRequest, parseInput } from "../../lib/errors";
 import { simulatorTelephony, telephony } from "../../container";
 import { getCallTrace } from "../../modules/calls/call.queries";
-import { approveRegistrationForDev } from "../../modules/compliance/registration.service";
+import { approveRegistrationForDev, resetRegistrationForDev, simulatedRegistrationCode } from "../../modules/compliance/registration.service";
 import { handleInboundMessage } from "../../modules/messaging/inbound";
 import { sendValueProof } from "../../modules/value-proof/value-proof";
 import { tenantContext } from "../context";
@@ -71,6 +71,17 @@ export async function devRoutes(app: FastifyInstance) {
   app.post("/api/dev/simulator/registration/approve", async (req) => {
     const ctx = await tenantContext(req, ["owner"]);
     return approveRegistrationForDev(ctx.tenantId, ctx.userId);
+  });
+
+  app.post("/api/dev/simulator/registration/reset", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return resetRegistrationForDev(ctx.tenantId, ctx.userId);
+  });
+
+  /** The code the pretend carriers "texted" a sole proprietor. */
+  app.get("/api/dev/simulator/registration/code", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return { code: await simulatedRegistrationCode(ctx.tenantId) };
   });
 
   /** Emails the app has "sent" while no email service is connected (Dev → Email outbox). */

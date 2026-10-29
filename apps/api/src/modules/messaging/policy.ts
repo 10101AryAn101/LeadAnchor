@@ -52,15 +52,19 @@ export function decide(facts: PolicyFacts): PolicyDecision {
 
   for (const channel of facts.preferredChannels) {
     if (channel === "sms" || channel === "rcs") {
-      const consentOk = facts.smsConsent === "GRANTED";
+      // Answering the customer's own STOP, START or HELP is the one text that needs no prior consent.
+      const keywordReply = facts.purpose === "keyword_reply";
+      const consentOk = keywordReply || facts.smsConsent === "GRANTED";
       checks.push({
         check: "sms_consent",
         passed: consentOk,
-        detail: consentOk
-          ? "Customer agreed to texts (consent ledger)."
-          : facts.smsConsent === "REVOKED"
-            ? "Customer opted out (STOP)."
-            : "No consent on record for texts.",
+        detail: keywordReply
+          ? "Reply to the customer's own STOP, START or HELP."
+          : consentOk
+            ? "Customer agreed to texts (consent ledger)."
+            : facts.smsConsent === "REVOKED"
+              ? "Customer opted out (STOP)."
+              : "No consent on record for texts.",
       });
       if (!consentOk) continue;
 

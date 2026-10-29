@@ -14,6 +14,10 @@ export const QUEUES = {
   valueProofTick: "value-proof.tick",
   /** Closes a forwarding test that never came back (C-01). */
   forwardingCheckTimeout: "forwarding.check-timeout",
+  /** Moves one business's carrier registration a step forward (C-43). */
+  registrationAdvance: "registration.advance",
+  /** Every 15 minutes: re-check registrations under review and delete expired IDs (C-43). */
+  registrationTick: "registration.tick",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -24,6 +28,8 @@ export interface JobPayloads {
   [QUEUES.dispatchMessage]: { tenantId: string; messageId: string };
   [QUEUES.valueProofTick]: Record<string, never>;
   [QUEUES.forwardingCheckTimeout]: { tenantId: string; startedAt: string };
+  [QUEUES.registrationAdvance]: { tenantId: string };
+  [QUEUES.registrationTick]: Record<string, never>;
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });
@@ -43,6 +49,7 @@ export async function startQueue() {
     await boss.updateQueue(name, RETRY_POLICY);
   }
   await boss.schedule(QUEUES.valueProofTick, "*/15 * * * *");
+  await boss.schedule(QUEUES.registrationTick, "*/15 * * * *");
   started = true;
 }
 

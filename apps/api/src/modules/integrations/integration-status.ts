@@ -1,6 +1,6 @@
 import type { IntegrationStatus, RegistrationStatus } from "@leadanchor/contracts";
 import { env } from "../../config/env";
-import { ai, channels, consentLedger } from "../../container";
+import { ai, channels, consentLedger, registry } from "../../container";
 
 /**
  * Honest status of every third-party service the spec names: live, simulated
@@ -25,11 +25,13 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
       name: "Carrier registration (10DLC)",
       purpose: "Registers each business with US carriers so automatic texts are allowed.",
       capabilities: ["C-43"],
-      state: telnyxLive ? (registration === "approved" ? "live" : "not_configured") : "simulated",
+      state: registry.name === "telnyx" ? (registration === "approved" ? "live" : "not_configured") : "simulated",
       detail:
         registration === "approved"
           ? "Approved — texts can be sent."
-          : "Texts stay blocked until the carriers approve this business.",
+          : registry.name === "simulator"
+            ? "Running on the local registry simulator: a review takes about a minute. Texts stay blocked until it approves."
+            : "Texts stay blocked until the carriers approve this business.",
       mandatedBySpec: true,
     },
     {

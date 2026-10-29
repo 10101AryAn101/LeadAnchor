@@ -18,7 +18,9 @@ import {
   MESSAGE_STATUSES,
   NOTIFICATION_KINDS,
   REGISTRATION_PATHS,
+  REGISTRATION_STAGES,
   REGISTRATION_STATUSES,
+  REGISTRY_TEST_OUTCOMES,
   ROLES,
   TRACKS,
   TRADES,
@@ -490,10 +492,13 @@ const address = {
   postalCode: z.string().trim().regex(/^\d{5}(-\d{4})?$/, "Enter a valid ZIP code"),
 };
 
+/** Simulator only: what the pretend carriers decide. Ignored when a real registry is connected. */
+const simulate = z.enum(REGISTRY_TEST_OUTCOMES).optional();
+
 export const registrationInput = z.discriminatedUnion("path", [
   z.object({
     path: z.literal("standard"),
-    legalName: z.string().trim().min(2, "Enter the exact legal name on your IRS records").max(120),
+    legalName: z.string().trim().min(2, "Enter the exact legal name on your IRS records").max(100),
     ein: z.string().trim().regex(/^\d{2}-?\d{7}$/, "EIN looks like 12-3456789"),
     entityType: z.enum(["PRIVATE_PROFIT", "PUBLIC_PROFIT", "NON_PROFIT"]),
     website: z.string().trim().max(200).optional().default(""),
@@ -501,6 +506,7 @@ export const registrationInput = z.discriminatedUnion("path", [
     contactEmail: z.email("Enter a valid email"),
     contactPhone: usPhone,
     ...address,
+    simulate,
   }),
   z.object({
     path: z.literal("sole_proprietor"),
@@ -510,19 +516,38 @@ export const registrationInput = z.discriminatedUnion("path", [
     mobile: usPhone,
     email: z.email("Enter a valid email"),
     ...address,
+    simulate,
   }),
 ]);
 export type RegistrationInput = z.input<typeof registrationInput>;
+
+/** The one-time code the carriers text a sole proprietor's mobile. */
+export const registrationCodeInput = z.object({
+  code: z.string().trim().regex(/^\d{4,10}$/, "Enter the code from the text"),
+});
 
 export const registrationResponse = z.object({
   path: z.enum(REGISTRATION_PATHS).nullable(),
   status: z.enum(REGISTRATION_STATUSES),
   statusCopy: z.string(),
+  /** The step the review is on, or the step that failed. */
+  stage: z.enum(REGISTRATION_STAGES).nullable(),
+  /** What to fix, in plain words, when the carriers turned something down. */
+  statusReason: z.string().nullable(),
   displayName: z.string().nullable(),
   maskedTaxId: z.string().nullable(),
+  /** Sole proprietors: last 4 digits of the mobile the code went to. */
+  mobileLast4: z.string().nullable(),
   submittedAt: isoDate.nullable(),
   approvedAt: isoDate.nullable(),
+  /** Retention: when the full tax ID / date of birth were deleted, or are due to be. */
+  idDeletedAt: isoDate.nullable(),
+  idDeleteAfter: isoDate.nullable(),
   smsEnabled: z.boolean(),
+  /** The local registry simulator is standing in for the carriers. */
+  simulated: z.boolean(),
+  /** Non-sensitive details to pre-fill the form when the business details need a fix. */
+  prefill: z.record(z.string(), z.string()).nullable(),
 });
 export type RegistrationResponse = z.infer<typeof registrationResponse>;
 

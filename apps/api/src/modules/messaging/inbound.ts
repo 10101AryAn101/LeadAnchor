@@ -5,13 +5,17 @@ import { leads, messages, phoneNumbers, tenants } from "../../db/schema";
 import { tenantWork } from "../../db/unit-of-work";
 import { logger } from "../../lib/logger";
 import { consentLedger } from "../../container";
+import { keywordReplies } from "../compliance/registration-copy";
 import { upsertCustomerByPhone } from "../customers/customer.repo";
 import { addLeadEvent } from "../leads/lead-capture";
+import { requestMessage } from "./send-path";
 
 /** Carrier-standard opt-out keywords (C-27: STOP → REVOKED within 10 business days; we do it instantly). */
 const OPT_OUT = /^\s*(stop|stop\s*all|unsubscribe|cancel|end|quit|revoke|opt[\s-]?out)\s*[.!]*\s*$/i;
 /** Carrier-standard opt back in. */
 const OPT_IN = /^\s*(start|unstop)\s*[.!]*\s*$/i;
+/** Carrier-standard help request. */
+const HELP = /^\s*(help|info)\s*[.!?]*\s*$/i;
 
 /**
  * Handles a message a customer sends to a business number. Opt-outs are written
@@ -96,6 +100,20 @@ export async function handleInboundMessage(input: { from: string; to: string; te
       }
     } else if (openLead) {
       await addLeadEvent(tx, { tenantId: tenant.id, leadId: openLead.id, type: "message.received", actor: "customer", data: { channel: input.channel, text: input.text } });
+    }
+
+    // Carriers require a reply to STOP, START and HELP, worded as in the business's campaign filing (C-43).
+    const keyword = OPT_OUT.test(input.text) ? "optOut" : OPT_IN.test(input.text) ? "optIn" : HELP.test(input.text) ? "help" : null;
+    if (keyword) {
+      await requestMessage(tx, fx, {
+        tenant,
+        customerId: customer.id,
+        leadId: openLead?.id ?? null,
+        to: input.from,
+        body: keywordReplies(tenant.name)[keyword],
+        purpose: "keyword_reply",
+        preferredChannels: [input.channel],
+      });
     }
 
     fx.publish({ type: "message.created", messageId: message!.id, leadId: openLead?.id ?? null });

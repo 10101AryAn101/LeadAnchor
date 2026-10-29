@@ -323,6 +323,17 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
               <Checkbox checked={draft.marketingConsent} onCheckedChange={(checked) => set("marketingConsent", checked === true)} className="mt-0.5" />
               <span className="text-[15px] leading-6 text-muted-foreground">{intakeMarketingConsentText(context.business.name)}</span>
             </label>
+            <p className="text-sm text-muted-foreground">
+              Neither box is needed to get service. See our{" "}
+              <a href="/privacy#texting" target="_blank" className="underline underline-offset-4">
+                Privacy policy
+              </a>{" "}
+              and{" "}
+              <a href="/terms#sms" target="_blank" className="underline underline-offset-4">
+                SMS terms
+              </a>
+              .
+            </p>
           </div>
         </section>
       )}

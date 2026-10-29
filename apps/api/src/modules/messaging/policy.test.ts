@@ -34,6 +34,12 @@ describe("send policy (governed send path)", () => {
     expect(decision.checks.find((c) => c.check === "sms_consent")?.detail).toMatch(/opted out/i);
   });
 
+  it("answers the customer's own STOP or HELP without consent, but never before carrier approval", () => {
+    expect(decide({ ...base, purpose: "keyword_reply", smsConsent: "REVOKED" }).allowed).toBe(true);
+    expect(decide({ ...base, purpose: "keyword_reply", smsConsent: null }).allowed).toBe(true);
+    expect(decide({ ...base, purpose: "keyword_reply", smsConsent: "REVOKED", carrierApproved: false }).allowed).toBe(false);
+  });
+
   it("keeps marketing texts off under the email-first plan", () => {
     expect(decide({ ...base, purpose: "marketing" }).allowed).toBe(false);
   });

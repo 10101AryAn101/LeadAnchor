@@ -8,6 +8,9 @@ import type { ChannelAdapter } from "./integrations/messaging/types";
 import { MetaWhatsApp } from "./integrations/messaging/whatsapp";
 import { FcmPush, InAppOnlyPush } from "./integrations/push/fcm";
 import type { PushProvider } from "./integrations/push/types";
+import { SimulatorRegistry } from "./integrations/registry/simulator";
+import { TelnyxRegistry } from "./integrations/registry/telnyx";
+import type { CarrierRegistry } from "./integrations/registry/types";
 import { LocalBlobStorage } from "./integrations/storage/local";
 import { SimulatorTelephony } from "./integrations/telephony/simulator";
 import { TelnyxTelephony } from "./integrations/telephony/telnyx";
@@ -32,6 +35,12 @@ export const telephony: TelephonyProvider =
         ringbackUrl: `${env.PUBLIC_API_URL}/static/ringback.wav`,
       })
     : simulatorTelephony;
+
+export const simulatorRegistry = new SimulatorRegistry();
+
+/** Carrier registration (C-43) follows the texting provider: Telnyx texts need a Telnyx-filed registration. */
+export const registry: CarrierRegistry =
+  env.SMS_PROVIDER === "telnyx" ? new TelnyxRegistry(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY)) : simulatorRegistry;
 
 export const consentLedger: ConsentLedger =
   env.CONSENT_LEDGER === "firestore" ? new FirestoreConsentLedger() : new LocalConsentLedger();
