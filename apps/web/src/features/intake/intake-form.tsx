@@ -1,6 +1,6 @@
 "use client";
 
-import { INTAKE_CONSENT_TEXT, type IntakeContext, TRACK_BY_TRADE, TRADE_LABELS } from "@leadanchor/contracts";
+import { INTAKE_CONSENT_TEXT, type IntakeContext, TRACK_BY_TRADE, TRADE_LABELS, intakeMarketingConsentText } from "@leadanchor/contracts";
 import { IconCamera, IconCheck, IconChevronLeft, IconCircleCheck, IconPhone, IconPhoto, IconShieldCheck, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -24,7 +24,9 @@ interface Draft {
   preferredTime: string;
   contactName: string;
   address: string;
+  email: string;
   smsConsent: boolean;
+  marketingConsent: boolean;
 }
 
 type Step = 0 | 1 | 2;
@@ -39,7 +41,9 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
     preferredTime: "",
     contactName: context.customerName ?? "",
     address: "",
+    email: "",
     smsConsent: false,
+    marketingConsent: false,
   });
   const [photos, setPhotos] = useState<File[]>([]);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -96,8 +100,10 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
     body.set("details", draft.details.trim());
     body.set("contactName", draft.contactName.trim());
     body.set("address", draft.address.trim());
+    body.set("email", draft.email.trim());
     body.set("preferredTime", draft.preferredTime);
     body.set("smsConsent", String(draft.smsConsent));
+    body.set("marketingConsent", String(draft.marketingConsent));
     for (const file of photos) body.append("photos", file, file.name);
 
     // XHR rather than fetch so we can show upload progress for the photos.
@@ -303,9 +309,19 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
                 <Input id="address" autoComplete="street-address" value={draft.address} onChange={(e) => set("address", e.target.value)} />
               </Field>
             )}
+            <Field data-invalid={!!errors.email}>
+              <FieldLabel htmlFor="email">Email (optional)</FieldLabel>
+              <Input id="email" type="email" inputMode="email" autoComplete="email" value={draft.email} onChange={(e) => set("email", e.target.value)} />
+              <p className="text-sm text-muted-foreground">For your quote and receipt.</p>
+              {errors.email && <p className="text-[15px] text-destructive">{errors.email}</p>}
+            </Field>
             <label className="flex cursor-pointer gap-3 rounded-lg border border-input bg-card p-3.5">
               <Checkbox checked={draft.smsConsent} onCheckedChange={(checked) => set("smsConsent", checked === true)} className="mt-0.5" />
               <span className="text-[15px] leading-6">{INTAKE_CONSENT_TEXT}</span>
+            </label>
+            <label className="flex cursor-pointer gap-3 rounded-lg border border-input bg-card p-3.5">
+              <Checkbox checked={draft.marketingConsent} onCheckedChange={(checked) => set("marketingConsent", checked === true)} className="mt-0.5" />
+              <span className="text-[15px] leading-6 text-muted-foreground">{intakeMarketingConsentText(context.business.name)}</span>
             </label>
           </div>
         </section>

@@ -362,9 +362,16 @@ export const intakeSubmitFields = z.object({
   details: z.string().trim().min(3, "Tell us a little about the job").max(2000),
   contactName: z.string().trim().min(1, "Enter your name").max(80),
   address: z.string().trim().max(200).optional().default(""),
+  /** Optional: for the quote and receipt (and email offers, which anyone can unsubscribe from). */
+  email: z.union([z.literal(""), z.email("Check the email address").max(120)]).optional().default(""),
   preferredTime: z.string().trim().max(120).optional().default(""),
   /** The plain-language "text me about this request" checkbox (feeds the consent ledger, C-27). */
   smsConsent: z
+    .string()
+    .optional()
+    .transform((value) => value === "true" || value === "on"),
+  /** A separate, unticked-by-default box for marketing texts; never bundled with the one above (C-27). */
+  marketingConsent: z
     .string()
     .optional()
     .transform((value) => value === "true" || value === "on"),
@@ -375,6 +382,11 @@ export type IntakeSubmitFields = z.input<typeof intakeSubmitFields>;
 export const INTAKE_CONSENT_TEXT =
   "Text me about this request. Messages are about this job only; reply STOP to opt out. Msg & data rates may apply.";
 export const INTAKE_CONSENT_VERSION = "intake-form-v1";
+
+/** Wording of the separate marketing box (TCPA express written consent), versioned for the ledger. */
+export const intakeMarketingConsentText = (businessName: string) =>
+  `Also text me offers and seasonal reminders from ${businessName}. Optional, not needed to get service. Up to 4 msgs/month; reply STOP to cancel. Msg & data rates may apply.`;
+export const INTAKE_MARKETING_CONSENT_VERSION = "intake-marketing-v1";
 
 /* ----------------------------------------------------------------------------
  * Settings & compliance (C-01, C-27, C-43)

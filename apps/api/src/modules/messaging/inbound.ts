@@ -58,7 +58,8 @@ export async function handleInboundMessage(input: { from: string; to: string; te
       .returning({ id: messages.id });
 
     if (OPT_OUT.test(input.text)) {
-      for (const type of ["sms_transactional", "sms_marketing"] as const) {
+      // C-27: STOP withdraws every texting and calling permission at once; START only restores job texts.
+      for (const type of ["sms_transactional", "sms_marketing", "voice_marketing"] as const) {
         await consentLedger.record(
           {
             tenantId: tenant.id,

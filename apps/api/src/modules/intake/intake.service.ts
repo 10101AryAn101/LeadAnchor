@@ -1,4 +1,11 @@
-import { INTAKE_CONSENT_TEXT, INTAKE_CONSENT_VERSION, type IntakeContext, type intakeSubmitFields } from "@leadanchor/contracts";
+import {
+  INTAKE_CONSENT_TEXT,
+  INTAKE_CONSENT_VERSION,
+  INTAKE_MARKETING_CONSENT_VERSION,
+  type IntakeContext,
+  intakeMarketingConsentText,
+  type intakeSubmitFields,
+} from "@leadanchor/contracts";
 import { and, asc, eq } from "drizzle-orm";
 import type { z } from "zod";
 import { uuidv7 } from "uuidv7";
@@ -149,7 +156,7 @@ export async function submitIntake(
 
     await tx
       .update(customers)
-      .set({ name: fields.contactName, ...(fields.address ? { address: fields.address } : {}) })
+      .set({ name: fields.contactName, ...(fields.address ? { address: fields.address } : {}), ...(fields.email ? { email: fields.email } : {}) })
       .where(eq(customers.id, request.customerId));
 
     await tx
@@ -159,32 +166,43 @@ export async function submitIntake(
 
     await addLeadEvent(tx, { tenantId: request.tenantId, leadId: request.leadId, type: "intake.submitted", actor: "customer", data: submission });
 
-    // C-27: the checkbox on the form is an express opt-in for texts about this request.
-    if (fields.smsConsent) {
+    // C-27: two separate boxes, two separate ledger entries — job texts and (optional) marketing texts.
+    const ticked = [
+      fields.smsConsent && { type: "sms_transactional" as const, version: INTAKE_CONSENT_VERSION, text: () => INTAKE_CONSENT_TEXT },
+      fields.marketingConsent && {
+        type: "sms_marketing" as const,
+        version: INTAKE_MARKETING_CONSENT_VERSION,
+        text: (businessName: string) => intakeMarketingConsentText(businessName),
+      },
+    ].filter((box) => box !== false);
+    if (ticked.length > 0) {
       const [customer] = await tx.select().from(customers).where(eq(customers.id, request.customerId));
       if (customer?.phoneE164) {
         const [tenant] = await tx.select({ name: tenants.name }).from(tenants).where(eq(tenants.id, request.tenantId));
-        await consentLedger.record(
-          {
+        const businessName = tenant?.name ?? "business";
+        for (const box of ticked) {
+          await consentLedger.record(
+            {
+              tenantId: request.tenantId,
+              phoneE164: customer.phoneE164,
+              type: box.type,
+              action: "GRANTED",
+              source: "web_form",
+              textVersion: box.version,
+              evidence: `Ticked: "${box.text(businessName)}"`,
+              ipAddress: meta.ipAddress,
+              grantedTo: `${businessName} (${request.tenantId})`,
+            },
+            tx,
+          );
+          await addLeadEvent(tx, {
             tenantId: request.tenantId,
-            phoneE164: customer.phoneE164,
-            type: "sms_transactional",
-            action: "GRANTED",
-            source: "web_form",
-            textVersion: INTAKE_CONSENT_VERSION,
-            evidence: `Ticked: "${INTAKE_CONSENT_TEXT}"`,
-            ipAddress: meta.ipAddress,
-            grantedTo: `${tenant?.name ?? "business"} (${request.tenantId})`,
-          },
-          tx,
-        );
-        await addLeadEvent(tx, {
-          tenantId: request.tenantId,
-          leadId: request.leadId,
-          type: "consent.granted",
-          actor: "customer",
-          data: { channel: "sms", source: "web_form", textVersion: INTAKE_CONSENT_VERSION, answer: "Ticked the box" },
-        });
+            leadId: request.leadId,
+            type: "consent.granted",
+            actor: "customer",
+            data: { channel: "sms", type: box.type, source: "web_form", textVersion: box.version, answer: "Ticked the box" },
+          });
+        }
       }
     }
 

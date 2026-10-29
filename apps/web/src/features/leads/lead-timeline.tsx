@@ -118,7 +118,7 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
         kind: "messages",
         icon: IconShieldCheck,
         tone: "neutral",
-        title: "Agreed to texts",
+        title: d.type === "sms_marketing" ? "Agreed to offers by text" : "Agreed to texts",
         body:
           d.source === "web_form"
             ? "Ticked the box on the request form."
