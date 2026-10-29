@@ -1,0 +1,81 @@
+"use client";
+
+import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef } from "react";
+import { toast } from "sonner";
+import { keys } from "@/lib/queries";
+
+type RealtimeEvent =
+  | { type: "lead.created" | "lead.updated"; leadId: string }
+  | { type: "call.updated"; callId: string }
+  | { type: "notification.created"; notificationId: string; title: string; body: string; leadId: string | null }
+  | { type: "message.created"; messageId: string; leadId: string | null }
+  | { type: "registration.updated" };
+
+/**
+ * Subscribes to the API's server-sent events and refreshes exactly the data that
+ * changed — a missed call appears on the board within a second, no refresh needed.
+ */
+export function useRealtime(onNotification?: (event: { title: string; body: string; leadId: string | null }) => void) {
+  const queryClient = useQueryClient();
+  const handlerRef = useRef(onNotification);
+  handlerRef.current = onNotification;
+
+  useEffect(() => {
+    let source: EventSource | null = null;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let closed = false;
+
+    const connect = () => {
+      source = new EventSource("/api/events", { withCredentials: true });
+      source.onmessage = (message) => {
+        let event: RealtimeEvent;
+        try {
+          event = JSON.parse(message.data);
+        } catch {
+          return;
+        }
+        switch (event.type) {
+          case "lead.created":
+          case "lead.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.leads });
+            void queryClient.invalidateQueries({ queryKey: keys.lead(event.leadId) });
+            void queryClient.invalidateQueries({ queryKey: keys.dashboardAll });
+            break;
+          case "call.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.calls });
+            void queryClient.invalidateQueries({ queryKey: ["sim-call"] });
+            void queryClient.invalidateQueries({ queryKey: keys.dashboardAll });
+            break;
+          case "notification.created":
+            void queryClient.invalidateQueries({ queryKey: keys.notifications });
+            handlerRef.current?.(event);
+            break;
+          case "message.created":
+            if (event.leadId) void queryClient.invalidateQueries({ queryKey: keys.lead(event.leadId) });
+            void queryClient.invalidateQueries({ queryKey: ["sim-inbox"] });
+            void queryClient.invalidateQueries({ queryKey: ["consent"] });
+            break;
+          case "registration.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.registration });
+            void queryClient.invalidateQueries({ queryKey: keys.integrations });
+            void queryClient.invalidateQueries({ queryKey: keys.me });
+            break;
+        }
+      };
+      source.onerror = () => {
+        source?.close();
+        if (!closed) retryTimer = setTimeout(connect, 4000);
+      };
+    };
+
+    connect();
+    return () => {
+      closed = true;
+      clearTimeout(retryTimer);
+      source?.close();
+    };
+  }, [queryClient]);
+}
+
+export { toast };

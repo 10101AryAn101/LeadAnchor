@@ -1,0 +1,103 @@
+import type { MessageChannel } from "@leadanchor/contracts";
+import { and, desc, eq, inArray } from "drizzle-orm";
+import { systemDb } from "../../db/client";
+import { leads, messages, phoneNumbers, tenants } from "../../db/schema";
+import { tenantWork } from "../../db/unit-of-work";
+import { logger } from "../../lib/logger";
+import { consentLedger } from "../../container";
+import { upsertCustomerByPhone } from "../customers/customer.repo";
+import { addLeadEvent } from "../leads/lead-capture";
+
+/** Carrier-standard opt-out keywords (C-27: STOP → REVOKED within 10 business days; we do it instantly). */
+const OPT_OUT = /^\s*(stop|stop\s*all|unsubscribe|cancel|end|quit|revoke|opt[\s-]?out)\s*[.!]*\s*$/i;
+/** Carrier-standard opt back in. */
+const OPT_IN = /^\s*(start|unstop)\s*[.!]*\s*$/i;
+
+/**
+ * Handles a message a customer sends to a business number. Opt-outs are written
+ * to the consent ledger for SMS of every purpose before anything else happens.
+ */
+export async function handleInboundMessage(input: { from: string; to: string; text: string; channel: MessageChannel; provider: string; providerMessageId?: string | null }) {
+  const [number] = await systemDb
+    .select({ tenantId: phoneNumbers.tenantId })
+    .from(phoneNumbers)
+    .where(eq(phoneNumbers.e164, input.to))
+    .limit(1);
+  if (!number) {
+    logger.warn({ to: input.to }, "inbound message to an unknown number");
+    return;
+  }
+
+  await tenantWork(number.tenantId, async (tx, fx) => {
+    const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, number.tenantId));
+    if (!tenant) return;
+    const customer = await upsertCustomerByPhone(tx, tenant.id, input.from);
+    const [openLead] = await tx
+      .select({ id: leads.id })
+      .from(leads)
+      .where(and(eq(leads.customerId, customer.id), inArray(leads.stage, ["new", "contacted", "quoted", "scheduled"])))
+      .orderBy(desc(leads.lastActivityAt))
+      .limit(1);
+
+    const [message] = await tx
+      .insert(messages)
+      .values({
+        tenantId: tenant.id,
+        customerId: customer.id,
+        leadId: openLead?.id ?? null,
+        direction: "inbound",
+        channel: input.channel,
+        purpose: "conversational",
+        status: "received",
+        toAddress: input.to,
+        fromAddress: input.from,
+        body: input.text,
+        provider: input.provider,
+        providerMessageId: input.providerMessageId ?? null,
+      })
+      .returning({ id: messages.id });
+
+    if (OPT_OUT.test(input.text)) {
+      for (const type of ["sms_transactional", "sms_marketing"] as const) {
+        await consentLedger.record(
+          {
+            tenantId: tenant.id,
+            phoneE164: input.from,
+            type,
+            action: "REVOKED",
+            source: "stop_keyword",
+            textVersion: "carrier-stop",
+            evidence: `Customer texted "${input.text.trim()}"`,
+            grantedTo: `${tenant.name} (${tenant.id})`,
+          },
+          tx,
+        );
+      }
+      if (openLead) {
+        await addLeadEvent(tx, { tenantId: tenant.id, leadId: openLead.id, type: "consent.revoked", actor: "customer", data: { keyword: input.text.trim() } });
+      }
+    } else if (OPT_IN.test(input.text)) {
+      await consentLedger.record(
+        {
+          tenantId: tenant.id,
+          phoneE164: input.from,
+          type: "sms_transactional",
+          action: "GRANTED",
+          source: "inbound_message",
+          textVersion: "carrier-start",
+          evidence: `Customer texted "${input.text.trim()}"`,
+          grantedTo: `${tenant.name} (${tenant.id})`,
+        },
+        tx,
+      );
+      if (openLead) {
+        await addLeadEvent(tx, { tenantId: tenant.id, leadId: openLead.id, type: "consent.granted", actor: "customer", data: { channel: "sms", source: "inbound_message", answer: input.text.trim() } });
+      }
+    } else if (openLead) {
+      await addLeadEvent(tx, { tenantId: tenant.id, leadId: openLead.id, type: "message.received", actor: "customer", data: { channel: input.channel, text: input.text } });
+    }
+
+    fx.publish({ type: "message.created", messageId: message!.id, leadId: openLead?.id ?? null });
+    if (openLead) fx.publish({ type: "lead.updated", leadId: openLead.id });
+  });
+}

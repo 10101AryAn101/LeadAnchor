@@ -1,0 +1,30 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# build output
+dist/
+build/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+next-env.d.ts
+
+# local secrets — only the .env.example templates are committed
+.env
+.env.*
+!.env.example
+
+# local data: the dev Postgres cluster and files written by the dev API
+.data/
+apps/api/storage/
+
+# logs and OS files
+*.log
+npm-debug.log*
+pnpm-debug.log*
+coverage/
+.DS_Store
+Thumbs.db
+.vercel/

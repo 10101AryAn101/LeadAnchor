@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@leadanchor/web", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "api",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@leadanchor/api", "dev"],
+      "port": 4000
+    },
+    {
+      "name": "db",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--filter", "@leadanchor/dev-db", "start"],
+      "port": 5433
+    }
+  ]
+}

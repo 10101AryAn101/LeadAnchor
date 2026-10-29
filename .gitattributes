@@ -1,0 +1,10 @@
+# LF everywhere (Prettier and .editorconfig expect it), whatever the OS.
+* text=auto eol=lf
+
+# Binary files: never touch line endings.
+*.pdf binary
+*.png binary
+*.jpg binary
+*.webp binary
+*.wav binary
+*.ico binary

@@ -1,0 +1,14 @@
+{
+  "name": "@leadanchor/dev-db",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Runs a local PostgreSQL server for development (no Docker needed).",
+  "scripts": {
+    "dev": "node src/index.mjs",
+    "start": "node src/index.mjs"
+  },
+  "dependencies": {
+    "embedded-postgres": "18.4.0-beta.17"
+  }
+}

@@ -1,0 +1,1 @@
+ALTER TABLE "leads" ADD COLUMN "title_locked" boolean DEFAULT false NOT NULL;

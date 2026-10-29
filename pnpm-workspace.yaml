@@ -1,0 +1,13 @@
+packages:
+  - apps/*
+  - packages/*
+  - tools/*
+
+# pnpm 10 blocks dependency install scripts by default. These packages need
+# theirs (native binaries for image processing, CSS, bundling and local Postgres).
+onlyBuiltDependencies:
+  - "@tailwindcss/oxide"
+  - esbuild
+  - protobufjs
+  - sharp
+  - unrs-resolver
