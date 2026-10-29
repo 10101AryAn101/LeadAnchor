@@ -142,6 +142,14 @@ export class TelnyxTelephony implements TelephonyProvider {
     this.listenTimers.set(call.callControlId, timer);
   }
 
+  async stopListening(call: CallHandle) {
+    const timer = this.listenTimers.get(call.callControlId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.listenTimers.delete(call.callControlId);
+    await this.command(call.callControlId, "transcription_stop", {}, { role: "caller" }).catch(() => {});
+  }
+
   async recordVoicemail(call: CallHandle, input: { maxSecs: number }) {
     await this.command(
       call.callControlId,
@@ -236,6 +244,10 @@ export class TelnyxTelephony implements TelephonyProvider {
         this.listenTimers.delete(callControlId);
         await this.command(callControlId, "transcription_stop", {}, state ?? { role: "caller" }).catch(() => {});
         return [{ kind: "speech.result", tag: state?.tag ?? "", transcript: td.transcript.trim(), confidence: td.confidence ?? null, ...handle }];
+      }
+      case "call.dtmf.received": {
+        const digit = String((p as { digit?: string }).digit ?? "").trim();
+        return digit ? [{ kind: "dtmf", digit, ...handle }] : [];
       }
       case "call.recording.saved": {
         const urls = (p as { recording_urls?: { mp3?: string } }).recording_urls;

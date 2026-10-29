@@ -85,6 +85,10 @@ export class SimulatorTelephony implements TelephonyProvider {
     const sim = this.get(call);
     if (!sim) return;
     if (input.tag === "consent") {
+      if (sim.scenario.consent === "press1") {
+        this.emitLater(call, 1100, { kind: "dtmf", digit: "1" });
+        return;
+      }
       const transcript = sim.scenario.consent === "yes" ? "Yes, please text me." : "No thanks.";
       this.emitLater(call, 1300, { kind: "speech.result", tag: input.tag, transcript, confidence: 0.94 });
       return;
@@ -95,6 +99,10 @@ export class SimulatorTelephony implements TelephonyProvider {
       return;
     }
     this.emitLater(call, 1900, { kind: "speech.result", tag: input.tag, transcript: utterance, confidence: 0.91 });
+  }
+
+  async stopListening() {
+    // The simulated caller answers with either speech or the keypad, never both.
   }
 
   async recordVoicemail(call: CallHandle) {

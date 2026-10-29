@@ -551,7 +551,8 @@ export const simulatorScenarioInput = z.object({
   ownerBehavior: z.enum(["no_answer", "answers", "carrier_voicemail"]),
   callerBehavior: z.enum(["hangs_up_while_ringing", "talks_to_dispatcher", "hangs_up_during_greeting"]),
   utterance: z.string().trim().max(500).optional().default(""),
-  consent: z.enum(["yes", "no"]).default("yes"),
+  /** How the caller answers "can we text you?": by voice, or by pressing 1 on the keypad (C-06). */
+  consent: z.enum(["yes", "no", "press1"]).default("yes"),
   voicemailText: z.string().trim().max(1000).optional().default(""),
 });
 export type SimulatorScenarioInput = z.input<typeof simulatorScenarioInput>;

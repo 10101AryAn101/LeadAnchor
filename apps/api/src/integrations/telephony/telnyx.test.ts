@@ -62,6 +62,11 @@ describe("Telnyx event translation", () => {
     expect(event).toMatchObject({ kind: "recording.transcribed", text: "Pipe burst" });
   });
 
+  it("maps a keypad press (C-06 'press 1')", async () => {
+    const [event] = await telnyx.ingest(webhook("call.dtmf.received", { call_control_id: "a-leg", digit: "1" }));
+    expect(event).toMatchObject({ kind: "dtmf", digit: "1", callControlId: "a-leg" });
+  });
+
   it("maps a caller hang-up with its cause", async () => {
     const [event] = await telnyx.ingest(webhook("call.hangup", { call_control_id: "a-leg", hangup_cause: "originator_cancel" }));
     expect(event).toMatchObject({ kind: "caller.hangup", cause: "originator_cancel" });

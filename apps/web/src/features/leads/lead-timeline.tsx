@@ -122,7 +122,9 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
         body:
           d.source === "web_form"
             ? "Ticked the box on the request form."
-            : `${d.source === "voice_ack" ? "Said" : "Texted"} “${str(d.answer) || "yes"}”`,
+            : d.source === "ivr_dtmf"
+              ? "Pressed 1 on their keypad during the call."
+              : `${d.source === "voice_ack" ? "Said" : "Texted"} “${str(d.answer) || "yes"}”`,
       };
     case "consent.revoked":
       return { ...base, kind: "messages", icon: IconShieldX, tone: "bad", title: "Opted out of texts", body: `Replied “${str(d.keyword) || "STOP"}”. No more texts will be sent.` };

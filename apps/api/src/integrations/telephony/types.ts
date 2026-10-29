@@ -29,6 +29,8 @@ export type TelephonyEvent =
   | (EventBase & { kind: "playback.finished"; tag: string })
   | (EventBase & { kind: "speech.result"; tag: string; transcript: string; confidence: number | null })
   | (EventBase & { kind: "speech.timeout"; tag: string })
+  /** A keypad press (DTMF), e.g. "press 1 to get a text" (C-06). */
+  | (EventBase & { kind: "dtmf"; digit: string })
   | (EventBase & { kind: "recording.saved"; recordingUrl: string | null; durationSecs: number | null })
   | (EventBase & { kind: "recording.transcribed"; text: string });
 
@@ -55,6 +57,9 @@ export interface TelephonyProvider {
 
   /** Listens for one spoken answer; emits speech.result or speech.timeout with the same tag. */
   listen(call: CallHandle, input: { maxSecs: number; tag: string }): Promise<void>;
+
+  /** Stops listening early, e.g. when the caller answered with the keypad instead. */
+  stopListening(call: CallHandle): Promise<void>;
 
   /** Records a voicemail and transcribes it with the provider's speech-to-text (C-13). */
   recordVoicemail(call: CallHandle, input: { maxSecs: number }): Promise<void>;

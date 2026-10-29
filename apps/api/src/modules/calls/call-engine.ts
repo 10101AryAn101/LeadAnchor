@@ -72,6 +72,8 @@ export class CallEngine {
           return this.onSpeech(ctx, event.tag, event.transcript);
         case "speech.timeout":
           return this.onSpeech(ctx, event.tag, "");
+        case "dtmf":
+          return this.onKeypad(ctx, event.digit);
         case "recording.saved":
           await tx.update(calls).set({ recordingUrl: event.recordingUrl }).where(eq(calls.id, locked.id));
           return;
@@ -205,8 +207,20 @@ export class CallEngine {
     }
 
     if (tag !== "consent" || call.state !== "consent") return;
+    await this.finishConsent(ctx, { agreed: script.isAffirmative(transcript), answer: transcript, source: "voice_ack" });
+  }
 
-    const agreed = script.isAffirmative(transcript);
+  /** C-06: "press 1" works as well as saying yes. Other keys, or keys at other moments, don't count. */
+  private async onKeypad(ctx: StepContext, digit: string) {
+    if (ctx.call.state !== "consent") return;
+    ctx.fx.afterCommit(() => this.telephony.stopListening(ctx.handle));
+    await this.finishConsent(ctx, { agreed: digit === "1", answer: `Pressed ${digit}`, source: "ivr_dtmf" });
+  }
+
+  /** Saves the lead, records the caller's permission (spoken or keypad) and sends the one link text. */
+  private async finishConsent(ctx: StepContext, input: { agreed: boolean; answer: string; source: "voice_ack" | "ivr_dtmf" }) {
+    const { tx, call, tenant, handle } = ctx;
+    const { agreed, answer, source } = input;
     const need = call.transcript?.trim() || null;
 
     const { lead } = await captureLead(tx, ctx.fx, {
@@ -216,21 +230,22 @@ export class CallEngine {
       title: need ? truncate(need, 60) : agreed ? "Asked for a text with the request form" : "Asked for a call back",
       summary: need,
       needsCallback: !agreed,
-      event: { type: "call.dispatcher", data: { callId: call.id, need, consent: agreed ? "yes" : "no", answer: transcript || null } },
+      event: { type: "call.dispatcher", data: { callId: call.id, need, consent: agreed ? "yes" : "no", answer: answer || null } },
     });
     await tx.update(calls).set({ leadId: lead.id, customerId: lead.customerId }).where(eq(calls.id, call.id));
 
     if (agreed) {
       const now = new Date();
+      const said = source === "ivr_dtmf" ? `caller pressed ${answer.replace(/^Pressed /, "")}` : `caller said: "${answer}"`;
       await this.consent.record(
         {
           tenantId: tenant.id,
           phoneE164: call.fromE164,
           type: "sms_transactional",
           action: "GRANTED",
-          source: "voice_ack",
+          source,
           textVersion: CONSENT_TEXT_VERSION,
-          evidence: `Asked: "${script.CONSENT_QUESTION}" — caller said: "${transcript}" (${now.toISOString()})`,
+          evidence: `Asked: "${script.CONSENT_QUESTION}" — ${said} (${now.toISOString()})`,
           grantedTo: `${tenant.name} (${tenant.id})`,
           callId: call.id,
         },
@@ -242,7 +257,7 @@ export class CallEngine {
         leadId: lead.id,
         type: "consent.granted",
         actor: "customer",
-        data: { channel: "sms", source: "voice_ack", textVersion: CONSENT_TEXT_VERSION, answer: transcript },
+        data: { channel: "sms", source, textVersion: CONSENT_TEXT_VERSION, answer },
       });
 
       // C-07: one link message — through the governed send path, never directly.

@@ -61,6 +61,10 @@ function describe(event: TraceEvent): { icon: Icon; title: string; detail?: stri
         : { icon: IconMessageCircleQuestion, title: "Caller said", detail: quote(d.transcript) };
     case "speech.timeout":
       return { icon: IconMessageCircleQuestion, title: "Caller didn't answer" };
+    case "dtmf":
+      return d.digit === "1"
+        ? { icon: IconShieldCheck, title: "Caller pressed 1", detail: "That counts as yes to a text.", tone: "good" }
+        : { icon: IconMessageCircleQuestion, title: `Caller pressed ${String(d.digit ?? "")}` };
     case "recording.saved":
       return { icon: IconRecordMail, title: "Voicemail recorded", detail: typeof d.durationSecs === "number" ? `${d.durationSecs} seconds` : undefined };
     case "recording.transcribed":

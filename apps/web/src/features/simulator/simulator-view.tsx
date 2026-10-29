@@ -60,7 +60,7 @@ export function SimulatorView() {
   const [ownerBehavior, setOwnerBehavior] = useState<OwnerBehavior>("no_answer");
   const [callerBehavior, setCallerBehavior] = useState<CallerBehavior>("talks_to_dispatcher");
   const [utterance, setUtterance] = useState(EXAMPLES[0]!);
-  const [consent, setConsent] = useState<"yes" | "no">("yes");
+  const [consent, setConsent] = useState<SimulatorScenarioInput["consent"] & string>("yes");
   const [voicemailText, setVoicemailText] = useState("Hey, it's Dana again — the leak got worse after I turned the valve. Please call me back when you can.");
   const [session, setSession] = useState<{ id: string; phone: string } | null>(null);
 
@@ -183,6 +183,7 @@ export function SimulatorView() {
                   onChange={setConsent}
                   options={[
                     { value: "yes", label: "They say yes" },
+                    { value: "press1", label: "They press 1" },
                     { value: "no", label: "They say no" },
                   ]}
                 />

@@ -17,7 +17,7 @@ export const greeting = (business: string) =>
 
 export const CONSENT_QUESTION =
   "Thanks. Can we text you a link at this number so you can send details and photos? " +
-  "Message and data rates may apply. Please say yes or no.";
+  "Message and data rates may apply. To agree, say yes or press 1. Otherwise, say no.";
 
 export const goodbyeAfterYes = (business: string) =>
   `Great — the text is on its way. Someone from ${business} will be in touch soon. Goodbye!`;

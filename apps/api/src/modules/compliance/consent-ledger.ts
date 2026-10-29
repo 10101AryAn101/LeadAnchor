@@ -5,7 +5,8 @@ import { consentLedger } from "../../db/schema";
 import { sha256 } from "../../lib/crypto";
 
 /** Version of the words the caller agreed to. Bump whenever the consent prompt changes (C-27). */
-export const CONSENT_TEXT_VERSION = "dispatcher-sms-v1";
+/** Bumped whenever the spoken question changes, so each ledger entry proves which wording the caller heard. */
+export const CONSENT_TEXT_VERSION = "dispatcher-sms-v2";
 
 export interface ConsentInput {
   tenantId: string;
