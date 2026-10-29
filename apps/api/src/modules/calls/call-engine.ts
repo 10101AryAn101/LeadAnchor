@@ -12,6 +12,7 @@ import { createIntakeLink } from "../intake/intake.service";
 import { OPEN_STAGES, addLeadEvent, captureLead } from "../leads/lead-capture";
 import { advanceLead } from "../leads/pipeline";
 import { requestMessage } from "../messaging/send-path";
+import { profileLine } from "../profile/profile";
 import { notifyOwner } from "../notifications/notify";
 import * as script from "./script";
 
@@ -252,7 +253,7 @@ export class CallEngine {
         leadId: lead.id,
         to: call.fromE164,
         purpose: "transactional",
-        body: `Hi, it's ${tenant.name} — sorry we missed your call! Tell us what you need (photos help): ${url}\nReply STOP to opt out.`,
+        body: `Hi, it's ${tenant.name} — sorry we missed your call! Tell us what you need (photos help): ${url}\n${tenant.profileLinkInTexts ? `${profileLine(tenant)}\n` : ""}Reply STOP to opt out.`,
       });
     }
 

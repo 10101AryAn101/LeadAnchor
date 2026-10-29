@@ -19,6 +19,12 @@ export const tenants = pgTable("tenants", {
   licenseNumber: text("license_number"),
   insuranceCarrier: text("insurance_carrier"),
   yearsInBusiness: integer("years_in_business"),
+  /** Self-attested by the owner (C-41): shown as "Licensed & Insured", never "Verified". */
+  insurancePolicyNumber: text("insurance_policy_number"),
+  /** The owner's Google Business Profile link, shown on their public profile page. */
+  googleProfileUrl: text("google_profile_url"),
+  /** Add the profile link to the first text a new customer gets (C-41). */
+  profileLinkInTexts: boolean("profile_link_in_texts").notNull().default(true),
   /** Used only to label an *estimated* pipeline value; recovered revenue always uses real job values. */
   avgJobValueCents: integer("avg_job_value_cents").notNull().default(25_000),
   ringTimeoutSecs: integer("ring_timeout_secs").notNull().default(18),

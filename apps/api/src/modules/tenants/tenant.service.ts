@@ -15,6 +15,7 @@ import { carrierRegistrations, memberships, phoneNumbers, services, tenants } fr
 import { HttpError } from "../../lib/errors";
 import { telephony } from "../../container";
 import { audit } from "../compliance/audit";
+import { profileUrl } from "../profile/profile";
 import { DEFAULT_SERVICES } from "./default-services";
 
 type OnboardingData = z.output<typeof onboardingInput>;
@@ -101,7 +102,11 @@ export async function getSettings(tenantId: string): Promise<SettingsResponse> {
       timezone: tenant.timezone,
       licenseNumber: tenant.licenseNumber,
       insuranceCarrier: tenant.insuranceCarrier,
+      insurancePolicyNumber: tenant.insurancePolicyNumber,
       yearsInBusiness: tenant.yearsInBusiness,
+      googleProfileUrl: tenant.googleProfileUrl,
+      profileLinkInTexts: tenant.profileLinkInTexts,
+      profileUrl: profileUrl(tenant.slug),
       avgJobValueCents: tenant.avgJobValueCents,
       ringTimeoutSecs: tenant.ringTimeoutSecs,
       dispatcherEnabled: tenant.dispatcherEnabled,
@@ -124,7 +129,10 @@ export async function updateSettings(tenantId: string, userId: string, input: Se
         ...(input.timezone !== undefined && { timezone: input.timezone }),
         ...(input.licenseNumber !== undefined && { licenseNumber: input.licenseNumber || null }),
         ...(input.insuranceCarrier !== undefined && { insuranceCarrier: input.insuranceCarrier || null }),
+        ...(input.insurancePolicyNumber !== undefined && { insurancePolicyNumber: input.insurancePolicyNumber || null }),
         ...(input.yearsInBusiness !== undefined && { yearsInBusiness: input.yearsInBusiness }),
+        ...(input.googleProfileUrl !== undefined && { googleProfileUrl: input.googleProfileUrl || null }),
+        ...(input.profileLinkInTexts !== undefined && { profileLinkInTexts: input.profileLinkInTexts }),
         ...(input.avgJobValueDollars !== undefined && { avgJobValueCents: input.avgJobValueDollars * 100 }),
         ...(input.ringTimeoutSecs !== undefined && { ringTimeoutSecs: input.ringTimeoutSecs }),
         ...(input.dispatcherEnabled !== undefined && { dispatcherEnabled: input.dispatcherEnabled }),

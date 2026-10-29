@@ -29,6 +29,13 @@
       "when": 1793259834341,
       "tag": "0003_email_outbox_and_summary",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1793264186457,
+      "tag": "0004_pro_profile",
+      "breakpoints": true
     }
   ]
 }

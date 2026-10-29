@@ -1,13 +1,35 @@
 import { intakeSubmitFields } from "@leadanchor/contracts";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { badRequest, parseInput } from "../../lib/errors";
+import { storage } from "../../container";
+import { badRequest, notFound, parseInput } from "../../lib/errors";
 import { MAX_PHOTOS, getIntakeContext, submitIntake } from "../../modules/intake/intake.service";
+import { findShowcasePhoto, getPublicProfile } from "../../modules/profile/profile";
 
 const tokenParam = z.object({ token: z.string().min(20).max(64) });
+const slugParam = z.object({ slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$/) });
 
 /** Customer-facing endpoints. No login: the link token is the credential (C-07, C-08, C-09). */
 export async function publicRoutes(app: FastifyInstance) {
+  /** The business's public profile page data (C-41). */
+  app.get("/api/public/profile/:slug", async (req, reply) => {
+    const { slug } = parseInput(slugParam, req.params);
+    const profile = await getPublicProfile(slug);
+    if (!profile) throw notFound("Profile");
+    reply.header("Cache-Control", "public, max-age=60");
+    return profile;
+  });
+
+  /** A photo the owner chose for their public gallery; any other photo is "not found". */
+  app.get("/api/public/profile/:slug/photos/:id", async (req, reply) => {
+    const { slug, id } = parseInput(slugParam.extend({ id: z.uuid() }), req.params);
+    const { variant } = parseInput(z.object({ variant: z.enum(["full", "thumb"]).default("thumb") }), req.query);
+    const photo = await findShowcasePhoto(slug, id);
+    if (!photo) throw notFound("Photo");
+    const key = variant === "thumb" && photo.thumbKey ? photo.thumbKey : photo.storageKey;
+    return reply.header("Content-Type", photo.mimeType).header("Cache-Control", "public, max-age=3600").send(await storage.get(key));
+  });
+
   app.get("/api/public/intake/:token", async (req, reply) => {
     const { token } = parseInput(tokenParam, req.params);
     reply.header("Cache-Control", "no-store");

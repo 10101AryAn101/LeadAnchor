@@ -32,7 +32,10 @@ const formSchema = z.object({
   state: z.string().trim().max(2),
   licenseNumber: z.string().trim().max(40),
   insuranceCarrier: z.string().trim().max(80),
+  insurancePolicyNumber: z.string().trim().max(60),
   yearsInBusiness: z.string().trim().regex(/^\d{0,3}$/, "Use a whole number"),
+  googleProfileUrl: z.union([z.literal(""), z.url("Paste the full link, starting with https://").max(300)]),
+  profileLinkInTexts: z.boolean(),
   avgJobValueDollars: z.coerce.number().int().min(25).max(50_000),
   ringTimeoutSecs: z.coerce.number().int().min(10).max(30),
   dispatcherEnabled: z.boolean(),
@@ -48,7 +51,10 @@ const toForm = (s: SettingsResponse): FormValues => ({
   state: s.state ?? "",
   licenseNumber: s.licenseNumber ?? "",
   insuranceCarrier: s.insuranceCarrier ?? "",
+  insurancePolicyNumber: s.insurancePolicyNumber ?? "",
   yearsInBusiness: s.yearsInBusiness != null ? String(s.yearsInBusiness) : "",
+  googleProfileUrl: s.googleProfileUrl ?? "",
+  profileLinkInTexts: s.profileLinkInTexts,
   avgJobValueDollars: Math.round(s.avgJobValueCents / 100),
   ringTimeoutSecs: s.ringTimeoutSecs,
   dispatcherEnabled: s.dispatcherEnabled,
@@ -95,7 +101,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         ...values,
         licenseNumber: values.licenseNumber || null,
         insuranceCarrier: values.insuranceCarrier || null,
+        insurancePolicyNumber: values.insurancePolicyNumber || null,
         yearsInBusiness: values.yearsInBusiness ? Number(values.yearsInBusiness) : null,
+        googleProfileUrl: values.googleProfileUrl || null,
       });
       return api<SettingsResponse>("/settings", { method: "PATCH", body });
     },
@@ -180,8 +188,28 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             </div>
             <TextField form={form} name="licenseNumber" label="Licence number (optional)" />
             <TextField form={form} name="insuranceCarrier" label="Insurance carrier (optional)" />
+            <TextField form={form} name="insurancePolicyNumber" label="Insurance policy number (optional)" />
             <TextField form={form} name="yearsInBusiness" label="Years in business (optional)" type="number" />
+            <div className="sm:col-span-2">
+              <TextField form={form} name="googleProfileUrl" label="Your Google listing link (optional)" type="url" />
+            </div>
           </div>
+          <Field orientation="horizontal" className="items-start justify-between gap-4 rounded-lg border bg-background p-4">
+            <div className="space-y-1">
+              <FieldLabel htmlFor="profileLinkInTexts">Add my profile link to a new customer&apos;s first text</FieldLabel>
+              <FieldDescription>
+                Your public page shows your licence, insurance, services and the job photos you choose.{" "}
+                <a href={settings.profileUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary underline-offset-2 hover:underline">
+                  View my profile
+                </a>
+              </FieldDescription>
+            </div>
+            <Controller
+              control={form.control}
+              name="profileLinkInTexts"
+              render={({ field }) => <Switch id="profileLinkInTexts" checked={field.value} onCheckedChange={field.onChange} />}
+            />
+          </Field>
         </FieldGroup>
       </Section>
 
@@ -236,7 +264,17 @@ function TextField({
   type = "text",
 }: {
   form: ReturnType<typeof useForm<FormValues, unknown, z.output<typeof formSchema>>>;
-  name: "businessName" | "ownerName" | "ownerCell" | "city" | "state" | "licenseNumber" | "insuranceCarrier" | "yearsInBusiness";
+  name:
+    | "businessName"
+    | "ownerName"
+    | "ownerCell"
+    | "city"
+    | "state"
+    | "licenseNumber"
+    | "insuranceCarrier"
+    | "insurancePolicyNumber"
+    | "yearsInBusiness"
+    | "googleProfileUrl";
   label: string;
   type?: string;
 }) {

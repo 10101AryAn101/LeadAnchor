@@ -3,6 +3,8 @@ import {
   dashboardRange,
   leadContactInput,
   leadUpdateInput,
+  mediaUpdateInput,
+  requestDetailsInput,
   noteInput,
   onboardingInput,
   registrationInput,
@@ -92,7 +94,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/leads/:id/request-details", async (req) => {
     const ctx = await tenantContext(req);
     const { id } = parseInput(idParam, req.params);
-    return requestDetails(ctx.tenantId, ctx.userId, id);
+    return requestDetails(ctx.tenantId, ctx.userId, id, parseInput(requestDetailsInput, req.body ?? {}));
   });
 
   /** The owner tapped Call or Text on this lead (the phone itself places the call or opens the text). */
@@ -213,6 +215,18 @@ export async function appRoutes(app: FastifyInstance) {
   });
 
   /* ── Media (customer photos) ──────────────────────────────────────────── */
+
+  /** Show or hide a photo in the public work gallery (C-41). */
+  app.patch("/api/media/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    const { showcase } = parseInput(mediaUpdateInput, req.body);
+    const [row] = await withTenant(ctx.tenantId, (tx) =>
+      tx.update(mediaAssets).set({ showcase }).where(eq(mediaAssets.id, id)).returning({ id: mediaAssets.id, showcase: mediaAssets.showcase }),
+    );
+    if (!row) throw notFound("Photo");
+    return row;
+  });
 
   app.get("/api/media/:id", async (req, reply) => {
     const ctx = await tenantContext(req);

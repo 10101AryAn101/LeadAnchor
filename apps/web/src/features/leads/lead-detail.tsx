@@ -28,16 +28,18 @@ import { ResponsiveSheet } from "@/components/responsive-sheet";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { api, isApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { formatPhone, money, smsHref, telHref, timeAgo, toDateTimeLocal, visitTime } from "@/lib/format";
-import { keys, useLead } from "@/lib/queries";
+import { keys, useLead, useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { SourceLabel, StageGlyph, UrgencyChip, WaitingChip, isWaiting } from "./lead-meta";
 import { LeadTimeline } from "./lead-timeline";
@@ -150,7 +152,7 @@ export function LeadDetailView() {
 
       <MoveLeadSheet target={moving?.target ?? null} initialStage={moving?.stage} onClose={() => setMoving(null)} />
       <EditLeadSheet lead={lead} open={editing} onClose={() => setEditing(false)} />
-      <PhotoSheet photo={photos.find((item) => item.id === photoId) ?? null} onClose={() => setPhotoId(null)} />
+      <PhotoSheet leadId={lead.id} photo={photos.find((item) => item.id === photoId) ?? null} onClose={() => setPhotoId(null)} />
     </div>
   );
 }
@@ -205,7 +207,7 @@ function PhotoStrip({ photos, onOpen }: { photos: MediaItem[]; onOpen: (id: stri
   );
 }
 
-function PhotoSheet({ photo, onClose }: { photo: MediaItem | null; onClose: () => void }) {
+function PhotoSheet({ leadId, photo, onClose }: { leadId: string; photo: MediaItem | null; onClose: () => void }) {
   if (!photo) return null;
   const tags = photo.aiTags;
   return (
@@ -213,6 +215,7 @@ function PhotoSheet({ photo, onClose }: { photo: MediaItem | null; onClose: () =
       <div className="space-y-4 pb-2">
         {/* eslint-disable-next-line @next/next/no-img-element -- private image served by our API */}
         <img src={`/api/media/${photo.id}`} alt={tags?.summary ?? "Customer photo"} className="max-h-[50dvh] w-full rounded-md bg-muted object-contain" />
+        <ShowcaseToggle leadId={leadId} photo={photo} />
         {tags ? (
           <div className="space-y-3">
             <p className="inline-flex items-center gap-1.5 text-sm font-semibold text-info-strong">
@@ -245,6 +248,28 @@ function PhotoSheet({ photo, onClose }: { photo: MediaItem | null; onClose: () =
         )}
       </div>
     </ResponsiveSheet>
+  );
+}
+
+/** C-41: the owner picks which job photos appear on their public profile. */
+function ShowcaseToggle({ leadId, photo }: { leadId: string; photo: MediaItem }) {
+  const queryClient = useQueryClient();
+  const toggle = useMutation({
+    mutationFn: (showcase: boolean) => api(`/media/${photo.id}`, { method: "PATCH", body: { showcase } }),
+    onSuccess: (_data, showcase) => {
+      void queryClient.invalidateQueries({ queryKey: keys.lead(leadId) });
+      toast.success(showcase ? "Added to your public work gallery." : "Removed from your public work gallery.");
+    },
+    onError: (error) => toast.error(isApiError(error) ? error.message : "Couldn't update the photo."),
+  });
+  return (
+    <Field orientation="horizontal" className="items-start justify-between gap-4 rounded-lg border p-3">
+      <div className="space-y-1">
+        <FieldLabel htmlFor={`showcase-${photo.id}`}>Show on my public profile</FieldLabel>
+        <FieldDescription>Only share photos that don&apos;t show the customer, their house number or their mail.</FieldDescription>
+      </div>
+      <Switch id={`showcase-${photo.id}`} checked={photo.showcase} disabled={toggle.isPending} onCheckedChange={(checked) => toggle.mutate(checked)} />
+    </Field>
   );
 }
 
@@ -396,11 +421,17 @@ function VisitSheet({ lead, open, onClose }: { lead: LeadDetailData; open: boole
 /** C-07: send (or re-send) the no-login request form, through the governed send path. */
 function RequestDetailsCard({ lead }: { lead: LeadDetailData }) {
   const queryClient = useQueryClient();
+  const { data: settings } = useSettings();
   const [result, setResult] = useState<{ url: string; message: MessageItem | null } | null>(null);
   const [copied, setCopied] = useState(false);
+  // C-41: the profile link rides on a new customer's first text unless the owner unticks it.
+  const textedBefore = lead.messages.some((message) => message.direction === "outbound" && message.channel !== "email");
+  const [profileChoice, setProfileChoice] = useState<boolean | null>(null);
+  const includeProfile = profileChoice ?? ((settings?.profileLinkInTexts ?? true) && !textedBefore);
 
   const send = useMutation({
-    mutationFn: () => api<{ url: string; message: MessageItem | null }>(`/leads/${lead.id}/request-details`, { method: "POST" }),
+    mutationFn: () =>
+      api<{ url: string; message: MessageItem | null }>(`/leads/${lead.id}/request-details`, { method: "POST", body: { includeProfile } }),
     onSuccess: (data) => {
       setResult(data);
       void queryClient.invalidateQueries({ queryKey: keys.lead(lead.id) });
@@ -422,7 +453,11 @@ function RequestDetailsCard({ lead }: { lead: LeadDetailData }) {
               ? "A link was sent. Waiting for the customer."
               : "Ask for photos and details — they fill it in, no app needed."}
       </p>
-      <Button variant="outline" className="mt-3 w-full" onClick={() => send.mutate()} disabled={send.isPending}>
+      <label className="mt-3 flex min-h-11 cursor-pointer items-center gap-2.5 text-[15px]">
+        <Checkbox checked={includeProfile} onCheckedChange={(checked) => setProfileChoice(checked === true)} />
+        Add my profile link
+      </label>
+      <Button variant="outline" className="mt-1 w-full" onClick={() => send.mutate()} disabled={send.isPending}>
         {send.isPending ? <Spinner /> : <IconSend />} {status === "none" ? "Send request form" : "Send a new link"}
       </Button>
       {result && (

@@ -1,4 +1,4 @@
-import { index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { createdAt, pk, tsz } from "./columns";
 import { customers, leads } from "./crm";
 import { tenantRef } from "./tenancy";
@@ -44,6 +44,8 @@ export const mediaAssets = pgTable(
     aiStatus: text("ai_status", { enum: ["pending", "done", "failed", "skipped"] }).notNull().default("pending"),
     aiTags: jsonb("ai_tags").$type<Record<string, unknown>>(),
     aiError: text("ai_error"),
+    /** The owner chose to show this photo in their public work gallery (C-41). */
+    showcase: boolean("showcase").notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [index("media_assets_lead_idx").on(t.leadId)],

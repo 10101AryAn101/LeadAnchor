@@ -17,6 +17,7 @@ import { notFound } from "../../lib/errors";
 import { iso, isoOrNow } from "../../lib/time";
 import { createIntakeLink } from "../intake/intake.service";
 import { requestMessage } from "../messaging/send-path";
+import { profileLine } from "../profile/profile";
 import { addLeadEvent, topPosition } from "./lead-capture";
 import { advanceLead } from "./pipeline";
 
@@ -229,8 +230,11 @@ export async function addNote(tenantId: string, userId: string, leadId: string, 
   });
 }
 
-/** Owner asks for details: creates a fresh request link and tries to text it through the governed path. */
-export async function requestDetails(tenantId: string, userId: string, leadId: string) {
+/**
+ * Owner asks for details: creates a fresh request link and tries to text it through the governed path.
+ * The profile link (C-41) is added by default when this is the first text the lead gets.
+ */
+export async function requestDetails(tenantId: string, userId: string, leadId: string, options: { includeProfile?: boolean } = {}) {
   return tenantWork(tenantId, async (tx, fx) => {
     const [row] = await tx
       .select({ lead: leads, customer: customers, tenant: tenants })
@@ -245,6 +249,12 @@ export async function requestDetails(tenantId: string, userId: string, leadId: s
 
     let message: MessageItem | null = null;
     if (row.customer.phoneE164) {
+      const [earlier] = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(eq(messages.leadId, leadId), eq(messages.direction, "outbound"), ne(messages.channel, "email")))
+        .limit(1);
+      const withProfile = options.includeProfile ?? (row.tenant.profileLinkInTexts && !earlier);
       const greeting = row.customer.name ? `Hi ${row.customer.name.split(" ")[0]}` : "Hi";
       const created = await requestMessage(tx, fx, {
         tenant: row.tenant,
@@ -252,7 +262,7 @@ export async function requestDetails(tenantId: string, userId: string, leadId: s
         leadId,
         to: row.customer.phoneE164,
         purpose: "transactional",
-        body: `${greeting}, it's ${row.tenant.name}. Share the details of your job (photos help): ${url}\nReply STOP to opt out.`,
+        body: `${greeting}, it's ${row.tenant.name}. Share the details of your job (photos help): ${url}\n${withProfile ? `${profileLine(row.tenant)}\n` : ""}Reply STOP to opt out.`,
       });
       message = toMessageItem(created);
       // The owner reached out — but only if the text was allowed to go.
@@ -302,6 +312,7 @@ function toMediaItem(m: typeof mediaAssets.$inferSelect): MediaItem {
     width: m.width,
     height: m.height,
     aiStatus: m.aiStatus,
+    showcase: m.showcase,
     aiTags: (m.aiTags as MediaItem["aiTags"]) ?? null,
     createdAt: m.createdAt.toISOString(),
   };

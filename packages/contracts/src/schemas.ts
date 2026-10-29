@@ -134,6 +134,8 @@ export const mediaItem = z.object({
   width: z.number().int().nullable(),
   height: z.number().int().nullable(),
   aiStatus: z.enum(["pending", "done", "failed", "skipped"]),
+  /** Shown in the business's public work gallery (C-41). */
+  showcase: z.boolean(),
   aiTags: z
     .object({
       summary: z.string().optional(),
@@ -149,6 +151,32 @@ export const mediaItem = z.object({
   createdAt: isoDate,
 });
 export type MediaItem = z.infer<typeof mediaItem>;
+
+export const mediaUpdateInput = z.object({ showcase: z.boolean() });
+
+/** Optional body of "send the request form": whether to add the profile link (C-41). */
+export const requestDetailsInput = z.object({ includeProfile: z.boolean().optional() }).default({});
+
+/* ----------------------------------------------------------------------------
+ * Public profile page (C-41): what anyone with the link can see. No customer data.
+ * ------------------------------------------------------------------------- */
+
+export const publicProfile = z.object({
+  name: z.string(),
+  trade: z.enum(TRADES),
+  city: z.string().nullable(),
+  state: z.string().nullable(),
+  phone: z.string().nullable(),
+  /** All self-attested by the owner — labelled "Licensed & Insured", never "Verified". */
+  licenseNumber: z.string().nullable(),
+  insuranceCarrier: z.string().nullable(),
+  yearsInBusiness: z.number().int().nullable(),
+  googleProfileUrl: z.string().nullable(),
+  website: z.string().nullable(),
+  services: z.array(z.object({ name: z.string(), description: z.string().nullable() })),
+  photos: z.array(z.object({ id, caption: z.string().nullable() })),
+});
+export type PublicProfile = z.infer<typeof publicProfile>;
 
 export const messageItem = z.object({
   id,
@@ -413,7 +441,12 @@ export const settingsResponse = z.object({
   timezone: z.string(),
   licenseNumber: z.string().nullable(),
   insuranceCarrier: z.string().nullable(),
+  insurancePolicyNumber: z.string().nullable(),
   yearsInBusiness: z.number().int().nullable(),
+  googleProfileUrl: z.string().nullable(),
+  profileLinkInTexts: z.boolean(),
+  /** The public profile page (C-41). */
+  profileUrl: z.string(),
   avgJobValueCents: z.number().int(),
   ringTimeoutSecs: z.number().int(),
   dispatcherEnabled: z.boolean(),
@@ -431,7 +464,10 @@ export const settingsUpdateInput = z.object({
   timezone: z.string().trim().min(3).optional(),
   licenseNumber: z.string().trim().max(40).nullable().optional(),
   insuranceCarrier: z.string().trim().max(80).nullable().optional(),
+  insurancePolicyNumber: z.string().trim().max(60).nullable().optional(),
   yearsInBusiness: z.number().int().min(0).max(150).nullable().optional(),
+  googleProfileUrl: z.url("Paste the full link, starting with https://").max(300).nullable().optional(),
+  profileLinkInTexts: z.boolean().optional(),
   avgJobValueDollars: z.number().int().min(25).max(50_000).optional(),
   ringTimeoutSecs: z.number().int().min(10).max(30).optional(),
   dispatcherEnabled: z.boolean().optional(),
