@@ -12,6 +12,7 @@
     "dev": "turbo run dev --filter=@leadanchor/api --filter=@leadanchor/web",
     "db:start": "pnpm --filter @leadanchor/dev-db start",
     "db:migrate": "pnpm --filter @leadanchor/api db:migrate",
+    "db:seed": "pnpm --filter @leadanchor/api db:seed",
     "db:generate": "pnpm --filter @leadanchor/api db:generate",
     "db:studio": "pnpm --filter @leadanchor/api db:studio",
     "build": "turbo run build",

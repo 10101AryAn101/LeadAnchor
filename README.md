@@ -31,6 +31,9 @@ pnpm dev            # API on :4000, web app on :3000
 Open <http://localhost:3000>, create an account, set up your business, then open **Call simulator**
 and place a test call.
 
+Want a ready-made business instead? `pnpm db:seed` creates a demo owner account with texting already
+approved; the sign-in details are at the top of `apps/api/src/db/seed.ts`. It is for local use only.
+
 ## What works today
 
 | Area | Capabilities (spreadsheet IDs) | Status |
