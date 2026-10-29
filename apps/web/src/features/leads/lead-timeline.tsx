@@ -20,6 +20,7 @@ import {
   IconSend,
   IconShieldCheck,
   IconShieldX,
+  IconTag,
 } from "@tabler/icons-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { clockTime, dayLabel, fullDate, money } from "@/lib/format";
@@ -185,6 +186,12 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
         tone: "good",
         title: typeof d.valueCents === "number" ? `Job value set to ${money(d.valueCents)}` : "Job value cleared",
       };
+    case "tags.changed": {
+      const added = Array.isArray(d.added) ? d.added.map(String) : [];
+      const removed = Array.isArray(d.removed) ? d.removed.map(String) : [];
+      const title = added.length > 0 ? `Tagged ${added.join(", ")}` : `Removed tag${removed.length === 1 ? "" : "s"} ${removed.join(", ")}`;
+      return { ...base, kind: "other", icon: IconTag, tone: "neutral", title, body: added.length > 0 && removed.length > 0 ? `Removed ${removed.join(", ")}` : undefined };
+    }
     case "note.added":
       return { ...base, kind: "other", icon: IconNote, tone: "neutral", title: "Note", body: <span className="whitespace-pre-wrap text-foreground">{str(d.text)}</span> };
     case "message.received":

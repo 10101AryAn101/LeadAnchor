@@ -40,6 +40,7 @@ import {
 import { getDashboard } from "../../modules/dashboard/dashboard.service";
 import { integrationStatuses } from "../../modules/integrations/integration-status";
 import { addNote, getLeadDetail, listBoard, recordContact, requestDetails, updateLead } from "../../modules/leads/lead.service";
+import { listTags } from "../../modules/leads/tags";
 import { listNotifications, markNotificationsRead } from "../../modules/notifications/notification.queries";
 import { addPushDevice, listPushDevices, removePushDevice, sendTestAlert } from "../../modules/notifications/push";
 import { startForwardingCheck } from "../../modules/tenants/forwarding";
@@ -113,6 +114,12 @@ export async function appRoutes(app: FastifyInstance) {
     const ctx = await tenantContext(req);
     const { id } = parseInput(idParam, req.params);
     return recordContact(ctx.tenantId, ctx.userId, id, parseInput(leadContactInput, req.body).channel);
+  });
+
+  /** Tags in use, for the board filter and the tag picker (module 4). */
+  app.get("/api/tags", async (req) => {
+    const ctx = await tenantContext(req);
+    return listTags(ctx.tenantId);
   });
 
   /* ── Customers (C-34) ─────────────────────────────────────────────────── */

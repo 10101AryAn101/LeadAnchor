@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
 import { StageGlyph, UrgencyChip } from "@/features/leads/lead-meta";
+import { TagChips } from "@/features/leads/lead-tags";
 import { useRecordContact } from "@/features/leads/use-lead-actions";
 import { duration, formatPhone, fullDate, money, smsHref, telHref, timeAgo } from "@/lib/format";
 import { useConsent, useCustomer } from "@/lib/queries";
@@ -141,6 +142,7 @@ function JobRow({ job }: { job: CustomerJob }) {
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
             {LEAD_STAGE_LABELS[job.stage]}, {timeAgo(job.createdAt)}
             <UrgencyChip urgency={job.urgency} />
+            <TagChips tags={job.tags} max={3} />
           </span>
         </span>
         {value && <span className="tabular shrink-0 text-[15px] font-semibold">{value}</span>}

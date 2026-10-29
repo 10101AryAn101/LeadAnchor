@@ -42,15 +42,19 @@ export function useUpdateLead() {
                 ...(vars.stage && { stage: vars.stage, needsCallback: vars.stage === "new" ? lead.needsCallback : false }),
                 ...(vars.title && { title: vars.title }),
                 ...(vars.valueDollars !== undefined && { valueCents: vars.valueDollars === null ? null : Math.round(vars.valueDollars * 100) }),
+                ...(vars.tags && { tags: vars.tags }),
                 lastActivityAt: new Date().toISOString(),
               }
             : lead,
         ),
       );
-      return { previous };
+      const previousDetail = queryClient.getQueryData<LeadDetail>(keys.lead(vars.id));
+      if (vars.tags && previousDetail) queryClient.setQueryData<LeadDetail>(keys.lead(vars.id), { ...previousDetail, tags: vars.tags });
+      return { previous, previousDetail };
     },
-    onError: (error, _vars, context) => {
+    onError: (error, vars, context) => {
       if (context?.previous) queryClient.setQueryData(keys.leads, context.previous);
+      if (context?.previousDetail) queryClient.setQueryData(keys.lead(vars.id), context.previousDetail);
       toast.error(isApiError(error) ? error.message : "Couldn't save that change.");
     },
     onSuccess: (detail, vars) => {
@@ -62,9 +66,10 @@ export function useUpdateLead() {
         });
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _error, vars) => {
       void queryClient.invalidateQueries({ queryKey: keys.leads });
       void queryClient.invalidateQueries({ queryKey: keys.dashboardAll });
+      if (vars.tags) void queryClient.invalidateQueries({ queryKey: keys.tags });
     },
   });
 

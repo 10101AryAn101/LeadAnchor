@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { formatPhone, isWithin, money, smsHref, telHref, visitTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SourceLabel, UrgencyChip, WaitingChip, isWaiting } from "./lead-meta";
+import { TagChips } from "./lead-tags";
 import { useRecordContact } from "./use-lead-actions";
 
 const JUST_ARRIVED_MS = 15_000;
@@ -53,6 +54,7 @@ export function LeadCard({ lead, onMove, className }: { lead: LeadCardData; onMo
         )}
         <UrgencyChip urgency={lead.urgency} />
       </div>
+      <TagChips tags={lead.tags} max={3} className="mt-2" />
 
       <div className="mt-3 flex items-center gap-2">
         <Button

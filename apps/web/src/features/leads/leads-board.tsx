@@ -1,20 +1,22 @@
 "use client";
 
 import { LEAD_STAGE_LABELS, LEAD_STAGES, type LeadCard as LeadCardData, type LeadStage } from "@leadanchor/contracts";
-import { IconFlask, IconLayoutKanban } from "@tabler/icons-react";
+import { IconCalendarEvent, IconFlask, IconLayoutKanban, IconTag } from "@tabler/icons-react";
 import Link from "next/link";
-import { parseAsStringLiteral, useQueryState } from "nuqs";
+import { parseAsString, parseAsStringLiteral, useQueryState } from "nuqs";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyContent, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@/components/ui/empty";
 import { Kanban, KanbanBoard, KanbanColumn, KanbanItem, KanbanOverlay } from "@/components/ui/kanban";
 import { Skeleton } from "@/components/ui/skeleton";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { useIsMobile } from "@/hooks/use-media-query";
 import { money } from "@/lib/format";
 import { useLeads } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { LeadCard } from "./lead-card";
+import { LeadsSchedule } from "./leads-schedule";
 import { StageGlyph, sortForColumn } from "./lead-meta";
 import { MoveLeadSheet, type MoveTarget } from "./move-lead-sheet";
 import { useUpdateLead } from "./use-lead-actions";
@@ -41,6 +43,11 @@ function columnTotal(leads: LeadCardData[]) {
   return { cents, estimated };
 }
 
+/** Module 4: two parallel views of the same jobs, by stage (Board) and by visit day (Schedule). */
+const VIEWS = ["board", "schedule"] as const;
+const viewParam = parseAsStringLiteral(VIEWS).withDefault("board").withOptions({ history: "replace" });
+const tagParam = parseAsString.withOptions({ history: "replace" });
+
 export function LeadsBoard() {
   // The board comes from browser-side queries; render it only after hydration (see useHydrated).
   return useHydrated() ? <LeadsBoardContent /> : <BoardSkeleton />;
@@ -50,6 +57,12 @@ function LeadsBoardContent() {
   const { data: leads, isPending } = useLeads();
   const isMobile = useIsMobile();
   const [moving, setMoving] = useState<{ target: MoveTarget; stage: LeadStage | null } | null>(null);
+  const [view, setView] = useQueryState("view", viewParam);
+  const [tag, setTag] = useQueryState("tag", tagParam);
+  const shown = useMemo(
+    () => (tag ? (leads ?? []).filter((lead) => lead.tags.some((name) => name.toLowerCase() === tag.toLowerCase())) : (leads ?? [])),
+    [leads, tag],
+  );
 
   const openMove = useCallback((lead: LeadCardData, stage: LeadStage | null = null) => {
     setMoving({
@@ -81,9 +94,91 @@ function LeadsBoardContent() {
 
   return (
     <>
-      {isMobile ? <MobileColumns leads={leads} onMove={openMove} /> : <DesktopBoard leads={leads} onMove={openMove} />}
+      <LeadsToolbar leads={leads} view={view} onView={(next) => void setView(next)} tag={tag} onTag={(next) => void setTag(next)} />
+      {view === "schedule" ? (
+        <LeadsSchedule leads={shown} />
+      ) : isMobile ? (
+        <MobileColumns leads={shown} onMove={openMove} />
+      ) : (
+        <DesktopBoard leads={shown} onMove={openMove} />
+      )}
       <MoveLeadSheet target={moving?.target ?? null} initialStage={moving?.stage} onClose={() => setMoving(null)} />
     </>
+  );
+}
+
+/** Board or Schedule, plus a tag filter that both views share. */
+function LeadsToolbar({
+  leads,
+  view,
+  onView,
+  tag,
+  onTag,
+}: {
+  leads: LeadCardData[];
+  view: (typeof VIEWS)[number];
+  onView: (view: (typeof VIEWS)[number]) => void;
+  tag: string | null;
+  onTag: (tag: string | null) => void;
+}) {
+  const counted = useMemo(() => {
+    const counts = new Map<string, { name: string; count: number }>();
+    for (const lead of leads) {
+      for (const name of lead.tags) {
+        const entry = counts.get(name.toLowerCase()) ?? { name, count: 0 };
+        entry.count += 1;
+        counts.set(name.toLowerCase(), entry);
+      }
+    }
+    return [...counts.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [leads]);
+  // A tag from an old link that no job has any more still shows, so it can be cleared.
+  const tags = tag && !counted.some((item) => item.name.toLowerCase() === tag.toLowerCase()) ? [...counted, { name: tag, count: 0 }] : counted;
+
+  return (
+    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+      <ToggleGroup value={[view]} onValueChange={(value) => value[0] && onView(value[0] as (typeof VIEWS)[number])} variant="outline" aria-label="View">
+        <ToggleGroupItem value="board" className="px-3">
+          <IconLayoutKanban /> Board
+        </ToggleGroupItem>
+        <ToggleGroupItem value="schedule" className="px-3">
+          <IconCalendarEvent /> Schedule
+        </ToggleGroupItem>
+      </ToggleGroup>
+      {tags.length > 0 && (
+        <div className="scrollbar-none -mx-4 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:px-0" role="group" aria-label="Filter by tag">
+          <FilterChip active={!tag} onClick={() => onTag(null)}>
+            All jobs
+          </FilterChip>
+          {tags.map((item) => {
+            const active = tag?.toLowerCase() === item.name.toLowerCase();
+            return (
+              <FilterChip key={item.name} active={active} onClick={() => onTag(active ? null : item.name)}>
+                <IconTag className="size-3.5" />
+                {item.name}
+                <span className={cn("tabular text-sm", active ? "text-background/70" : "text-muted-foreground")}>{item.count}</span>
+              </FilterChip>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterChip({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={cn(
+        "flex h-9 shrink-0 items-center gap-1.5 rounded-full border border-input px-3 text-[15px] font-medium",
+        active ? "border-foreground bg-foreground text-background" : "bg-card text-foreground hover:bg-muted",
+      )}
+    >
+      {children}
+    </button>
   );
 }
 

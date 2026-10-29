@@ -94,6 +94,7 @@ export async function getCustomer(tenantId: string, customerId: string): Promise
         valueCents: job.valueCents,
         estimatedValueCents: job.estimatedValueCents,
         scheduledFor: iso(job.scheduledFor),
+        tags: job.tags,
         createdAt: job.createdAt.toISOString(),
         wonAt: iso(job.wonAt),
       })),

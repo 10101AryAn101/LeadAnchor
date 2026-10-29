@@ -12,6 +12,7 @@ import {
   INTEGRATION_STATES,
   LEAD_SOURCES,
   LEAD_STAGES,
+  MAX_TAGS_PER_JOB,
   MESSAGE_CHANNELS,
   MESSAGE_DIRECTIONS,
   MESSAGE_PURPOSES,
@@ -113,6 +114,8 @@ export const leadCard = z.object({
   intakeStatus: z.enum(INTAKE_STATUSES),
   /** Booked visit time, if any. Booking one moves the card to Scheduled. */
   scheduledFor: isoDate.nullable(),
+  /** The owner's own labels, e.g. "Warranty" (module 4). */
+  tags: z.array(z.string()),
   photoCount: z.number().int(),
   coverPhotoId: z.string().nullable(),
   position: z.number(),
@@ -233,6 +236,14 @@ export const leadDetail = leadCard.extend({
 });
 export type LeadDetail = z.infer<typeof leadDetail>;
 
+/** A job tag: short, single-spaced. */
+export const tagName = z
+  .string()
+  .trim()
+  .min(1, "Enter a tag")
+  .max(24, "Keep tags under 24 characters")
+  .transform((value) => value.replace(/\s+/g, " "));
+
 export const leadUpdateInput = z.object({
   stage: z.enum(LEAD_STAGES).optional(),
   position: z.number().optional(),
@@ -241,8 +252,16 @@ export const leadUpdateInput = z.object({
   lostReason: z.string().trim().max(200).nullable().optional(),
   customerName: z.string().trim().max(80).optional(),
   scheduledFor: z.iso.datetime({ offset: true }).nullable().optional(),
+  tags: z.array(tagName).max(MAX_TAGS_PER_JOB, `Up to ${MAX_TAGS_PER_JOB} tags per job`).optional(),
 });
 export type LeadUpdateInput = z.infer<typeof leadUpdateInput>;
+
+/** Tags in use across the business, most used first, plus starter ideas (module 4). */
+export const tagsResponse = z.object({
+  tags: z.array(z.object({ name: z.string(), count: z.number().int() })),
+  suggestions: z.array(z.string()),
+});
+export type TagsResponse = z.infer<typeof tagsResponse>;
 
 export const leadContactInput = z.object({ channel: z.enum(CONTACT_CHANNELS) });
 
@@ -273,6 +292,7 @@ export const customerJob = z.object({
   valueCents: z.number().int().nullable(),
   estimatedValueCents: z.number().int().nullable(),
   scheduledFor: isoDate.nullable(),
+  tags: z.array(z.string()),
   createdAt: isoDate,
   wonAt: isoDate.nullable(),
 });

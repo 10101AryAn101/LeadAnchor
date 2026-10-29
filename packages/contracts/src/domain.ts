@@ -215,6 +215,13 @@ export const NOTIFICATION_KINDS = [
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
+/** Job tags (module 4) offered before a business has made its own. */
+export const STARTER_TAGS: Record<Track, string[]> = {
+  A: ["Emergency", "Warranty", "Commercial", "Repeat customer", "Needs parts", "Estimate only"],
+  B: ["New client", "Regular", "VIP", "Package", "Follow up"],
+};
+export const MAX_TAGS_PER_JOB = 8;
+
 /** Phone alerts (C-05): Firebase Cloud Messaging, or the local simulator until Firebase is connected. */
 export const PUSH_PROVIDERS = ["fcm", "simulator"] as const;
 export type PushProviderName = (typeof PUSH_PROVIDERS)[number];

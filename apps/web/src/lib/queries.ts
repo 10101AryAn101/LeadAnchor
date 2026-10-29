@@ -17,6 +17,7 @@ import type {
   RegistrationResponse,
   ServiceItem,
   SettingsResponse,
+  TagsResponse,
 } from "@leadanchor/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, api } from "./api";
@@ -41,6 +42,7 @@ export const keys = {
   integrations: ["integrations"] as const,
   outbox: ["outbox"] as const,
   pushDevices: ["push-devices"] as const,
+  tags: ["tags"] as const,
   simCall: (sessionId: string) => ["sim-call", sessionId] as const,
   simInbox: (phone: string) => ["sim-inbox", phone] as const,
 };
@@ -80,6 +82,8 @@ export const useNotifications = () =>
     queryKey: keys.notifications,
     queryFn: () => api<{ items: NotificationItem[]; unread: number }>("/notifications"),
   });
+
+export const useTags = () => useQuery({ queryKey: keys.tags, queryFn: () => api<TagsResponse>("/tags") });
 
 export const usePushDevices = () => useQuery({ queryKey: keys.pushDevices, queryFn: () => api<PushDevicesResponse>("/push/devices") });
 

@@ -42,6 +42,7 @@ import { formatPhone, money, smsHref, telHref, timeAgo, toDateTimeLocal, visitTi
 import { keys, useLead, useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { SourceLabel, StageGlyph, UrgencyChip, WaitingChip, isWaiting } from "./lead-meta";
+import { TagsEditor } from "./lead-tags";
 import { LeadTimeline } from "./lead-timeline";
 import { MoveLeadSheet, type MoveTarget } from "./move-lead-sheet";
 import { useRecordContact, useUpdateLead } from "./use-lead-actions";
@@ -107,6 +108,7 @@ export function LeadDetailView() {
                 <IconPencil /> Edit
               </Button>
             </div>
+            <TagsEditor lead={lead} />
           </header>
 
           <SummaryCard lead={lead} onEdit={() => setEditing(true)} />

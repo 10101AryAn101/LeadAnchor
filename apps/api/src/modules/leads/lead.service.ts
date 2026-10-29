@@ -20,6 +20,7 @@ import { requestMessage } from "../messaging/send-path";
 import { profileLine } from "../profile/profile";
 import { addLeadEvent, topPosition } from "./lead-capture";
 import { advanceLead } from "./pipeline";
+import { canonicalTags } from "./tags";
 
 type LeadRow = typeof leads.$inferSelect;
 type CustomerRow = typeof customers.$inferSelect;
@@ -45,6 +46,7 @@ function toCard(lead: LeadRow, customer: CustomerRow, photos: { count: number; c
     needsCallback: lead.needsCallback,
     intakeStatus: lead.intakeStatus,
     scheduledFor: iso(lead.scheduledFor),
+    tags: lead.tags,
     photoCount: photos.count,
     coverPhotoId: photos.coverId,
     position: lead.position,
@@ -181,6 +183,18 @@ export async function updateLead(tenantId: string, userId: string, leadId: strin
           actor,
           data: scheduledFor ? { at: scheduledFor.toISOString() } : {},
         });
+      }
+    }
+    if (input.tags !== undefined) {
+      const tags = await canonicalTags(tx, tenantId, input.tags);
+      const before = new Set(lead.tags.map((tag) => tag.toLowerCase()));
+      const after = new Set(tags.map((tag) => tag.toLowerCase()));
+      const added = tags.filter((tag) => !before.has(tag.toLowerCase()));
+      const removed = lead.tags.filter((tag) => !after.has(tag.toLowerCase()));
+      // A spelling fix or a new order is saved quietly; only real additions and removals reach the timeline.
+      if (tags.join("\n") !== lead.tags.join("\n")) patch.tags = tags;
+      if (added.length > 0 || removed.length > 0) {
+        await addLeadEvent(tx, { tenantId, leadId, type: "tags.changed", actor, data: { added, removed } });
       }
     }
     if (input.lostReason !== undefined) patch.lostReason = input.lostReason;
