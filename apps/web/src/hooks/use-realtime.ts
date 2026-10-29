@@ -56,6 +56,7 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
           case "message.created":
             if (event.leadId) void queryClient.invalidateQueries({ queryKey: keys.lead(event.leadId) });
             void queryClient.invalidateQueries({ queryKey: ["sim-inbox"] });
+            void queryClient.invalidateQueries({ queryKey: keys.outbox });
             void queryClient.invalidateQueries({ queryKey: ["consent"] });
             break;
           case "registration.updated":

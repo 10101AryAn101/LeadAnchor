@@ -3,6 +3,7 @@ import { and, desc, eq, gt } from "drizzle-orm";
 import type { Tx } from "../../db/client";
 import { carrierRegistrations, messages, phoneNumbers, type tenants } from "../../db/schema";
 import type { Effects } from "../../db/unit-of-work";
+import { env } from "../../config/env";
 import { QUEUES } from "../../jobs/queue";
 import { channels, consentLedger } from "../../container";
 import { decide } from "./policy";
@@ -87,6 +88,48 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
     .returning();
 
   if (decision.allowed) fx.enqueue(QUEUES.dispatchMessage, { tenantId: intent.tenant.id, messageId: message!.id });
+  fx.publish({ type: "message.created", messageId: message!.id, leadId: intent.leadId });
+  return message!;
+}
+
+export interface EmailIntent {
+  tenant: Tenant;
+  customerId: string | null;
+  leadId: string | null;
+  to: string;
+  subject: string;
+  body: string;
+  purpose: MessagePurpose;
+}
+
+/**
+ * Email goes through the same governed path as texts: one row per message with the
+ * decision attached, delivered by the queue. Job and account emails need no opt-in;
+ * marketing email will check the unsubscribe list here when campaigns arrive (C-28).
+ */
+export async function requestEmail(tx: Tx, fx: Effects, intent: EmailIntent) {
+  const validAddress = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(intent.to);
+  const [message] = await tx
+    .insert(messages)
+    .values({
+      tenantId: intent.tenant.id,
+      customerId: intent.customerId,
+      leadId: intent.leadId,
+      direction: "outbound",
+      channel: "email",
+      purpose: intent.purpose,
+      status: validAddress ? "queued" : "blocked",
+      toAddress: intent.to,
+      fromAddress: env.EMAIL_FROM,
+      subject: intent.subject,
+      body: intent.body,
+      blockedReason: validAddress ? null : "That email address doesn't look right.",
+      provider: channels.email.provider,
+      policy: { checks: [{ check: "email_address", passed: validAddress, detail: validAddress ? "Address looks valid." : "Invalid address." }] },
+    })
+    .returning();
+
+  if (validAddress) fx.enqueue(QUEUES.dispatchMessage, { tenantId: intent.tenant.id, messageId: message!.id });
   fx.publish({ type: "message.created", messageId: message!.id, leadId: intent.leadId });
   return message!;
 }

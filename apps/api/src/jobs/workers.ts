@@ -1,6 +1,7 @@
 import { logger } from "../lib/logger";
 import { extractCallerNeedJob, triagePhotoJob } from "../modules/ai/ai-jobs";
 import { dispatchMessage } from "../modules/messaging/dispatch";
+import { valueProofTickJob } from "../modules/value-proof/value-proof";
 import { type JobPayloads, QUEUES, type QueueName, RETRY_LIMIT, boss } from "./queue";
 
 type Handler<Q extends QueueName> = (data: JobPayloads[Q], attempt: { retryCount: number; isLast: boolean }) => Promise<void>;
@@ -19,4 +20,5 @@ export async function startWorkers() {
   await work(QUEUES.extractCallerNeed, extractCallerNeedJob);
   await work(QUEUES.triagePhoto, triagePhotoJob);
   await work(QUEUES.dispatchMessage, dispatchMessage);
+  await work(QUEUES.valueProofTick, valueProofTickJob);
 }

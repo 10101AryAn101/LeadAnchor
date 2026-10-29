@@ -5,6 +5,7 @@ import {
   IconHomeFilled,
   IconLayoutKanban,
   IconLayoutKanbanFilled,
+  IconMail,
   IconPhone,
   IconPhoneFilled,
   IconPlug,
@@ -36,4 +37,5 @@ export const SECONDARY_NAV: NavItem[] = [
   { href: "/compliance", label: "Texting and consent", icon: IconShieldCheck },
   { href: "/integrations", label: "Integrations", icon: IconPlug },
   { href: "/simulator", label: "Call simulator", icon: IconFlask, badge: "dev" },
+  { href: "/outbox", label: "Email outbox", icon: IconMail, badge: "dev" },
 ];

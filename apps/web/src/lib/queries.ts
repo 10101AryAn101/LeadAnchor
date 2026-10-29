@@ -12,6 +12,7 @@ import type {
   LeadDetail,
   MeResponse,
   NotificationItem,
+  OutboxEmail,
   RegistrationResponse,
   ServiceItem,
   SettingsResponse,
@@ -37,6 +38,7 @@ export const keys = {
   registration: ["registration"] as const,
   consent: (phone?: string) => ["consent", phone ?? "all"] as const,
   integrations: ["integrations"] as const,
+  outbox: ["outbox"] as const,
   simCall: (sessionId: string) => ["sim-call", sessionId] as const,
   simInbox: (phone: string) => ["sim-inbox", phone] as const,
 };
@@ -93,6 +95,9 @@ export const useConsent = (phone?: string) =>
         `/compliance/consent${phone ? `?phone=${encodeURIComponent(phone)}` : ""}`,
       ),
   });
+
+export const useOutbox = () =>
+  useQuery({ queryKey: keys.outbox, queryFn: async () => (await api<{ emails: OutboxEmail[] }>("/dev/outbox")).emails });
 
 export const useIntegrations = () =>
   useQuery({

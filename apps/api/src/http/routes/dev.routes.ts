@@ -1,4 +1,4 @@
-import { simulatorScenarioInput, toE164, usPhone } from "@leadanchor/contracts";
+import { type OutboxEmail, simulatorScenarioInput, toE164, usPhone } from "@leadanchor/contracts";
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
@@ -9,6 +9,7 @@ import { simulatorTelephony, telephony } from "../../container";
 import { getCallTrace } from "../../modules/calls/call.queries";
 import { approveRegistrationForDev } from "../../modules/compliance/registration.service";
 import { handleInboundMessage } from "../../modules/messaging/inbound";
+import { sendValueProof } from "../../modules/value-proof/value-proof";
 import { tenantContext } from "../context";
 
 /** Development-only tools: the call simulator, the simulated customer phone and fake carrier approval. */
@@ -70,5 +71,31 @@ export async function devRoutes(app: FastifyInstance) {
   app.post("/api/dev/simulator/registration/approve", async (req) => {
     const ctx = await tenantContext(req, ["owner"]);
     return approveRegistrationForDev(ctx.tenantId, ctx.userId);
+  });
+
+  /** Emails the app has "sent" while no email service is connected (Dev → Email outbox). */
+  app.get("/api/dev/outbox", async (req): Promise<{ emails: OutboxEmail[] }> => {
+    const ctx = await tenantContext(req);
+    const rows = await withTenant(ctx.tenantId, (tx) =>
+      tx.select().from(messages).where(eq(messages.channel, "email")).orderBy(desc(messages.createdAt)).limit(50),
+    );
+    return {
+      emails: rows.map((m) => ({
+        id: m.id,
+        to: m.toAddress,
+        subject: m.subject,
+        body: m.body,
+        status: m.status,
+        blockedReason: m.blockedReason,
+        createdAt: m.createdAt.toISOString(),
+      })),
+    };
+  });
+
+  /** Sends this business's value-proof summary now instead of waiting for 8 AM (C-40). */
+  app.post("/api/dev/value-proof/send", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    await sendValueProof(ctx.tenantId);
+    return { ok: true };
   });
 }

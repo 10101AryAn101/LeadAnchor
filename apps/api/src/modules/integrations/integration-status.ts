@@ -92,11 +92,11 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
     {
       key: "email",
       name: "Transactional email",
-      purpose: "Receipts, review requests and email-first marketing.",
-      capabilities: ["C-28", "C-46"],
-      state: env.EMAIL_TRANSPORT === "smtp" && env.SMTP_URL ? "live" : "simulated",
-      detail: env.EMAIL_TRANSPORT === "smtp" ? "Sending through SMTP." : "Emails are kept in the local outbox.",
-      mandatedBySpec: false,
+      purpose: "Your weekly summary, receipts, review requests and email-first marketing.",
+      capabilities: ["C-40", "C-28", "C-46"],
+      state: "simulated",
+      detail: "No email service is connected yet. Emails are kept in the Email outbox (under Business) so you can read what would have been sent.",
+      mandatedBySpec: true,
     },
   ];
 }

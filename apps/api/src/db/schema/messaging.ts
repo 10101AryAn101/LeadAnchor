@@ -27,6 +27,8 @@ export const messages = pgTable(
     status: text("status", { enum: MESSAGE_STATUSES }).notNull(),
     toAddress: text("to_address").notNull(),
     fromAddress: text("from_address").notNull(),
+    /** Email only. */
+    subject: text("subject"),
     body: text("body").notNull(),
     blockedReason: text("blocked_reason"),
     provider: text("provider").notNull(),

@@ -2,6 +2,7 @@ import { env } from "./config/env";
 import { GeminiProvider } from "./integrations/ai/gemini";
 import type { AiProvider } from "./integrations/ai/types";
 import { FirestoreConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
+import { OutboxEmail } from "./integrations/messaging/email";
 import { SimulatorSms, TelnyxSms } from "./integrations/messaging/sms";
 import type { ChannelAdapter } from "./integrations/messaging/types";
 import { MetaWhatsApp } from "./integrations/messaging/whatsapp";
@@ -39,7 +40,8 @@ export const push: PushProvider = env.FCM_ENABLED ? new FcmPush() : new InAppOnl
 
 export const storage = new LocalBlobStorage(env.STORAGE_DIR);
 
-export const channels: { sms: ChannelAdapter; whatsapp: ChannelAdapter | null } = {
+export const channels: { sms: ChannelAdapter; whatsapp: ChannelAdapter | null; email: ChannelAdapter } = {
+  email: new OutboxEmail(),
   sms:
     env.SMS_PROVIDER === "telnyx"
       ? new TelnyxSms(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY), env.TELNYX_MESSAGING_PROFILE_ID)

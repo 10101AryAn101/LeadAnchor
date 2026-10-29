@@ -163,6 +163,17 @@ export const messageItem = z.object({
 });
 export type MessageItem = z.infer<typeof messageItem>;
 
+/** An email in the development outbox (no email service connected yet). */
+export interface OutboxEmail {
+  id: string;
+  to: string;
+  subject: string | null;
+  body: string;
+  status: z.infer<typeof messageItem>["status"];
+  blockedReason: string | null;
+  createdAt: string;
+}
+
 export const callItem = z.object({
   id,
   from: z.string(),

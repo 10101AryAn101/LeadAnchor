@@ -185,7 +185,10 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         </FieldGroup>
       </Section>
 
-      <Section title="Your summary" description="A short note of what LeadAnchor caught for you and what it was worth.">
+      <Section
+        title="Your summary"
+        description="A short note of what LeadAnchor caught for you and what it was worth. It arrives at 8 AM your time, as an alert in the app and by email."
+      >
         <Controller
           control={form.control}
           name="valueProofFrequency"

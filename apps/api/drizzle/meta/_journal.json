@@ -22,6 +22,13 @@
       "when": 1793190355521,
       "tag": "0002_lead_visit",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1793259834341,
+      "tag": "0003_email_outbox_and_summary",
+      "breakpoints": true
     }
   ]
 }

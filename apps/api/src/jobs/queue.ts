@@ -10,6 +10,8 @@ export const QUEUES = {
   triagePhoto: "ai.triage-photo",
   /** Deliver one outbound message through its channel adapter (Module 5). */
   dispatchMessage: "messaging.dispatch",
+  /** Every 15 minutes: send value-proof summaries that are due (C-40). */
+  valueProofTick: "value-proof.tick",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -18,6 +20,7 @@ export interface JobPayloads {
   [QUEUES.extractCallerNeed]: { tenantId: string; leadId: string; callId: string | null; transcript: string; source: "voicemail" | "ai_dispatcher" | "web_form" };
   [QUEUES.triagePhoto]: { tenantId: string; mediaId: string };
   [QUEUES.dispatchMessage]: { tenantId: string; messageId: string };
+  [QUEUES.valueProofTick]: Record<string, never>;
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });
@@ -36,6 +39,7 @@ export async function startQueue() {
     await boss.createQueue(name, RETRY_POLICY);
     await boss.updateQueue(name, RETRY_POLICY);
   }
+  await boss.schedule(QUEUES.valueProofTick, "*/15 * * * *");
   started = true;
 }
 

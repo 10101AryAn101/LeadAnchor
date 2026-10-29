@@ -26,6 +26,8 @@ export const tenants = pgTable("tenants", {
   valueProofFrequency: text("value_proof_frequency", { enum: ["daily", "weekly", "off"] })
     .notNull()
     .default("weekly"),
+  /** When the last value-proof summary went out (C-40), so each period sends once. */
+  valueProofLastSentAt: tsz("value_proof_last_sent_at"),
   status: text("status", { enum: ["trial", "active", "past_due", "suspended", "cancelled"] })
     .notNull()
     .default("trial"),

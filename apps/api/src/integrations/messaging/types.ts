@@ -4,6 +4,8 @@ export interface OutboundMessage {
   id: string;
   from: string;
   to: string;
+  /** Email only. */
+  subject?: string | null;
   body: string;
 }
 

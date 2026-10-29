@@ -13,14 +13,14 @@ export async function dispatchMessage({ tenantId, messageId }: { tenantId: strin
   });
   if (!message || message.status !== "queued") return;
 
-  const adapter = message.channel === "whatsapp" ? channels.whatsapp : channels.sms;
+  const adapter = message.channel === "whatsapp" ? channels.whatsapp : message.channel === "email" ? channels.email : channels.sms;
   if (!adapter) {
     await markFailed(tenantId, messageId, message.leadId, `No ${message.channel} adapter is configured.`);
     return;
   }
 
   try {
-    const result = await adapter.send({ id: message.id, from: message.fromAddress, to: message.toAddress, body: message.body });
+    const result = await adapter.send({ id: message.id, from: message.fromAddress, to: message.toAddress, subject: message.subject, body: message.body });
     await tenantWork(tenantId, async (tx, fx) => {
       const now = new Date();
       await tx
