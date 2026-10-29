@@ -23,6 +23,7 @@ import {
   REGISTRATION_STAGES,
   REGISTRATION_STATUSES,
   REGISTRY_TEST_OUTCOMES,
+  REQUEST_SOURCES,
   ROLES,
   TRACKS,
   TRADES,
@@ -441,6 +442,14 @@ export const intakeSubmitFields = z.object({
 });
 export type IntakeSubmitFields = z.input<typeof intakeSubmitFields>;
 
+/** A new request from the business's public form (C-10). We don't know the caller yet, so the phone is asked. */
+export const publicRequestFields = intakeSubmitFields.extend({
+  phone: usPhone,
+  source: z.enum(REQUEST_SOURCES).catch("link"),
+  /** Spam trap: hidden from people, filled in by bots. */
+  company: z.string().max(200).optional().default(""),
+});
+
 /** Exact wording shown next to the checkbox — versioned so the ledger proves what was agreed to. */
 export const INTAKE_CONSENT_TEXT =
   "Text me about this request. Messages are about this job only; reply STOP to opt out. Msg & data rates may apply.";
@@ -471,6 +480,8 @@ export const settingsResponse = z.object({
   profileLinkInTexts: z.boolean(),
   /** The public profile page (C-41). */
   profileUrl: z.string(),
+  /** The public request form behind the website button and the Google profile link (C-10). */
+  requestUrl: z.string(),
   avgJobValueCents: z.number().int(),
   ringTimeoutSecs: z.number().int(),
   dispatcherEnabled: z.boolean(),

@@ -20,6 +20,7 @@ import { api } from "@/lib/api";
 import { formatPhone } from "@/lib/format";
 import { showFormError } from "@/lib/forms";
 import { keys, useSettings } from "@/lib/queries";
+import { CaptureLinks } from "./capture-links";
 import { ForwardingCheck } from "./forwarding-check";
 import { ForwardingGuide } from "./forwarding-guide";
 import { PhoneAlerts } from "./phone-alerts";
@@ -137,6 +138,10 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         </div>
         <ForwardingGuide trackingNumber={settings.trackingNumber ?? ""} />
         <ForwardingCheck settings={settings} />
+      </Section>
+
+      <Section id="capture" title="Website & Google" description="Catch the people who'd never call: one request form behind your Google profile, your website and a link you can share.">
+        <CaptureLinks settings={settings} />
       </Section>
 
       <Section id="alerts" title="Missed-call alerts" description="A “tap to call back” alert on your phone within seconds of a missed call or hang-up.">

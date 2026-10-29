@@ -126,6 +126,10 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
 export const URGENCY_LEVELS = ["low", "normal", "high", "emergency"] as const;
 export type Urgency = (typeof URGENCY_LEVELS)[number];
 
+/** Where a request on the public form came from (C-10): the website button, the Google profile, or a shared link. */
+export const REQUEST_SOURCES = ["website", "google", "link"] as const;
+export type RequestSource = (typeof REQUEST_SOURCES)[number];
+
 /** How the customer's request form is progressing (C-07 / C-08). */
 export const INTAKE_STATUSES = ["none", "link_sent", "opened", "submitted"] as const;
 export type IntakeStatus = (typeof INTAKE_STATUSES)[number];

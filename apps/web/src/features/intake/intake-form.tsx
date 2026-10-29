@@ -1,6 +1,6 @@
 "use client";
 
-import { INTAKE_CONSENT_TEXT, type IntakeContext, TRACK_BY_TRADE, TRADE_LABELS, intakeMarketingConsentText } from "@leadanchor/contracts";
+import { INTAKE_CONSENT_TEXT, type IntakeContext, type RequestSource, TRACK_BY_TRADE, TRADE_LABELS, intakeMarketingConsentText } from "@leadanchor/contracts";
 import { IconCamera, IconCheck, IconChevronLeft, IconCircleCheck, IconPhone, IconPhoto, IconShieldCheck, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { formatPhone, telHref } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -23,6 +24,7 @@ interface Draft {
   details: string;
   preferredTime: string;
   contactName: string;
+  phone: string;
   address: string;
   email: string;
   smsConsent: boolean;
@@ -31,8 +33,21 @@ interface Draft {
 
 type Step = 0 | 1 | 2;
 
-export function IntakeForm({ token, context }: { token: string; context: IntakeContext }) {
-  const storageKey = `leadanchor:intake:${token.slice(0, 12)}`;
+export function IntakeForm({
+  context,
+  submitUrl,
+  draftKey,
+  newRequest,
+}: {
+  context: IntakeContext;
+  /** Where the answers go: one lead's request link, or the business's public form. */
+  submitUrl: string;
+  /** Keeps a half-filled form through a reload. */
+  draftKey: string;
+  /** The public form (C-10): there's no caller ID yet, so it asks for a phone number and notes where it came from. */
+  newRequest?: { source: RequestSource };
+}) {
+  const storageKey = `leadanchor:intake:${draftKey}`;
   const track = TRACK_BY_TRADE[context.business.trade];
   const [step, setStep] = useState<Step>(0);
   const [draft, setDraft] = useState<Draft>({
@@ -40,6 +55,7 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
     details: "",
     preferredTime: "",
     contactName: context.customerName ?? "",
+    phone: "",
     address: "",
     email: "",
     smsConsent: false,
@@ -50,6 +66,8 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
   const [progress, setProgress] = useState<number | null>(null);
   const [done, setDone] = useState(context.status === "submitted");
   const [failure, setFailure] = useState<string | null>(null);
+  // Spam trap: people never see this field; bots fill it in.
+  const [trap, setTrap] = useState("");
   const cameraRef = useRef<HTMLInputElement>(null);
   const libraryRef = useRef<HTMLInputElement>(null);
 
@@ -94,6 +112,7 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
 
   const submit = () => {
     if (!draft.contactName.trim()) return setErrors({ contactName: "Enter your name" });
+    if (newRequest && draft.phone.replace(/\D/g, "").length < 10) return setErrors({ phone: "Enter your phone number so they can reach you" });
     setFailure(null);
     const body = new FormData();
     if (draft.serviceId && draft.serviceId !== OTHER) body.set("serviceId", draft.serviceId);
@@ -104,11 +123,16 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
     body.set("preferredTime", draft.preferredTime);
     body.set("smsConsent", String(draft.smsConsent));
     body.set("marketingConsent", String(draft.marketingConsent));
+    if (newRequest) {
+      body.set("phone", draft.phone.trim());
+      body.set("source", newRequest.source);
+      body.set("company", trap);
+    }
     for (const file of photos) body.append("photos", file, file.name);
 
     // XHR rather than fetch so we can show upload progress for the photos.
     const xhr = new XMLHttpRequest();
-    xhr.open("POST", `/api/public/intake/${encodeURIComponent(token)}`);
+    xhr.open("POST", submitUrl);
     xhr.upload.onprogress = (event) => event.lengthComputable && setProgress(Math.round((event.loaded / event.total) * 100));
     xhr.onload = () => {
       setProgress(null);
@@ -303,6 +327,26 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
               <Input id="contactName" autoComplete="name" value={draft.contactName} onChange={(e) => set("contactName", e.target.value)} />
               {errors.contactName && <p className="text-[15px] text-destructive">{errors.contactName}</p>}
             </Field>
+            {newRequest && (
+              <Field data-invalid={!!errors.phone}>
+                <FieldLabel htmlFor="phone">Your mobile number</FieldLabel>
+                <Input id="phone" type="tel" inputMode="tel" autoComplete="tel" value={draft.phone} onChange={(e) => set("phone", e.target.value)} />
+                <p className="text-sm text-muted-foreground">So {context.business.name} can call or text you back.</p>
+                {errors.phone && <p className="text-[15px] text-destructive">{errors.phone}</p>}
+              </Field>
+            )}
+            {newRequest && (
+              <input
+                type="text"
+                name="company"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden
+                value={trap}
+                onChange={(e) => setTrap(e.target.value)}
+                className="absolute -left-[9999px] h-px w-px opacity-0"
+              />
+            )}
             {track === "A" && (
               <Field>
                 <FieldLabel htmlFor="address">Address of the job (optional)</FieldLabel>
@@ -395,6 +439,20 @@ function Notice({ title, body, context }: { title: string; body: string; context
           <IconPhone /> Call {formatPhone(context.business.phone)}
         </Button>
       )}
+    </div>
+  );
+}
+
+export function IntakeSkeleton() {
+  return (
+    <div className="mx-auto max-w-md space-y-5 px-5 py-8">
+      <Skeleton className="h-16 w-full rounded-lg" />
+      <Skeleton className="h-8 w-56" />
+      <div className="grid grid-cols-2 gap-3">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <Skeleton key={i} className="h-16 rounded-lg" />
+        ))}
+      </div>
     </div>
   );
 }

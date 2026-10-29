@@ -49,7 +49,8 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
       purpose: "Booking link on Google, hours sync and reviews.",
       capabilities: ["C-10", "C-21", "C-47"],
       state: env.GBP_CLIENT_ID ? "not_configured" : "planned",
-      detail: "Requires Google's API access approval and OAuth per business.",
+      detail:
+        "Each business already has a Google request link to paste into its profile (Settings → Website & Google). Adding it automatically, hours sync and reviews need Google's API approval and sign-in per business.",
       mandatedBySpec: true,
     },
     {

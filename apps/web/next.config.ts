@@ -42,6 +42,11 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // The website button (C-10) runs on owners' sites: cache it briefly so fixes reach them within minutes.
+        source: "/widget.js",
+        headers: [{ key: "Cache-Control", value: "public, max-age=300" }],
+      },
+      {
         // The alerts service worker (C-05) must never be served stale.
         source: "/sw.js",
         headers: [

@@ -15,6 +15,7 @@ import { carrierRegistrations, memberships, phoneNumbers, services, tenants } fr
 import { HttpError } from "../../lib/errors";
 import { telephony } from "../../container";
 import { audit } from "../compliance/audit";
+import { requestUrl } from "../intake/intake.service";
 import { profileUrl } from "../profile/profile";
 import { DEFAULT_SERVICES } from "./default-services";
 
@@ -107,6 +108,7 @@ export async function getSettings(tenantId: string): Promise<SettingsResponse> {
       googleProfileUrl: tenant.googleProfileUrl,
       profileLinkInTexts: tenant.profileLinkInTexts,
       profileUrl: profileUrl(tenant.slug),
+      requestUrl: requestUrl(tenant.slug),
       avgJobValueCents: tenant.avgJobValueCents,
       ringTimeoutSecs: tenant.ringTimeoutSecs,
       dispatcherEnabled: tenant.dispatcherEnabled,

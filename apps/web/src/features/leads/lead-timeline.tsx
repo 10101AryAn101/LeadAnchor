@@ -2,6 +2,7 @@
 
 import { type AutoMoveReason, LEAD_STAGE_LABELS, type LeadDetail, type LeadEvent, type LeadStage, type MessageItem } from "@leadanchor/contracts";
 import {
+  IconBrandGoogle,
   IconCalendarEvent,
   IconCalendarX,
   IconCamera,
@@ -21,6 +22,7 @@ import {
   IconShieldCheck,
   IconShieldX,
   IconTag,
+  IconWorld,
 } from "@tabler/icons-react";
 import { type ReactNode, useMemo, useState } from "react";
 import { clockTime, dayLabel, fullDate, money } from "@/lib/format";
@@ -185,6 +187,14 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
         icon: IconCurrencyDollar,
         tone: "good",
         title: typeof d.valueCents === "number" ? `Job value set to ${money(d.valueCents)}` : "Job value cleared",
+      };
+    case "request.received":
+      return {
+        ...base,
+        kind: "other",
+        icon: d.channel === "google" ? IconBrandGoogle : IconWorld,
+        tone: "neutral",
+        title: d.channel === "google" ? "Asked for service from your Google profile" : d.channel === "website" ? "Asked for service on your website" : "Asked for service through your request link",
       };
     case "tags.changed": {
       const added = Array.isArray(d.added) ? d.added.map(String) : [];

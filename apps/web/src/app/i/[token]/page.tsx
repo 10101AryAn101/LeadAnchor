@@ -2,8 +2,7 @@ import type { IntakeContext } from "@leadanchor/contracts";
 import { IconLinkOff } from "@tabler/icons-react";
 import type { Metadata } from "next";
 import { Suspense } from "react";
-import { Skeleton } from "@/components/ui/skeleton";
-import { IntakeForm } from "@/features/intake/intake-form";
+import { IntakeForm, IntakeSkeleton } from "@/features/intake/intake-form";
 
 export const metadata: Metadata = {
   title: "Tell us about your job",
@@ -45,19 +44,5 @@ async function IntakeLoader({ params }: { params: Promise<{ token: string }> }) 
     );
   }
 
-  return <IntakeForm token={token} context={context} />;
-}
-
-function IntakeSkeleton() {
-  return (
-    <div className="mx-auto max-w-md space-y-5 px-5 py-8">
-      <Skeleton className="h-16 w-full rounded-lg" />
-      <Skeleton className="h-8 w-56" />
-      <div className="grid grid-cols-2 gap-3">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <Skeleton key={i} className="h-16 rounded-lg" />
-        ))}
-      </div>
-    </div>
-  );
+  return <IntakeForm context={context} submitUrl={`/api/public/intake/${encodeURIComponent(token)}`} draftKey={token.slice(0, 12)} />;
 }

@@ -6,7 +6,7 @@ import { type NextRequest, NextResponse } from "next/server";
  * session cookie exists — a fast, optimistic gate. The API re-validates the
  * session on every request, so a forged cookie gets nothing.
  */
-const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/i/", "/p/", "/privacy", "/terms"];
+const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/i/", "/p/", "/r/", "/privacy", "/terms"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
@@ -31,5 +31,5 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|icon.svg|sw.js|manifest.webmanifest|.*\\.(?:png|jpg|svg|webp|ico)$).*)"],
+  matcher: ["/((?!api|_next/static|_next/image|favicon.ico|icon.svg|sw.js|widget.js|widget-demo.html|manifest.webmanifest|.*\\.(?:png|jpg|svg|webp|ico)$).*)"],
 };

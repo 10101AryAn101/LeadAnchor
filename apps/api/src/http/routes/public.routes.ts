@@ -1,9 +1,9 @@
-import { intakeSubmitFields } from "@leadanchor/contracts";
-import type { FastifyInstance } from "fastify";
+import { intakeSubmitFields, publicRequestFields } from "@leadanchor/contracts";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { storage } from "../../container";
 import { badRequest, notFound, parseInput } from "../../lib/errors";
-import { MAX_PHOTOS, getIntakeContext, submitIntake } from "../../modules/intake/intake.service";
+import { MAX_PHOTOS, getIntakeContext, getRequestContext, submitIntake, submitPublicRequest } from "../../modules/intake/intake.service";
 import { findShowcasePhoto, getPublicProfile } from "../../modules/profile/profile";
 
 const tokenParam = z.object({ token: z.string().min(20).max(64) });
@@ -38,25 +38,38 @@ export async function publicRoutes(app: FastifyInstance) {
 
   app.post("/api/public/intake/:token", async (req, reply) => {
     const { token } = parseInput(tokenParam, req.params);
-    if (!req.isMultipart()) throw badRequest("Expected a form submission.");
-
-    const fields: Record<string, string> = {};
-    const photos: Array<{ buffer: Buffer }> = [];
-    for await (const part of req.parts()) {
-      if (part.type === "file") {
-        if (photos.length >= MAX_PHOTOS) {
-          await part.toBuffer();
-          continue;
-        }
-        const buffer = await part.toBuffer();
-        if (buffer.length > 0) photos.push({ buffer });
-      } else {
-        fields[part.fieldname] = String(part.value ?? "");
-      }
-    }
-
-    const input = parseInput(intakeSubmitFields, fields);
-    const result = await submitIntake(token, input, photos, { ipAddress: req.ip ?? null });
+    const { fields, photos } = await readForm(req);
+    const result = await submitIntake(token, parseInput(intakeSubmitFields, fields), photos, { ipAddress: req.ip ?? null });
     return reply.status(201).send(result);
   });
+
+  /** C-10: the request form behind the website button, the Google profile link and shared links. */
+  app.get("/api/public/request/:slug", async (req, reply) => {
+    const { slug } = parseInput(slugParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return getRequestContext(slug);
+  });
+
+  app.post("/api/public/request/:slug", async (req, reply) => {
+    const { slug } = parseInput(slugParam, req.params);
+    const { fields, photos } = await readForm(req);
+    const result = await submitPublicRequest(slug, parseInput(publicRequestFields, fields), photos, { ipAddress: req.ip ?? null });
+    return reply.status(201).send(result);
+  });
+}
+
+/** Reads a multipart form: text fields plus up to MAX_PHOTOS photos (extra files are drained and dropped). */
+async function readForm(req: FastifyRequest) {
+  if (!req.isMultipart()) throw badRequest("Expected a form submission.");
+  const fields: Record<string, string> = {};
+  const photos: Array<{ buffer: Buffer }> = [];
+  for await (const part of req.parts()) {
+    if (part.type === "file") {
+      const buffer = await part.toBuffer();
+      if (buffer.length > 0 && photos.length < MAX_PHOTOS) photos.push({ buffer });
+    } else {
+      fields[part.fieldname] = String(part.value ?? "");
+    }
+  }
+  return { fields, photos };
 }
