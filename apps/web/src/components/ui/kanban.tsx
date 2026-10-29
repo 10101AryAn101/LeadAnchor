@@ -1,5 +1,8 @@
 "use client";
 
+/* eslint-disable react-hooks/exhaustive-deps, react-hooks/refs, react-hooks/preserve-manual-memoization --
+   Vendored from Dice UI (shadcn registry) and kept as upstream ships it, so updates stay a straight copy. */
+
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 import { useIsoLayoutEffect } from "@base-ui/utils/useIsoLayoutEffect";

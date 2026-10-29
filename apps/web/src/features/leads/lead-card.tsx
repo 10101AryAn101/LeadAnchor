@@ -4,7 +4,7 @@ import type { LeadCard as LeadCardData } from "@leadanchor/contracts";
 import { IconCalendarEvent, IconDots, IconMessage, IconPhone, IconPhoto } from "@tabler/icons-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { formatPhone, money, smsHref, telHref, visitTime } from "@/lib/format";
+import { formatPhone, isWithin, money, smsHref, telHref, visitTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { SourceLabel, UrgencyChip, WaitingChip, isWaiting } from "./lead-meta";
 import { useRecordContact } from "./use-lead-actions";
@@ -18,7 +18,7 @@ const JUST_ARRIVED_MS = 15_000;
 export function LeadCard({ lead, onMove, className }: { lead: LeadCardData; onMove: (lead: LeadCardData) => void; className?: string }) {
   const name = lead.customer.name ?? formatPhone(lead.customer.phone);
   const waiting = isWaiting(lead);
-  const justArrived = Date.now() - new Date(lead.createdAt).getTime() < JUST_ARRIVED_MS;
+  const justArrived = isWithin(lead.createdAt, JUST_ARRIVED_MS);
   const recordContact = useRecordContact();
 
   return (

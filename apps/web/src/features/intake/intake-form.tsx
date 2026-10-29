@@ -53,6 +53,8 @@ export function IntakeForm({ token, context }: { token: string; context: IntakeC
   useEffect(() => {
     try {
       const saved = sessionStorage.getItem(storageKey);
+      // The server can't read sessionStorage, so the saved draft is restored right after the page loads.
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       if (saved) setDraft((current) => ({ ...current, ...(JSON.parse(saved) as Partial<Draft>) }));
     } catch {
       // Private mode or blocked storage — the form still works.

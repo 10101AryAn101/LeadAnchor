@@ -30,7 +30,7 @@ export function useUpdateLead() {
   const queryClient = useQueryClient();
 
   const mutation = useMutation({
-    mutationFn: ({ id, undoStage: _undo, ...body }: UpdateVars) => api<LeadDetail>(`/leads/${id}`, { method: "PATCH", body }),
+    mutationFn: ({ id, undoStage, ...body }: UpdateVars) => api<LeadDetail>(`/leads/${id}`, { method: "PATCH", body }),
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: keys.leads });
       const previous = queryClient.getQueryData<LeadCard[]>(keys.leads);

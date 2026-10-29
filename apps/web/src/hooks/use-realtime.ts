@@ -1,7 +1,7 @@
 "use client";
 
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent } from "react";
 import { toast } from "sonner";
 import { keys } from "@/lib/queries";
 
@@ -18,8 +18,8 @@ type RealtimeEvent =
  */
 export function useRealtime(onNotification?: (event: { title: string; body: string; leadId: string | null }) => void) {
   const queryClient = useQueryClient();
-  const handlerRef = useRef(onNotification);
-  handlerRef.current = onNotification;
+  // Always calls the latest handler without reconnecting when it changes.
+  const notify = useEffectEvent((event: { title: string; body: string; leadId: string | null }) => onNotification?.(event));
 
   useEffect(() => {
     let source: EventSource | null = null;
@@ -49,7 +49,7 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
             break;
           case "notification.created":
             void queryClient.invalidateQueries({ queryKey: keys.notifications });
-            handlerRef.current?.(event);
+            notify(event);
             break;
           case "message.created":
             if (event.leadId) void queryClient.invalidateQueries({ queryKey: keys.lead(event.leadId) });

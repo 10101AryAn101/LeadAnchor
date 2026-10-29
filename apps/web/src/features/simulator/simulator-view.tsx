@@ -54,6 +54,7 @@ export function SimulatorView() {
   const { data: registration } = useRegistration();
   // Random numbers must not be generated while Next.js prerenders the page, so pick one after mount.
   const [callerPhone, setCallerPhone] = useState("");
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only random value, picked once after the page loads
   useEffect(() => setCallerPhone(randomCaller()), []);
   const [callerName, setCallerName] = useState("");
   const [ownerBehavior, setOwnerBehavior] = useState<OwnerBehavior>("no_answer");

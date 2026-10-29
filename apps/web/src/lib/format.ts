@@ -11,6 +11,9 @@ export const moneyCompact = (cents: number) => (cents >= 1_000_000 ? usdCompact.
 
 const minutesSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
 
+/** True while `iso` is less than `ms` old (e.g. to animate a card that just arrived). */
+export const isWithin = (iso: string, ms: number) => Date.now() - new Date(iso).getTime() < ms;
+
 /** "just now", "12 min ago", "3 hr ago", "Yesterday 3:14 PM", "Mar 4". */
 export function timeAgo(iso: string) {
   const date = new Date(iso);

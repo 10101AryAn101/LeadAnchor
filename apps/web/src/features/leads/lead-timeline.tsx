@@ -51,6 +51,13 @@ interface Row {
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
 
+/** Older entries stored the raw error from the AI service; show those in plain words too. */
+function plainSkipReason(reason: string) {
+  if (!reason.startsWith("The AI service was unavailable")) return reason;
+  const why = /429|quota/i.test(reason) ? "the AI's daily limit was reached" : "the AI service didn't answer";
+  return `No AI summary this time: ${why}. The customer's own words are kept instead.`;
+}
+
 /** Why a card moved by itself, in the owner's words. */
 const AUTO_MOVE_WHY: Record<AutoMoveReason, string> = {
   owner_called: "You tapped Call.",
@@ -104,7 +111,7 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
         body: str(d.summary),
       };
     case "ai.skipped":
-      return { ...base, kind: "other", icon: IconFileText, tone: "neutral", title: "Summary skipped", body: str(d.reason) };
+      return { ...base, kind: "other", icon: IconFileText, tone: "neutral", title: "Summary skipped", body: plainSkipReason(str(d.reason)) };
     case "consent.granted":
       return {
         ...base,

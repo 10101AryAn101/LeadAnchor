@@ -7,11 +7,20 @@ import { logger } from "../../lib/logger";
 import { ai, storage } from "../../container";
 import { addLeadEvent, higherUrgency } from "../leads/lead-capture";
 
+/** Plain words for the lead's timeline; the technical error stays in the logs. */
+function skipReason(error: unknown, attempts: number) {
+  const status = (error as { status?: number } | null)?.status;
+  const why =
+    status === 429 ? "the AI's daily limit was reached" : status === 500 || status === 503 ? "the AI service was busy" : "the AI service didn't answer";
+  return `No AI summary this time: ${why} (tried ${attempts} times). The customer's own words are kept instead.`;
+}
+
 /** C-13 / C-39: turn what the caller said into a clear lead card. */
 export async function extractCallerNeedJob(job: JobPayloads[typeof QUEUES.extractCallerNeed], attempt = { retryCount: 0, isLast: true }) {
   const { tenantId, leadId, transcript, source } = job;
   if (!ai.configured) {
-    await tenantWork(tenantId, (tx) => addLeadEvent(tx, { tenantId, leadId, type: "ai.skipped", data: { reason: "AI is not configured" } }));
+    const reason = "No AI summary: AI isn't set up yet. The customer's own words are kept instead.";
+    await tenantWork(tenantId, (tx) => addLeadEvent(tx, { tenantId, leadId, type: "ai.skipped", data: { reason } }));
     return;
   }
 
@@ -37,13 +46,14 @@ export async function extractCallerNeedJob(job: JobPayloads[typeof QUEUES.extrac
     });
   } catch (error) {
     if (!attempt.isLast) throw error; // the queue retries with backoff
+    logger.warn({ err: error, leadId, attempts: attempt.retryCount + 1 }, "caller-need summary skipped");
     await tenantWork(tenantId, async (tx, fx) => {
       await addLeadEvent(tx, {
         tenantId,
         leadId,
         type: "ai.skipped",
         actor: "ai",
-        data: { reason: `The AI service was unavailable after ${attempt.retryCount + 1} attempts (${(error as Error).message.slice(0, 120)}). The caller's own words are kept as the summary.` },
+        data: { reason: skipReason(error, attempt.retryCount + 1) },
       });
       fx.publish({ type: "lead.updated", leadId });
     });
