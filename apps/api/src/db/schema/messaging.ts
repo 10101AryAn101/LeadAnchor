@@ -4,8 +4,10 @@ import {
   MESSAGE_PURPOSES,
   MESSAGE_STATUSES,
   NOTIFICATION_KINDS,
+  PUSH_PROVIDERS,
+  PUSH_STATUSES,
 } from "@leadanchor/contracts";
-import { index, jsonb, pgTable, text, uuid } from "drizzle-orm/pg-core";
+import { index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { createdAt, pk, tsz } from "./columns";
 import { customers, leads } from "./crm";
 import { tenantRef } from "./tenancy";
@@ -56,9 +58,26 @@ export const notifications = pgTable(
     title: text("title").notNull(),
     body: text("body").notNull(),
     leadId: uuid("lead_id").references(() => leads.id, { onDelete: "cascade" }),
-    pushStatus: text("push_status", { enum: ["in_app", "fcm_sent", "fcm_failed"] }).notNull().default("in_app"),
+    pushStatus: text("push_status", { enum: PUSH_STATUSES }).notNull().default("in_app"),
     readAt: tsz("read_at"),
     createdAt: createdAt(),
   },
   (t) => [index("notifications_tenant_idx").on(t.tenantId, t.createdAt)],
+);
+
+/** Phones and browsers that get the owner's alerts as push notifications (C-05). */
+export const pushDevices = pgTable(
+  "push_devices",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    userId: text("user_id").notNull(),
+    provider: text("provider", { enum: PUSH_PROVIDERS }).notNull(),
+    /** Firebase registration token, or a simulator-issued one. */
+    token: text("token").notNull(),
+    label: text("label").notNull(),
+    lastAlertAt: tsz("last_alert_at"),
+    createdAt: createdAt(),
+  },
+  (t) => [uniqueIndex("push_devices_token_uq").on(t.token), index("push_devices_tenant_idx").on(t.tenantId)],
 );

@@ -7,6 +7,7 @@ import {
   mediaUpdateInput,
   requestDetailsInput,
   noteInput,
+  pushDeviceInput,
   onboardingInput,
   registrationCodeInput,
   registrationInput,
@@ -40,6 +41,7 @@ import { getDashboard } from "../../modules/dashboard/dashboard.service";
 import { integrationStatuses } from "../../modules/integrations/integration-status";
 import { addNote, getLeadDetail, listBoard, recordContact, requestDetails, updateLead } from "../../modules/leads/lead.service";
 import { listNotifications, markNotificationsRead } from "../../modules/notifications/notification.queries";
+import { addPushDevice, listPushDevices, removePushDevice, sendTestAlert } from "../../modules/notifications/push";
 import { startForwardingCheck } from "../../modules/tenants/forwarding";
 import { findMembership, getSettings, getTenantSummary, onboardTenant, updateSettings } from "../../modules/tenants/tenant.service";
 import { tenantContext, userContext } from "../context";
@@ -169,6 +171,32 @@ export async function appRoutes(app: FastifyInstance) {
     const { ids } = parseInput(z.object({ ids: z.array(z.uuid()).optional() }), req.body ?? {});
     await markNotificationsRead(ctx.tenantId, ids);
     return { ok: true };
+  });
+
+  /* ── Phone alerts (C-05) ──────────────────────────────────────────────── */
+
+  app.get("/api/push/devices", async (req) => {
+    const ctx = await tenantContext(req);
+    return listPushDevices(ctx.tenantId);
+  });
+
+  app.post("/api/push/devices", async (req, reply) => {
+    const ctx = await tenantContext(req);
+    return reply.status(201).send(await addPushDevice(ctx.tenantId, ctx.userId, parseInput(pushDeviceInput, req.body)));
+  });
+
+  app.delete("/api/push/devices/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    await removePushDevice(ctx.tenantId, id);
+    return { ok: true };
+  });
+
+  /** A test alert to one phone, so the owner sees what a missed call looks like. */
+  app.post("/api/push/devices/:id/test", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return { status: await sendTestAlert(ctx.tenantId, id) };
   });
 
   /* ── Settings ─────────────────────────────────────────────────────────── */

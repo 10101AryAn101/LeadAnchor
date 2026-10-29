@@ -6,7 +6,8 @@ import { OutboxEmail } from "./integrations/messaging/email";
 import { SimulatorSms, TelnyxSms } from "./integrations/messaging/sms";
 import type { ChannelAdapter } from "./integrations/messaging/types";
 import { MetaWhatsApp } from "./integrations/messaging/whatsapp";
-import { FcmPush, InAppOnlyPush } from "./integrations/push/fcm";
+import { FcmPush } from "./integrations/push/fcm";
+import { SimulatedPush } from "./integrations/push/simulator";
 import type { PushProvider } from "./integrations/push/types";
 import { SimulatorRegistry } from "./integrations/registry/simulator";
 import { TelnyxRegistry } from "./integrations/registry/telnyx";
@@ -45,7 +46,8 @@ export const registry: CarrierRegistry =
 export const consentLedger: ConsentLedger =
   env.CONSENT_LEDGER === "firestore" ? new FirestoreConsentLedger() : new LocalConsentLedger();
 
-export const push: PushProvider = env.FCM_ENABLED ? new FcmPush() : new InAppOnlyPush();
+/** Phone alerts (C-05): Firebase Cloud Messaging once a Firebase project is connected. */
+export const push: PushProvider = env.FCM_ENABLED ? new FcmPush() : new SimulatedPush();
 
 export const storage = new LocalBlobStorage(env.STORAGE_DIR);
 

@@ -17,6 +17,7 @@ import {
   MESSAGE_PURPOSES,
   MESSAGE_STATUSES,
   NOTIFICATION_KINDS,
+  PUSH_PROVIDERS,
   REGISTRATION_PATHS,
   REGISTRATION_STAGES,
   REGISTRATION_STATUSES,
@@ -491,6 +492,33 @@ const address = {
   state: z.string().trim().length(2, "Use the 2-letter state code"),
   postalCode: z.string().trim().regex(/^\d{5}(-\d{4})?$/, "Enter a valid ZIP code"),
 };
+
+/* ----------------------------------------------------------------------------
+ * Phone alerts (C-05)
+ * ------------------------------------------------------------------------- */
+
+export const pushDeviceInput = z.object({
+  /** Firebase registration token. Omitted on the simulator, which issues its own. */
+  token: z.string().trim().min(10).max(4096).optional(),
+  label: z.string().trim().min(1).max(80),
+});
+export type PushDeviceInput = z.infer<typeof pushDeviceInput>;
+
+export const pushDevice = z.object({
+  id,
+  label: z.string(),
+  /** Matches the token this browser keeps, so it can tell which row is itself. */
+  token: z.string(),
+  createdAt: isoDate,
+  lastAlertAt: isoDate.nullable(),
+});
+export type PushDevice = z.infer<typeof pushDevice>;
+
+export const pushDevicesResponse = z.object({
+  provider: z.enum(PUSH_PROVIDERS),
+  devices: z.array(pushDevice),
+});
+export type PushDevicesResponse = z.infer<typeof pushDevicesResponse>;
 
 /** Simulator only: what the pretend carriers decide. Ignored when a real registry is connected. */
 const simulate = z.enum(REGISTRY_TEST_OUTCOMES).optional();

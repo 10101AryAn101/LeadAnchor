@@ -18,6 +18,7 @@ export const TENANT_TABLES = [
   "media_assets",
   "messages",
   "notifications",
+  "push_devices",
   "carrier_registrations",
   "consent_ledger",
   "audit_log",

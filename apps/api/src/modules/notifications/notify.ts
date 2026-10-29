@@ -4,7 +4,7 @@ import { linkBaseUrl } from "../../config/env";
 import { systemDb, type Tx } from "../../db/client";
 import { notifications } from "../../db/schema";
 import type { Effects } from "../../db/unit-of-work";
-import { push } from "../../container";
+import { sendPush } from "./push";
 
 /**
  * Alerts the owner (C-05, C-40). The alert is stored and pushed to open screens
@@ -14,7 +14,7 @@ import { push } from "../../container";
 export async function notifyOwner(
   tx: Tx,
   fx: Effects,
-  input: { tenantId: string; kind: NotificationKind; title: string; body: string; leadId?: string | null },
+  input: { tenantId: string; kind: NotificationKind; title: string; body: string; leadId?: string | null; callbackPhone?: string | null },
 ) {
   const [row] = await tx
     .insert(notifications)
@@ -31,7 +31,14 @@ export async function notifyOwner(
 
   fx.afterCommit(async () => {
     const link = input.leadId ? `${linkBaseUrl}/leads/${input.leadId}` : `${linkBaseUrl}/dashboard`;
-    const status = await push.send({ tenantId: input.tenantId, title: input.title, body: input.body, link });
+    const status = await sendPush({
+      tenantId: input.tenantId,
+      title: input.title,
+      body: input.body,
+      link,
+      callbackPhone: input.callbackPhone ?? null,
+      tag: input.leadId ? `lead-${input.leadId}` : undefined,
+    });
     if (status !== "in_app") {
       await systemDb.update(notifications).set({ pushStatus: status }).where(eq(notifications.id, row!.id));
     }

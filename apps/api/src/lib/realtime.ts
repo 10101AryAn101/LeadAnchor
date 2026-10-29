@@ -12,7 +12,18 @@ export type RealtimeEvent =
   | { type: "notification.created"; notificationId: string; title: string; body: string; leadId: string | null }
   | { type: "message.created"; messageId: string; leadId: string | null }
   | { type: "registration.updated" }
-  | { type: "settings.updated" };
+  | { type: "settings.updated" }
+  /** Simulated phone alert (C-05): shown by the browsers whose token is listed. */
+  | {
+      type: "push.preview";
+      tokens: string[];
+      title: string;
+      body: string;
+      link: string;
+      callbackPhone: string | null;
+      tag: string | null;
+      sentAt: string;
+    };
 
 const bus = new EventEmitter();
 bus.setMaxListeners(0);

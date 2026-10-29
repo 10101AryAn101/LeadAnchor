@@ -3,6 +3,7 @@
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useEffectEvent } from "react";
 import { toast } from "sonner";
+import { type SimulatedAlert, showSimulatedAlert } from "@/lib/push";
 import { keys } from "@/lib/queries";
 
 type RealtimeEvent =
@@ -11,7 +12,8 @@ type RealtimeEvent =
   | { type: "notification.created"; notificationId: string; title: string; body: string; leadId: string | null }
   | { type: "message.created"; messageId: string; leadId: string | null }
   | { type: "registration.updated" }
-  | { type: "settings.updated" };
+  | { type: "settings.updated" }
+  | ({ type: "push.preview" } & SimulatedAlert);
 
 /**
  * Subscribes to the API's server-sent events and refreshes exactly the data that
@@ -62,6 +64,13 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
             break;
           case "settings.updated":
             void queryClient.invalidateQueries({ queryKey: keys.settings });
+            break;
+          case "push.preview":
+            // Firebase isn't connected yet: show the phone alert from here (C-05).
+            void showSimulatedAlert(event).then((delayMs) => {
+              if (delayMs !== null && event.tag === "test") toast.success(`Test alert shown ${(delayMs / 1000).toFixed(1)} s after it was sent.`);
+            });
+            void queryClient.invalidateQueries({ queryKey: keys.pushDevices });
             break;
           case "registration.updated":
             void queryClient.invalidateQueries({ queryKey: keys.registration });

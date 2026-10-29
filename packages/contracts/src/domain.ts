@@ -215,6 +215,14 @@ export const NOTIFICATION_KINDS = [
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
+/** Phone alerts (C-05): Firebase Cloud Messaging, or the local simulator until Firebase is connected. */
+export const PUSH_PROVIDERS = ["fcm", "simulator"] as const;
+export type PushProviderName = (typeof PUSH_PROVIDERS)[number];
+
+/** What happened to an alert's push: none sent (no phones / in-app only), sent, failed, or simulated. */
+export const PUSH_STATUSES = ["in_app", "fcm_sent", "fcm_failed", "simulated"] as const;
+export type PushStatus = (typeof PUSH_STATUSES)[number];
+
 /** Third-party services named in the spec, with how this build talks to each. */
 export const INTEGRATIONS = [
   "telnyx",

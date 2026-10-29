@@ -13,6 +13,7 @@ import type {
   MeResponse,
   NotificationItem,
   OutboxEmail,
+  PushDevicesResponse,
   RegistrationResponse,
   ServiceItem,
   SettingsResponse,
@@ -39,6 +40,7 @@ export const keys = {
   consent: (phone?: string) => ["consent", phone ?? "all"] as const,
   integrations: ["integrations"] as const,
   outbox: ["outbox"] as const,
+  pushDevices: ["push-devices"] as const,
   simCall: (sessionId: string) => ["sim-call", sessionId] as const,
   simInbox: (phone: string) => ["sim-inbox", phone] as const,
 };
@@ -78,6 +80,8 @@ export const useNotifications = () =>
     queryKey: keys.notifications,
     queryFn: () => api<{ items: NotificationItem[]; unread: number }>("/notifications"),
   });
+
+export const usePushDevices = () => useQuery({ queryKey: keys.pushDevices, queryFn: () => api<PushDevicesResponse>("/push/devices") });
 
 export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: () => api<SettingsResponse>("/settings") });
 

@@ -22,6 +22,7 @@ import { showFormError } from "@/lib/forms";
 import { keys, useSettings } from "@/lib/queries";
 import { ForwardingCheck } from "./forwarding-check";
 import { ForwardingGuide } from "./forwarding-guide";
+import { PhoneAlerts } from "./phone-alerts";
 import { ServicesSection } from "./services-section";
 
 /** Form shape: plain strings/numbers in the inputs, validated by the shared schema on submit. */
@@ -136,6 +137,10 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         </div>
         <ForwardingGuide trackingNumber={settings.trackingNumber ?? ""} />
         <ForwardingCheck settings={settings} />
+      </Section>
+
+      <Section id="alerts" title="Missed-call alerts" description="A “tap to call back” alert on your phone within seconds of a missed call or hang-up.">
+        <PhoneAlerts />
       </Section>
 
       <Section title="When you can't pick up" description="Calls ring your cell first. If you don't answer in time, LeadAnchor takes over.">

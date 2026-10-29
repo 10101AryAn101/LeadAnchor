@@ -50,6 +50,13 @@
       "when": 1793268212460,
       "tag": "0006_carrier_registry",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793269874581,
+      "tag": "0007_push_devices",
+      "breakpoints": true
     }
   ]
 }

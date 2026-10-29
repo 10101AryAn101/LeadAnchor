@@ -316,6 +316,7 @@ export class CallEngine {
       title: `Voicemail from ${customer?.name ?? formatPhone(call.fromE164)}`,
       body: `“${truncate(text, 120)}”`,
       leadId: call.leadId,
+      callbackPhone: call.fromE164,
     });
   }
 
@@ -356,6 +357,7 @@ export class CallEngine {
           title: `Missed call from ${customer?.name ?? formatPhone(call.fromE164)}`,
           body: "They hung up before leaving a message. Tap to call back.",
           leadId: lead.id,
+          callbackPhone: call.fromE164,
         });
         break;
       }
@@ -383,6 +385,7 @@ export class CallEngine {
           title: `Missed call from ${formatPhone(call.fromE164)}`,
           body: need ? `Hung up after saying: “${truncate(need, 90)}”` : "Hung up during the greeting. Tap to call back.",
           leadId: lead.id,
+          callbackPhone: call.fromE164,
         });
         if (need) ctx.fx.enqueue(QUEUES.extractCallerNeed, { tenantId: tenant.id, leadId: lead.id, callId: call.id, transcript: need, source: "ai_dispatcher" });
         break;
