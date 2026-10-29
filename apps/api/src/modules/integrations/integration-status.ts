@@ -1,6 +1,6 @@
 import type { IntegrationStatus, RegistrationStatus } from "@leadanchor/contracts";
 import { env } from "../../config/env";
-import { ai, channels, consentLedger, registry } from "../../container";
+import { ai, channels, consentLedger, payments, pdf, registry } from "../../container";
 
 /**
  * Honest status of every third-party service the spec names: live, simulated
@@ -56,10 +56,13 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
     {
       key: "stripe",
       name: "Stripe",
-      purpose: "Deposits, pay links, subscription plans and referral credits.",
-      capabilities: ["C-15", "C-25", "C-26", "C-48–C-52"],
-      state: env.STRIPE_SECRET_KEY ? "not_configured" : "planned",
-      detail: "Planned for the workflow-and-money phase. Card data never touches our servers.",
+      purpose: "Card deposits and pay links (each business gets its own Stripe account), and later membership plans and referral credits.",
+      capabilities: ["C-15", "C-25", "C-26", "C-45", "C-48–C-52"],
+      state: payments.name === "stripe" ? "live" : "simulated",
+      detail:
+        payments.name === "stripe"
+          ? "Connected. Customers pay on Stripe's own checkout page."
+          : `Running on the built-in Stripe simulator: hosted checkout, deposits held on cards, and each business's own payments account. Card numbers are never typed into LeadAnchor.${pdf.available ? "" : " Quote PDFs need Chrome or Edge on the server (PDF_BROWSER_PATH)."}`,
       mandatedBySpec: true,
     },
     {

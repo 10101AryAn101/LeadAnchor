@@ -6,6 +6,8 @@ import {
   IconBell,
   IconCamera,
   IconChecks,
+  IconCurrencyDollar,
+  IconFileDollar,
   IconFileText,
   IconHeadset,
   IconPhoneX,
@@ -33,6 +35,8 @@ const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   photo_analyzed: { icon: IconCamera, tone: "bg-info-subtle text-info-strong" },
   value_proof: { icon: IconTrendingUp, tone: "bg-primary-subtle text-primary-subtle-foreground" },
   registration: { icon: IconShieldCheck, tone: "bg-info-subtle text-info-strong" },
+  quote: { icon: IconFileDollar, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  payment: { icon: IconCurrencyDollar, tone: "bg-primary-subtle text-primary-subtle-foreground" },
 };
 
 export function NotificationsButton({ className }: { className?: string }) {

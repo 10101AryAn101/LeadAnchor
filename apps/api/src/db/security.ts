@@ -22,6 +22,10 @@ export const TENANT_TABLES = [
   "carrier_registrations",
   "consent_ledger",
   "audit_log",
+  "payment_accounts",
+  "quotes",
+  "quote_lines",
+  "payment_requests",
 ] as const;
 
 /** Append-only tables: no UPDATE or DELETE for application roles. */

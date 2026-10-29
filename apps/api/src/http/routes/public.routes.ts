@@ -1,10 +1,12 @@
-import { intakeSubmitFields, publicRequestFields } from "@leadanchor/contracts";
+import { intakeSubmitFields, paymentReportInput, publicRequestFields, quoteDeclineInput } from "@leadanchor/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { storage } from "../../container";
 import { badRequest, notFound, parseInput } from "../../lib/errors";
 import { MAX_PHOTOS, getIntakeContext, getRequestContext, submitIntake, submitPublicRequest } from "../../modules/intake/intake.service";
+import { getPublicPayment, reportPayment, startCheckout, syncPublicPayment } from "../../modules/payments/payment.service";
 import { findShowcasePhoto, getPublicProfile } from "../../modules/profile/profile";
+import { acceptQuote, declineQuote, getPublicQuote, publicQuotePdf } from "../../modules/quotes/quote.service";
 
 const tokenParam = z.object({ token: z.string().min(20).max(64) });
 const slugParam = z.object({ slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$/) });
@@ -55,6 +57,59 @@ export async function publicRoutes(app: FastifyInstance) {
     const { fields, photos } = await readForm(req);
     const result = await submitPublicRequest(slug, parseInput(publicRequestFields, fields), photos, { ipAddress: req.ip ?? null });
     return reply.status(201).send(result);
+  });
+
+  /* ── Quotes (C-45): read, download, accept or decline ─────────────────── */
+
+  app.get("/api/public/quotes/:token", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return getPublicQuote(token);
+  });
+
+  app.get("/api/public/quotes/:token/pdf", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    const { filename, pdf } = await publicQuotePdf(token);
+    return reply
+      .header("Content-Type", "application/pdf")
+      .header("Content-Disposition", `inline; filename="${filename.replace(/[^A-Za-z0-9._-]/g, "-")}"`)
+      .header("Cache-Control", "private, no-store")
+      .send(pdf);
+  });
+
+  app.post("/api/public/quotes/:token/accept", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return acceptQuote(token, { ipAddress: req.ip ?? null });
+  });
+
+  app.post("/api/public/quotes/:token/decline", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return declineQuote(token, parseInput(quoteDeclineInput, req.body ?? {}).reason);
+  });
+
+  /* ── Pay links (C-15, C-26): card checkout, Zelle or Venmo ────────────── */
+
+  app.get("/api/public/pay/:token", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return getPublicPayment(token);
+  });
+
+  /** Opens the payments provider's hosted checkout; card details are typed there, never here. */
+  app.post("/api/public/pay/:token/checkout", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return startCheckout(token);
+  });
+
+  /** Back from the checkout: check the result now instead of waiting for the provider's webhook. */
+  app.post("/api/public/pay/:token/sync", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return syncPublicPayment(token);
+  });
+
+  app.post("/api/public/pay/:token/report", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return reportPayment(token, parseInput(paymentReportInput, req.body).method);
   });
 }
 

@@ -71,10 +71,10 @@ export const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
 
 /**
  * What the owner did that moves a card by itself: reaching the customer (Contacted),
- * adding a price (Quoted) or booking a visit (Scheduled). Won and Lost always need the
- * owner's word, so nothing moves a card there automatically.
+ * adding a price or sending a quote (Quoted) or booking a visit (Scheduled). Won and Lost
+ * always need the owner's word, so nothing moves a card there automatically.
  */
-export const AUTO_MOVE_REASONS = ["owner_called", "owner_texted", "owner_answered", "form_sent", "price_set", "visit_booked"] as const;
+export const AUTO_MOVE_REASONS = ["owner_called", "owner_texted", "owner_answered", "form_sent", "price_set", "quote_sent", "visit_booked"] as const;
 export type AutoMoveReason = (typeof AUTO_MOVE_REASONS)[number];
 
 export const AUTO_MOVE_STAGE: Record<AutoMoveReason, LeadStage> = {
@@ -83,6 +83,7 @@ export const AUTO_MOVE_STAGE: Record<AutoMoveReason, LeadStage> = {
   owner_answered: "contacted",
   form_sent: "contacted",
   price_set: "quoted",
+  quote_sent: "quoted",
   visit_booked: "scheduled",
 };
 
@@ -216,8 +217,66 @@ export const NOTIFICATION_KINDS = [
   "photo_analyzed",
   "value_proof",
   "registration",
+  "quote",
+  "payment",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+/** Quotes (module 6, C-45): drafted by the AI or from the price list, checked and sent by the owner. */
+export const QUOTE_STATUSES = ["draft", "sent", "accepted", "declined"] as const;
+export type QuoteStatus = (typeof QUOTE_STATUSES)[number];
+
+/** Where a quote line came from: the AI's pick from the price list, the price list itself, or the owner's own words. */
+export const QUOTE_LINE_ORIGINS = ["ai", "price_list", "custom"] as const;
+export type QuoteLineOrigin = (typeof QUOTE_LINE_ORIGINS)[number];
+
+/** How the first draft was made: by the AI from the photos, from the price list alone when the AI couldn't help, or empty. */
+export const QUOTE_DRAFT_SOURCES = ["ai", "price_list", "blank"] as const;
+export type QuoteDraftSource = (typeof QUOTE_DRAFT_SOURCES)[number];
+
+/** A sent quote can be accepted for this many days. */
+export const QUOTE_VALID_DAYS = 30;
+export const MAX_QUOTE_LINES = 30;
+/** C-45: a draft is ready within 15 seconds; the AI gets this long and the price list covers the rest. */
+export const QUOTE_DRAFT_AI_BUDGET_MS = 12_000;
+
+/** Payments (module 7). A deposit secures a booking (C-15); a payment is for the work (C-26). */
+export const PAYMENT_KINDS = ["deposit", "payment"] as const;
+export type PaymentKind = (typeof PAYMENT_KINDS)[number];
+
+/** hold: the card is authorised now and collected later (C-15); charge: collected straight away. */
+export const PAYMENT_CAPTURES = ["hold", "charge"] as const;
+export type PaymentCapture = (typeof PAYMENT_CAPTURES)[number];
+
+export const PAYMENT_STATUSES = ["open", "held", "paid", "released", "canceled"] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+export const PAYMENT_METHODS = ["card", "zelle", "venmo", "cash", "check", "other"] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+/** Money the owner marks as received themselves: nothing outside the card checkout reports back on its own. */
+export const MANUAL_PAYMENT_METHODS = ["zelle", "venmo", "cash", "check", "other"] as const;
+export type ManualPaymentMethod = (typeof MANUAL_PAYMENT_METHODS)[number];
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  card: "Card",
+  zelle: "Zelle",
+  venmo: "Venmo",
+  cash: "Cash",
+  check: "Check",
+  other: "Other",
+};
+
+/** Card payments go through Stripe (each business gets its own Connect account), or the local simulator until it's connected. */
+export const PAYMENT_PROVIDERS = ["simulator", "stripe"] as const;
+export type PaymentProviderName = (typeof PAYMENT_PROVIDERS)[number];
+
+export const PAYMENT_ACCOUNT_STATUSES = ["not_connected", "onboarding", "active", "restricted"] as const;
+export type PaymentAccountStatus = (typeof PAYMENT_ACCOUNT_STATUSES)[number];
+
+/** Card networks drop an uncollected hold after 7 days; the owner is warned a day before. */
+export const CARD_HOLD_DAYS = 7;
+export const MAX_PAYMENT_CENTS = 5_000_000;
 
 /** Job tags (module 4) offered before a business has made its own. */
 export const STARTER_TAGS: Record<Track, string[]> = {

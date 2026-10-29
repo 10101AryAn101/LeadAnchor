@@ -5,4 +5,5 @@ export * from "./calls";
 export * from "./intake";
 export * from "./messaging";
 export * from "./compliance";
+export * from "./money";
 export * from "./system";

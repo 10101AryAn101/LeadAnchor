@@ -72,7 +72,12 @@ const schema = z.object({
 
   STORAGE_DIR: z.string().default("./storage"),
 
+  // Quote PDFs (C-45) are printed by headless Chrome or Edge. Found automatically on a
+  // desktop; set the path on a server (e.g. /usr/bin/chromium).
+  PDF_BROWSER_PATH: optional,
+
   // Later phases — read now so the integrations page can report them honestly.
+  // Card payments run on the local Stripe simulator until a Stripe account is connected.
   STRIPE_SECRET_KEY: optional,
   GBP_CLIENT_ID: optional,
   SCHEDULER_PROVIDER: optional,

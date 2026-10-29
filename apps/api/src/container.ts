@@ -1,11 +1,15 @@
-import { env } from "./config/env";
+import { resolve } from "node:path";
+import { env, linkBaseUrl } from "./config/env";
 import { GeminiProvider } from "./integrations/ai/gemini";
 import type { AiProvider } from "./integrations/ai/types";
+import { ChromiumPdf, type PdfRenderer, findBrowser } from "./integrations/documents/pdf";
 import { FirestoreConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
 import { OutboxEmail } from "./integrations/messaging/email";
 import { SimulatorSms, TelnyxSms } from "./integrations/messaging/sms";
 import type { ChannelAdapter } from "./integrations/messaging/types";
 import { MetaWhatsApp } from "./integrations/messaging/whatsapp";
+import { SimulatorPayments } from "./integrations/payments/simulator";
+import type { PaymentsProvider } from "./integrations/payments/types";
 import { FcmPush } from "./integrations/push/fcm";
 import { SimulatedPush } from "./integrations/push/simulator";
 import type { PushProvider } from "./integrations/push/types";
@@ -50,6 +54,17 @@ export const consentLedger: ConsentLedger =
 export const push: PushProvider = env.FCM_ENABLED ? new FcmPush() : new SimulatedPush();
 
 export const storage = new LocalBlobStorage(env.STORAGE_DIR);
+
+/** Quote PDFs (C-45): headless Chrome or Edge renders the branded HTML. */
+export const pdf: PdfRenderer = new ChromiumPdf(findBrowser(env.PDF_BROWSER_PATH));
+
+export const simulatorPayments = new SimulatorPayments(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "payments.json"), linkBaseUrl);
+
+/**
+ * Card payments (module 7). Stripe Connect is the named provider; until a Stripe account is
+ * connected (step 2, free test mode), the simulator plays its part with the same objects.
+ */
+export const payments: PaymentsProvider = simulatorPayments;
 
 export const channels: { sms: ChannelAdapter; whatsapp: ChannelAdapter | null; email: ChannelAdapter } = {
   email: new OutboxEmail(),

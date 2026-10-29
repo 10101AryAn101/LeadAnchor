@@ -9,18 +9,23 @@ import {
   noteInput,
   pushDeviceInput,
   onboardingInput,
+  paymentRecordInput,
+  paymentRequestInput,
+  paymentSettingsInput,
+  quoteUpdateInput,
   registrationCodeInput,
   registrationInput,
   serviceInput,
   serviceOrderInput,
+  sendInput,
   serviceUpdateInput,
   settingsUpdateInput,
   toE164,
 } from "@leadanchor/contracts";
 import { and, eq } from "drizzle-orm";
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
-import { webOrigins } from "../../config/env";
+import { env, webOrigins } from "../../config/env";
 import { withTenant } from "../../db/client";
 import { mediaAssets } from "../../db/schema";
 import { notFound, parseInput } from "../../lib/errors";
@@ -43,11 +48,37 @@ import { addNote, getLeadDetail, listBoard, recordContact, requestDetails, updat
 import { listTags } from "../../modules/leads/tags";
 import { listNotifications, markNotificationsRead } from "../../modules/notifications/notification.queries";
 import { addPushDevice, listPushDevices, removePushDevice, sendTestAlert } from "../../modules/notifications/push";
+import {
+  cancelPaymentRequest,
+  capturePayment,
+  connectPayments,
+  getPaymentSettings,
+  recordPayment,
+  refreshPaymentAccount,
+  releasePayment,
+  requestPayment,
+  resendPaymentLink,
+  updatePaymentSettings,
+} from "../../modules/payments/payment.service";
+import { createQuote, discardQuote, getQuote, quotePdf, redraftQuote, reopenQuote, sendQuote, updateQuote } from "../../modules/quotes/quote.service";
 import { startForwardingCheck } from "../../modules/tenants/forwarding";
 import { findMembership, getSettings, getTenantSummary, onboardTenant, updateSettings } from "../../modules/tenants/tenant.service";
 import { tenantContext, userContext } from "../context";
 
 const idParam = z.object({ id: z.uuid() });
+
+/** The web address the owner is using, so a provider's setup page sends them back to the same place (and session). */
+const ownerOrigin = (req: FastifyRequest) => {
+  const origin = req.headers.origin;
+  return origin && webOrigins.includes(origin) ? origin : env.PUBLIC_WEB_URL;
+};
+
+/** A PDF shown in the browser, with a sensible name when saved. */
+const pdfHeaders = (filename: string) => ({
+  "Content-Type": "application/pdf",
+  "Content-Disposition": `inline; filename="${filename.replace(/[^A-Za-z0-9._-]/g, "-")}"`,
+  "Cache-Control": "private, no-store",
+});
 
 export async function appRoutes(app: FastifyInstance) {
   /* ── Session & onboarding ─────────────────────────────────────────────── */
@@ -114,6 +145,122 @@ export async function appRoutes(app: FastifyInstance) {
     const ctx = await tenantContext(req);
     const { id } = parseInput(idParam, req.params);
     return recordContact(ctx.tenantId, ctx.userId, id, parseInput(leadContactInput, req.body).channel);
+  });
+
+  /* ── Quotes (module 6, C-45) ──────────────────────────────────────────── */
+
+  /** "Draft quote": the AI's first draft from the photos and the price list. Nothing is sent. */
+  app.post("/api/leads/:id/quotes", async (req, reply) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    const { quote, created } = await createQuote(ctx.tenantId, ctx.userId, id);
+    return reply.status(created ? 201 : 200).send(quote);
+  });
+
+  app.get("/api/quotes/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return getQuote(ctx.tenantId, id);
+  });
+
+  app.patch("/api/quotes/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return updateQuote(ctx.tenantId, ctx.userId, id, parseInput(quoteUpdateInput, req.body));
+  });
+
+  /** The owner's approval: the only way a quote reaches the customer (C-45). */
+  app.post("/api/quotes/:id/send", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return sendQuote(ctx.tenantId, ctx.userId, id, parseInput(sendInput, req.body ?? {}));
+  });
+
+  /** "Try the AI again" on a draft that never went out. */
+  app.post("/api/quotes/:id/redraft", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return redraftQuote(ctx.tenantId, ctx.userId, id);
+  });
+
+  app.post("/api/quotes/:id/reopen", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return reopenQuote(ctx.tenantId, ctx.userId, id);
+  });
+
+  app.delete("/api/quotes/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    await discardQuote(ctx.tenantId, ctx.userId, id);
+    return { ok: true };
+  });
+
+  app.get("/api/quotes/:id/pdf", async (req, reply) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    const { filename, pdf } = await quotePdf(ctx.tenantId, id);
+    return reply.headers(pdfHeaders(filename)).send(pdf);
+  });
+
+  /* ── Payments (module 7, C-15, C-26) ──────────────────────────────────── */
+
+  app.post("/api/leads/:id/payments", async (req, reply) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return reply.status(201).send(await requestPayment(ctx.tenantId, ctx.userId, id, parseInput(paymentRequestInput, req.body)));
+  });
+
+  /** Zelle, Venmo, cash or a check: money the owner marks as received. */
+  app.post("/api/leads/:id/payments/record", async (req, reply) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return reply.status(201).send(await recordPayment(ctx.tenantId, ctx.userId, id, parseInput(paymentRecordInput, req.body)));
+  });
+
+  app.post("/api/payments/:id/capture", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return capturePayment(ctx.tenantId, ctx.userId, id);
+  });
+
+  app.post("/api/payments/:id/release", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return releasePayment(ctx.tenantId, ctx.userId, id);
+  });
+
+  app.post("/api/payments/:id/cancel", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return cancelPaymentRequest(ctx.tenantId, ctx.userId, id);
+  });
+
+  app.post("/api/payments/:id/resend", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return resendPaymentLink(ctx.tenantId, ctx.userId, id, parseInput(sendInput, req.body ?? {}));
+  });
+
+  app.get("/api/payments/settings", async (req) => {
+    const ctx = await tenantContext(req);
+    return getPaymentSettings(ctx.tenantId);
+  });
+
+  app.patch("/api/payments/settings", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return updatePaymentSettings(ctx.tenantId, ctx.userId, parseInput(paymentSettingsInput, req.body));
+  });
+
+  /** Opens the business's own payments account and returns the provider's setup page. */
+  app.post("/api/payments/connect", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return connectPayments(ctx.tenantId, ctx.userId, `${ownerOrigin(req)}/settings?payments=back#payments`);
+  });
+
+  app.post("/api/payments/settings/refresh", async (req) => {
+    const ctx = await tenantContext(req);
+    return refreshPaymentAccount(ctx.tenantId);
   });
 
   /** Tags in use, for the board filter and the tag picker (module 4). */

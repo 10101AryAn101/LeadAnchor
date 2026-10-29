@@ -11,6 +11,7 @@ import {
   autoMoveTarget,
 } from "@leadanchor/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { api, isApiError } from "@/lib/api";
@@ -28,6 +29,7 @@ interface UpdateVars extends LeadUpdateInput {
  */
 export function useUpdateLead() {
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const mutation = useMutation({
     mutationFn: ({ id, undoStage, ...body }: UpdateVars) => api<LeadDetail>(`/leads/${id}`, { method: "PATCH", body }),
@@ -61,9 +63,10 @@ export function useUpdateLead() {
       queryClient.setQueryData(keys.lead(detail.id), detail);
       if (vars.stage && vars.undoStage && vars.undoStage !== vars.stage) {
         const from = vars.undoStage;
-        toast(`Moved to ${LEAD_STAGE_LABELS[vars.stage]}`, {
-          action: { label: "Undo", onClick: () => mutation.mutate({ id: vars.id, stage: from }) },
-        });
+        const undo = { label: "Undo", onClick: () => mutation.mutate({ id: vars.id, stage: from }) };
+        // C-26: the job's done, so the bill can go out right away.
+        const due = vars.stage === "won" ? (detail.balance.dueCents ?? 0) : 0;
+        toast(`Moved to ${LEAD_STAGE_LABELS[vars.stage]}`, due > 0 ? { action: { label: "Send the bill", onClick: () => router.push(`/leads/${vars.id}?bill=true`) }, cancel: undo } : { action: undo });
       }
     },
     onSettled: (_data, _error, vars) => {

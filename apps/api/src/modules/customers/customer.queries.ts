@@ -5,6 +5,8 @@ import { calls, customers, leads, mediaAssets } from "../../db/schema";
 import { notFound } from "../../lib/errors";
 import { iso } from "../../lib/time";
 import { toCallItem } from "../leads/lead.service";
+import { paymentsFor } from "../payments/payment.service";
+import { quotesFor } from "../quotes/quote.service";
 
 /** Everyone who has called or sent a form, most recent first (C-34). `search` matches a name or phone digits. */
 export async function listCustomers(tenantId: string, search = ""): Promise<CustomerListItem[]> {
@@ -51,7 +53,7 @@ export async function listCustomers(tenantId: string, search = ""): Promise<Cust
   });
 }
 
-/** One customer's whole story: every job, call and photo, and what they've spent. Read-only. */
+/** One customer's whole story: every job, call, photo, quote and payment, and what they've spent. Read-only. */
 export async function getCustomer(tenantId: string, customerId: string): Promise<CustomerDetail> {
   return withTenant(tenantId, async (tx) => {
     const [customer] = await tx.select().from(customers).where(eq(customers.id, customerId));
@@ -61,14 +63,18 @@ export async function getCustomer(tenantId: string, customerId: string): Promise
       tx.select().from(leads).where(eq(leads.customerId, customerId)).orderBy(desc(leads.createdAt)),
       tx.select().from(calls).where(eq(calls.customerId, customerId)).orderBy(desc(calls.startedAt)).limit(50),
     ]);
-    const photos =
+    const jobIds = jobs.map((job) => job.id);
+    const [photos, quoteItems, paymentItems] = await Promise.all([
       jobs.length === 0
         ? []
-        : await tx
+        : tx
             .select({ id: mediaAssets.id, leadId: mediaAssets.leadId, aiTags: mediaAssets.aiTags, createdAt: mediaAssets.createdAt })
             .from(mediaAssets)
-            .where(and(inArray(mediaAssets.leadId, jobs.map((job) => job.id)), eq(mediaAssets.kind, "photo")))
-            .orderBy(desc(mediaAssets.createdAt));
+            .where(and(inArray(mediaAssets.leadId, jobIds), eq(mediaAssets.kind, "photo")))
+            .orderBy(desc(mediaAssets.createdAt)),
+      quotesFor(tx, jobIds),
+      paymentsFor(tx, jobIds),
+    ]);
 
     const won = jobs.filter((job) => job.stage === "won");
     return {
@@ -83,7 +89,10 @@ export async function getCustomer(tenantId: string, customerId: string): Promise
         openJobs: jobs.filter((job) => job.stage !== "won" && job.stage !== "lost").length,
         wonJobs: won.length,
         lifetimeValueCents: won.reduce((sum, job) => sum + (job.valueCents ?? 0), 0),
+        paidCents: paymentItems.filter((payment) => payment.status === "paid").reduce((sum, payment) => sum + payment.amountCents, 0),
       },
+      quotes: quoteItems,
+      payments: paymentItems,
       jobs: jobs.map((job) => ({
         id: job.id,
         title: job.title,

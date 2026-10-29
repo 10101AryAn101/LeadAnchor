@@ -12,13 +12,25 @@ import {
   INTEGRATION_STATES,
   LEAD_SOURCES,
   LEAD_STAGES,
+  MANUAL_PAYMENT_METHODS,
+  MAX_PAYMENT_CENTS,
+  MAX_QUOTE_LINES,
   MAX_TAGS_PER_JOB,
   MESSAGE_CHANNELS,
   MESSAGE_DIRECTIONS,
   MESSAGE_PURPOSES,
   MESSAGE_STATUSES,
   NOTIFICATION_KINDS,
+  PAYMENT_ACCOUNT_STATUSES,
+  PAYMENT_CAPTURES,
+  PAYMENT_KINDS,
+  PAYMENT_METHODS,
+  PAYMENT_PROVIDERS,
+  PAYMENT_STATUSES,
   PUSH_PROVIDERS,
+  QUOTE_DRAFT_SOURCES,
+  QUOTE_LINE_ORIGINS,
+  QUOTE_STATUSES,
   REGISTRATION_PATHS,
   REGISTRATION_STAGES,
   REGISTRATION_STATUSES,
@@ -192,6 +204,8 @@ export const messageItem = z.object({
   channel: z.enum(MESSAGE_CHANNELS),
   purpose: z.enum(MESSAGE_PURPOSES),
   status: z.enum(MESSAGE_STATUSES),
+  /** Email only. */
+  subject: z.string().nullable(),
   body: z.string(),
   blockedReason: z.string().nullable(),
   provider: z.string(),
@@ -226,6 +240,87 @@ export const callItem = z.object({
 });
 export type CallItem = z.infer<typeof callItem>;
 
+/* ----------------------------------------------------------------------------
+ * Money on a job: quotes (module 6, C-45) and payments (module 7, C-15, C-26)
+ * ------------------------------------------------------------------------- */
+
+export const quoteLine = z.object({
+  id,
+  serviceId: z.string().nullable(),
+  description: z.string(),
+  quantity: z.number().int(),
+  /** Null until the owner prices a line that isn't on their price list. */
+  unitPriceCents: z.number().int().nullable(),
+  /** The AI wasn't sure or the line has no price yet: the owner looks at it before sending (C-45). */
+  flagged: z.boolean(),
+  flagReason: z.string().nullable(),
+  origin: z.enum(QUOTE_LINE_ORIGINS),
+});
+export type QuoteLine = z.infer<typeof quoteLine>;
+
+export const quoteSummary = z.object({
+  id,
+  leadId: id,
+  /** "Q-1004". */
+  number: z.string(),
+  status: z.enum(QUOTE_STATUSES),
+  revision: z.number().int(),
+  title: z.string(),
+  totalCents: z.number().int(),
+  depositCents: z.number().int().nullable(),
+  lineCount: z.number().int(),
+  flaggedCount: z.number().int(),
+  /** The customer's link, once the quote has been sent. */
+  url: z.string().nullable(),
+  sentAt: isoDate.nullable(),
+  viewedAt: isoDate.nullable(),
+  acceptedAt: isoDate.nullable(),
+  declinedAt: isoDate.nullable(),
+  validUntil: isoDate.nullable(),
+  updatedAt: isoDate,
+});
+export type QuoteSummary = z.infer<typeof quoteSummary>;
+
+export const paymentItem = z.object({
+  id,
+  leadId: id,
+  quoteId: z.string().nullable(),
+  kind: z.enum(PAYMENT_KINDS),
+  capture: z.enum(PAYMENT_CAPTURES),
+  status: z.enum(PAYMENT_STATUSES),
+  amountCents: z.number().int(),
+  description: z.string(),
+  method: z.enum(PAYMENT_METHODS).nullable(),
+  /** "Visa •••• 4242": brand and last four digits only. Card numbers never reach LeadAnchor. */
+  card: z.string().nullable(),
+  /** The customer's pay link; null for money the owner recorded by hand. */
+  url: z.string().nullable(),
+  heldAt: isoDate.nullable(),
+  holdExpiresAt: isoDate.nullable(),
+  paidAt: isoDate.nullable(),
+  releasedAt: isoDate.nullable(),
+  canceledAt: isoDate.nullable(),
+  lastFailure: z.string().nullable(),
+  /** The customer said they paid another way (Zelle or Venmo); the owner confirms it arrived. */
+  reported: z.object({ method: z.enum(MANUAL_PAYMENT_METHODS), at: isoDate }).nullable(),
+  note: z.string().nullable(),
+  receiptSentAt: isoDate.nullable(),
+  viewedAt: isoDate.nullable(),
+  createdAt: isoDate,
+});
+export type PaymentItem = z.infer<typeof paymentItem>;
+
+export const leadBalance = z.object({
+  /** The accepted (or latest sent) quote's total, else the job value the owner set. */
+  jobValueCents: z.number().int().nullable(),
+  paidCents: z.number().int(),
+  /** On customers' cards, not collected yet (C-15). */
+  heldCents: z.number().int(),
+  /** Still to collect, counting holds as covered; null while the job has no price. */
+  dueCents: z.number().int().nullable(),
+});
+export type LeadBalance = z.infer<typeof leadBalance>;
+
 export const leadDetail = leadCard.extend({
   lostReason: z.string().nullable(),
   events: z.array(leadEvent),
@@ -234,6 +329,9 @@ export const leadDetail = leadCard.extend({
   media: z.array(mediaItem),
   otherLeads: z.array(leadCard.pick({ id: true, title: true, stage: true, createdAt: true, valueCents: true })),
   intakeUrl: z.string().nullable(),
+  quotes: z.array(quoteSummary),
+  payments: z.array(paymentItem),
+  balance: leadBalance,
 });
 export type LeadDetail = z.infer<typeof leadDetail>;
 
@@ -311,8 +409,12 @@ export const customerDetail = z.object({
     openJobs: z.number().int(),
     wonJobs: z.number().int(),
     lifetimeValueCents: z.number().int(),
+    /** Money actually received (cards collected and payments the owner recorded). */
+    paidCents: z.number().int(),
   }),
   jobs: z.array(customerJob),
+  quotes: z.array(quoteSummary),
+  payments: z.array(paymentItem),
   calls: z.array(callItem),
   photos: z.array(z.object({ id, leadId: z.string(), issue: z.string().nullable(), createdAt: isoDate })),
 });
@@ -632,6 +734,242 @@ export const integrationStatus = z.object({
   mandatedBySpec: z.boolean(),
 });
 export type IntegrationStatus = z.infer<typeof integrationStatus>;
+
+/* ----------------------------------------------------------------------------
+ * Quotes and payments: owner actions (modules 6 and 7)
+ * ------------------------------------------------------------------------- */
+
+const MAX_DOLLARS = MAX_PAYMENT_CENTS / 100;
+const dollars = z.number().min(0).max(MAX_DOLLARS, "Up to $50,000");
+const amountDollars = z.number().min(1, "At least $1").max(MAX_DOLLARS, "Up to $50,000");
+
+export const quoteDetail = quoteSummary.extend({
+  notes: z.string().nullable(),
+  depositCapture: z.enum(PAYMENT_CAPTURES),
+  lines: z.array(quoteLine),
+  declineReason: z.string().nullable(),
+  draft: z.object({
+    source: z.enum(QUOTE_DRAFT_SOURCES),
+    model: z.string().nullable(),
+    ms: z.number().int().nullable(),
+    photos: z.number().int(),
+    /** Why the AI didn't write it, in plain words (e.g. its daily limit). */
+    note: z.string().nullable(),
+  }),
+  customer: z.object({ name: z.string().nullable(), phone: z.string().nullable(), email: z.string().nullable() }),
+  /** Card payments are on, so a deposit can be held on the customer's card. */
+  cardPayments: z.boolean(),
+});
+export type QuoteDetail = z.infer<typeof quoteDetail>;
+
+export const quoteLineInput = z.object({
+  /** An existing line's id, so edits show up as changes rather than a new line. */
+  id: z.string().optional(),
+  serviceId: z.string().nullable().optional(),
+  description: z.string().trim().min(1, "Describe this line").max(200),
+  quantity: z.number().int().min(1, "At least 1").max(999),
+  unitPriceDollars: dollars.nullable(),
+  flagged: z.boolean().optional(),
+  flagReason: z.string().trim().max(200).nullable().optional(),
+  origin: z.enum(QUOTE_LINE_ORIGINS).optional(),
+});
+export type QuoteLineInput = z.infer<typeof quoteLineInput>;
+
+export const quoteUpdateInput = z.object({
+  title: z.string().trim().min(2, "Give the quote a title").max(120).optional(),
+  notes: z.string().trim().max(1000).nullable().optional(),
+  lines: z.array(quoteLineInput).max(MAX_QUOTE_LINES, `Up to ${MAX_QUOTE_LINES} lines`).optional(),
+  depositDollars: amountDollars.nullable().optional(),
+  depositCapture: z.enum(PAYMENT_CAPTURES).optional(),
+});
+export type QuoteUpdateInput = z.infer<typeof quoteUpdateInput>;
+
+/** How something goes to the customer: a text, an email, or both (each through the governed send path). */
+export const sendInput = z.object({
+  text: z.boolean().default(true),
+  email: z.email("Enter a valid email address").max(200).nullable().optional(),
+});
+export type SendInput = z.input<typeof sendInput>;
+
+export const quoteSendResult = z.object({
+  quote: quoteDetail,
+  messages: z.array(messageItem),
+});
+export type QuoteSendResult = z.infer<typeof quoteSendResult>;
+
+export const paymentRequestInput = z.object({
+  kind: z.enum(PAYMENT_KINDS).default("payment"),
+  amountDollars,
+  description: z.string().trim().min(2, "Say what it's for").max(120),
+  capture: z.enum(PAYMENT_CAPTURES).default("charge"),
+  /** Collect this job's card holds at the same time, so the customer only pays the rest. */
+  collectHeld: z.boolean().default(false),
+  send: sendInput.default({ text: true }),
+});
+export type PaymentRequestInput = z.input<typeof paymentRequestInput>;
+
+export const paymentRequestResult = z.object({
+  payment: paymentItem,
+  messages: z.array(messageItem),
+});
+export type PaymentRequestResult = z.infer<typeof paymentRequestResult>;
+
+export const paymentRecordInput = z.object({
+  amountDollars: z.number().min(0.01, "Enter the amount").max(MAX_DOLLARS, "Up to $50,000"),
+  method: z.enum(MANUAL_PAYMENT_METHODS),
+  note: z.string().trim().max(200).nullable().optional(),
+  /** The pay link this settles, e.g. one the customer said they paid by Zelle. */
+  requestId: z.string().optional(),
+});
+export type PaymentRecordInput = z.input<typeof paymentRecordInput>;
+
+export const paymentSettings = z.object({
+  provider: z.enum(PAYMENT_PROVIDERS),
+  status: z.enum(PAYMENT_ACCOUNT_STATUSES),
+  /** Customers can pay by card (the business's payments account is set up). */
+  cardPayments: z.boolean(),
+  payouts: z.boolean(),
+  /** What the payments provider still needs from the owner, in plain words. */
+  requirements: z.array(z.string()),
+  zelle: z.string().nullable(),
+  venmo: z.string().nullable(),
+  simulated: z.boolean(),
+});
+export type PaymentSettings = z.infer<typeof paymentSettings>;
+
+const zelleContact = z
+  .string()
+  .trim()
+  .max(120)
+  .transform((value, ctx) => {
+    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return value.toLowerCase();
+    const e164 = toE164(value);
+    if (e164) return e164;
+    ctx.addIssue({ code: "custom", message: "Enter the email or US mobile number your Zelle uses" });
+    return z.NEVER;
+  });
+
+export const paymentSettingsInput = z.object({
+  zelle: zelleContact.nullable().optional(),
+  venmo: z
+    .string()
+    .trim()
+    .regex(/^@?[A-Za-z0-9_-]{5,30}$/, "Enter your Venmo username, like @demo-plumbing")
+    .transform((value) => value.replace(/^@/, ""))
+    .nullable()
+    .optional(),
+});
+export type PaymentSettingsInput = z.input<typeof paymentSettingsInput>;
+
+/* ----------------------------------------------------------------------------
+ * Quotes and pay links: the customer's side (no login, the link is the key)
+ * ------------------------------------------------------------------------- */
+
+export const publicBusiness = z.object({
+  name: z.string(),
+  trade: z.enum(TRADES),
+  phone: z.string().nullable(),
+  city: z.string().nullable(),
+  state: z.string().nullable(),
+  licenseNumber: z.string().nullable(),
+  insuranceCarrier: z.string().nullable(),
+  yearsInBusiness: z.number().int().nullable(),
+  profileUrl: z.string(),
+});
+export type PublicBusiness = z.infer<typeof publicBusiness>;
+
+/** open: waiting for an answer; updating: the owner is changing it; expired: past its date. */
+export const PUBLIC_QUOTE_STATES = ["open", "updating", "accepted", "declined", "expired"] as const;
+export type PublicQuoteState = (typeof PUBLIC_QUOTE_STATES)[number];
+
+export const publicQuote = z.object({
+  business: publicBusiness,
+  number: z.string(),
+  state: z.enum(PUBLIC_QUOTE_STATES),
+  title: z.string(),
+  customerName: z.string().nullable(),
+  lines: z.array(z.object({ description: z.string(), quantity: z.number().int(), unitPriceCents: z.number().int(), totalCents: z.number().int() })),
+  totalCents: z.number().int(),
+  depositCents: z.number().int().nullable(),
+  depositCapture: z.enum(PAYMENT_CAPTURES),
+  /** The deposit can be paid by card here; otherwise the business arranges it. */
+  cardPayments: z.boolean(),
+  notes: z.string().nullable(),
+  issuedAt: isoDate,
+  validUntil: isoDate,
+  acceptedAt: isoDate.nullable(),
+  declinedAt: isoDate.nullable(),
+  /** Once accepted with a deposit: its pay link and where it stands. */
+  deposit: z.object({ url: z.string(), status: z.enum(PAYMENT_STATUSES) }).nullable(),
+  pdfUrl: z.string(),
+});
+export type PublicQuote = z.infer<typeof publicQuote>;
+
+export const quoteAcceptResult = z.object({
+  /** Where to go next: the card checkout for the deposit, or null when there's nothing to pay now. */
+  checkoutUrl: z.string().nullable(),
+  quote: publicQuote,
+});
+export type QuoteAcceptResult = z.infer<typeof quoteAcceptResult>;
+
+export const quoteDeclineInput = z.object({ reason: z.string().trim().max(300).optional().default("") });
+
+export const publicPayment = z.object({
+  business: publicBusiness,
+  customerName: z.string().nullable(),
+  kind: z.enum(PAYMENT_KINDS),
+  capture: z.enum(PAYMENT_CAPTURES),
+  status: z.enum(PAYMENT_STATUSES),
+  amountCents: z.number().int(),
+  description: z.string(),
+  method: z.enum(PAYMENT_METHODS).nullable(),
+  card: z.string().nullable(),
+  heldAt: isoDate.nullable(),
+  holdExpiresAt: isoDate.nullable(),
+  paidAt: isoDate.nullable(),
+  /** "R-7F3A9C2D": quoted on the receipt. */
+  receiptNumber: z.string(),
+  cardPayments: z.boolean(),
+  zelle: z.string().nullable(),
+  venmo: z.string().nullable(),
+  reported: z.object({ method: z.enum(MANUAL_PAYMENT_METHODS), at: isoDate }).nullable(),
+  lastFailure: z.string().nullable(),
+  /** Card payments run on the simulator: no real money moves. */
+  simulated: z.boolean(),
+});
+export type PublicPayment = z.infer<typeof publicPayment>;
+
+export const paymentReportInput = z.object({ method: z.enum(["zelle", "venmo"]) });
+
+/* ----------------------------------------------------------------------------
+ * Simulated Stripe pages (development only): hosted checkout and account setup
+ * ------------------------------------------------------------------------- */
+
+export const simCheckout = z.object({
+  id,
+  businessName: z.string(),
+  description: z.string(),
+  amountCents: z.number().int(),
+  capture: z.enum(PAYMENT_CAPTURES),
+  status: z.enum(["open", "complete", "expired"]),
+  lastFailure: z.string().nullable(),
+});
+export type SimCheckout = z.infer<typeof simCheckout>;
+
+export const simCheckoutInput = z.object({ outcome: z.enum(["pay", "decline", "cancel"]) });
+
+export const simOnboarding = z.object({
+  id,
+  businessName: z.string(),
+  status: z.enum(["onboarding", "active", "restricted"]),
+});
+export type SimOnboarding = z.infer<typeof simOnboarding>;
+
+export const simOnboardingInput = z.object({ outcome: z.enum(["finish", "later"]) });
+
+/** Where the simulated Stripe page sends the browser next. */
+export const simRedirect = z.object({ redirectUrl: z.string() });
+export type SimRedirect = z.infer<typeof simRedirect>;
 
 /* ----------------------------------------------------------------------------
  * Local call simulator (development only)

@@ -13,6 +13,8 @@ type RealtimeEvent =
   | { type: "message.created"; messageId: string; leadId: string | null }
   | { type: "registration.updated" }
   | { type: "settings.updated" }
+  | { type: "payments.updated" }
+  | { type: "quote.updated"; quoteId: string; leadId: string }
   | ({ type: "push.preview" } & SimulatedAlert);
 
 /**
@@ -65,6 +67,14 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
             break;
           case "settings.updated":
             void queryClient.invalidateQueries({ queryKey: keys.settings });
+            break;
+          case "payments.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.paymentSettings });
+            void queryClient.invalidateQueries({ queryKey: keys.integrations });
+            break;
+          case "quote.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.quote(event.quoteId) });
+            void queryClient.invalidateQueries({ queryKey: keys.lead(event.leadId) });
             break;
           case "push.preview":
             // Firebase isn't connected yet: show the phone alert from here (C-05).

@@ -18,6 +18,8 @@ export const QUEUES = {
   registrationAdvance: "registration.advance",
   /** Every 15 minutes: re-check registrations under review and delete expired IDs (C-43). */
   registrationTick: "registration.tick",
+  /** Every 15 minutes: re-check open checkouts and card holds, and warn before a hold ends (module 7). */
+  paymentsTick: "payments.tick",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -30,6 +32,7 @@ export interface JobPayloads {
   [QUEUES.forwardingCheckTimeout]: { tenantId: string; startedAt: string };
   [QUEUES.registrationAdvance]: { tenantId: string };
   [QUEUES.registrationTick]: Record<string, never>;
+  [QUEUES.paymentsTick]: Record<string, never>;
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });
@@ -50,6 +53,7 @@ export async function startQueue() {
   }
   await boss.schedule(QUEUES.valueProofTick, "*/15 * * * *");
   await boss.schedule(QUEUES.registrationTick, "*/15 * * * *");
+  await boss.schedule(QUEUES.paymentsTick, "*/15 * * * *");
   started = true;
 }
 

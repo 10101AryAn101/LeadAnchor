@@ -36,6 +36,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { LeadMoney } from "@/features/money/lead-money";
 import { api, isApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { formatPhone, money, smsHref, telHref, timeAgo, toDateTimeLocal, visitTime } from "@/lib/format";
@@ -114,6 +115,8 @@ export function LeadDetailView() {
           <SummaryCard lead={lead} onEdit={() => setEditing(true)} />
 
           {photos.length > 0 && <PhotoStrip photos={photos} onOpen={setPhotoId} />}
+
+          <LeadMoney lead={lead} />
 
           <div className="space-y-4">
             <h2 className="text-[17px] font-bold">Activity</h2>

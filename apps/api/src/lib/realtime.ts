@@ -13,6 +13,9 @@ export type RealtimeEvent =
   | { type: "message.created"; messageId: string; leadId: string | null }
   | { type: "registration.updated" }
   | { type: "settings.updated" }
+  /** The business's payments account or Zelle/Venmo details changed (module 7). */
+  | { type: "payments.updated" }
+  | { type: "quote.updated"; quoteId: string; leadId: string }
   /** Simulated phone alert (C-05): shown by the browsers whose token is listed. */
   | {
       type: "push.preview";

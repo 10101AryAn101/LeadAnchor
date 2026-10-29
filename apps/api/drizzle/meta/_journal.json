@@ -64,6 +64,13 @@
       "when": 1793270799531,
       "tag": "0008_lead_tags",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1793277696108,
+      "tag": "0009_money",
+      "breakpoints": true
     }
   ]
 }

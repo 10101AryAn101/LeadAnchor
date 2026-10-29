@@ -23,6 +23,7 @@ import { keys, useSettings } from "@/lib/queries";
 import { CaptureLinks } from "./capture-links";
 import { ForwardingCheck } from "./forwarding-check";
 import { ForwardingGuide } from "./forwarding-guide";
+import { PaymentsSection } from "./payments-section";
 import { PhoneAlerts } from "./phone-alerts";
 import { ServicesSection } from "./services-section";
 
@@ -80,6 +81,7 @@ export function SettingsView() {
     <div className="space-y-6 pb-24 lg:pb-0">
       <SettingsForm settings={settings} />
       <ServicesSection />
+      <PaymentsSection />
     </div>
   );
 }

@@ -2,6 +2,7 @@ import { logger } from "../lib/logger";
 import { extractCallerNeedJob, triagePhotoJob } from "../modules/ai/ai-jobs";
 import { advanceRegistrationJob, registrationTickJob } from "../modules/compliance/registration.service";
 import { dispatchMessage } from "../modules/messaging/dispatch";
+import { paymentsTickJob } from "../modules/payments/payment.service";
 import { forwardingCheckTimeoutJob } from "../modules/tenants/forwarding";
 import { valueProofTickJob } from "../modules/value-proof/value-proof";
 import { type JobPayloads, QUEUES, type QueueName, RETRY_LIMIT, boss } from "./queue";
@@ -26,4 +27,5 @@ export async function startWorkers() {
   await work(QUEUES.forwardingCheckTimeout, forwardingCheckTimeoutJob);
   await work(QUEUES.registrationAdvance, advanceRegistrationJob);
   await work(QUEUES.registrationTick, registrationTickJob);
+  await work(QUEUES.paymentsTick, paymentsTickJob);
 }

@@ -13,7 +13,9 @@ import type {
   MeResponse,
   NotificationItem,
   OutboxEmail,
+  PaymentSettings,
   PushDevicesResponse,
+  QuoteDetail,
   RegistrationResponse,
   ServiceItem,
   SettingsResponse,
@@ -43,6 +45,8 @@ export const keys = {
   outbox: ["outbox"] as const,
   pushDevices: ["push-devices"] as const,
   tags: ["tags"] as const,
+  quote: (id: string) => ["quote", id] as const,
+  paymentSettings: ["payment-settings"] as const,
   simCall: (sessionId: string) => ["sim-call", sessionId] as const,
   simInbox: (phone: string) => ["sim-inbox", phone] as const,
 };
@@ -88,6 +92,10 @@ export const useTags = () => useQuery({ queryKey: keys.tags, queryFn: () => api<
 export const usePushDevices = () => useQuery({ queryKey: keys.pushDevices, queryFn: () => api<PushDevicesResponse>("/push/devices") });
 
 export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: () => api<SettingsResponse>("/settings") });
+
+export const useQuote = (id: string) => useQuery({ queryKey: keys.quote(id), queryFn: () => api<QuoteDetail>(`/quotes/${id}`) });
+
+export const usePaymentSettings = () => useQuery({ queryKey: keys.paymentSettings, queryFn: () => api<PaymentSettings>("/payments/settings") });
 
 export const useServices = () =>
   useQuery({ queryKey: keys.services, queryFn: async () => (await api<{ services: ServiceItem[] }>("/services")).services });

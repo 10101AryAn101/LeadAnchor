@@ -2,34 +2,46 @@
 
 import { type AutoMoveReason, LEAD_STAGE_LABELS, type LeadDetail, type LeadEvent, type LeadStage, type MessageItem } from "@leadanchor/contracts";
 import {
+  IconArrowBackUp,
   IconBrandGoogle,
   IconCalendarEvent,
   IconCalendarX,
   IconCamera,
+  IconCircleCheck,
+  IconCircleX,
+  IconCreditCardOff,
   IconCurrencyDollar,
   IconEye,
+  IconFileDollar,
   IconFileText,
   type Icon,
   IconHeadset,
   IconLink,
+  IconLock,
+  IconLockOpen,
+  IconMail,
   IconMessage,
   IconNote,
+  IconPencil,
   IconPhoneCall,
   IconPhoneOutgoing,
   IconPhoneX,
+  IconReceipt,
   IconRecordMail,
   IconSend,
   IconShieldCheck,
   IconShieldX,
   IconTag,
+  IconTrash,
   IconWorld,
 } from "@tabler/icons-react";
+import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@leadanchor/contracts";
 import { type ReactNode, useMemo, useState } from "react";
-import { clockTime, dayLabel, fullDate, money } from "@/lib/format";
+import { amount, clockTime, dayLabel, fullDate, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { StageGlyph } from "./lead-meta";
 
-type Filter = "all" | "calls" | "messages" | "photos";
+type Filter = "all" | "calls" | "messages" | "photos" | "money";
 type Tone = "neutral" | "waiting" | "good" | "auto" | "bad";
 
 const TONE: Record<Tone, string> = {
@@ -53,6 +65,8 @@ interface Row {
 }
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
+const cents = (value: unknown) => (typeof value === "number" ? amount(value) : "");
+const methodLabel = (value: unknown) => PAYMENT_METHOD_LABELS[value as PaymentMethod] ?? str(value);
 
 /** Older entries stored the raw error from the AI service; show those in plain words too. */
 function plainSkipReason(reason: string) {
@@ -68,12 +82,137 @@ const AUTO_MOVE_WHY: Record<AutoMoveReason, string> = {
   owner_answered: "You answered their call.",
   form_sent: "You sent them the request form.",
   price_set: "You added a price.",
+  quote_sent: "You sent a quote.",
   visit_booked: "You booked a visit.",
 };
+
+/** C-45 "full edit history on the lead card": quotes. */
+function quoteRow(event: LeadEvent, base: { id: string; at: string }): Row | null {
+  const d = event.data;
+  const number = str(d.number);
+  switch (event.type) {
+    case "quote.drafted":
+      return {
+        ...base,
+        kind: "money",
+        icon: IconFileDollar,
+        tone: "auto",
+        title: `Quote ${number} drafted ${d.source === "ai" ? "by AI" : d.source === "price_list" ? "from your price list" : ""}`.trim(),
+        body: `${Number(d.lines) || 0} line${d.lines === 1 ? "" : "s"}, ${cents(d.totalCents)}${Number(d.flagged) > 0 ? `, ${Number(d.flagged)} to check` : ""}${typeof d.ms === "number" ? `. Ready in ${(d.ms / 1000).toFixed(1)} s.` : ""}`,
+      };
+    case "quote.edited": {
+      const changes = Array.isArray(d.changes) ? d.changes.map(String) : [];
+      return {
+        ...base,
+        kind: "money",
+        icon: IconPencil,
+        tone: "neutral",
+        title: `Quote ${number} changed`,
+        body: (
+          <ul className="list-disc space-y-0.5 pl-5">
+            {changes.map((change, index) => (
+              <li key={index}>{change}</li>
+            ))}
+            {Number(d.more) > 0 && <li>…and {Number(d.more)} more</li>}
+          </ul>
+        ),
+        aside: <span className="text-sm text-muted-foreground">Total now {cents(d.totalCents)}</span>,
+      };
+    }
+    case "quote.sent":
+    case "quote.resent": {
+      const lines = Array.isArray(d.lines) ? (d.lines as Array<{ description?: string; quantity?: number; unitPriceCents?: number | null }>) : [];
+      return {
+        ...base,
+        kind: "money",
+        icon: IconSend,
+        tone: "good",
+        title: event.type === "quote.sent" ? `Quote ${number} sent: ${cents(d.totalCents)}` : `Quote ${number} sent again`,
+        body:
+          event.type === "quote.sent" && lines.length > 0 ? (
+            <ul className="space-y-0.5">
+              {lines.map((line, index) => (
+                <li key={index} className="flex justify-between gap-3">
+                  <span className="min-w-0 truncate">
+                    {line.description}
+                    {(line.quantity ?? 1) > 1 ? ` × ${line.quantity}` : ""}
+                  </span>
+                  <span className="tabular shrink-0">{line.unitPriceCents != null ? amount(line.unitPriceCents * (line.quantity ?? 1)) : "—"}</span>
+                </li>
+              ))}
+              {typeof d.depositCents === "number" && <li className="text-sm">Deposit to book: {cents(d.depositCents)}</li>}
+            </ul>
+          ) : undefined,
+      };
+    }
+    case "quote.viewed":
+      return { ...base, kind: "money", icon: IconEye, tone: "neutral", title: `Opened quote ${number}` };
+    case "quote.accepted":
+      return { ...base, kind: "money", icon: IconCircleCheck, tone: "good", title: `Accepted quote ${number}`, body: cents(d.totalCents) };
+    case "quote.declined":
+      return { ...base, kind: "money", icon: IconCircleX, tone: "bad", title: `Declined quote ${number}`, body: str(d.reason) ? <Quote>{str(d.reason)}</Quote> : undefined };
+    case "quote.reopened":
+      return { ...base, kind: "money", icon: IconArrowBackUp, tone: "neutral", title: `Quote ${number} reopened for changes` };
+    case "quote.discarded":
+      return { ...base, kind: "money", icon: IconTrash, tone: "neutral", title: `Draft quote ${number} deleted` };
+    default:
+      return null;
+  }
+}
+
+/** Module 7: pay links, holds and money received. */
+function paymentRow(event: LeadEvent, base: { id: string; at: string }): Row | null {
+  const d = event.data;
+  switch (event.type) {
+    case "payment.requested":
+      return {
+        ...base,
+        kind: "money",
+        icon: IconSend,
+        tone: "neutral",
+        title: `${d.kind === "deposit" ? "Deposit" : "Payment"} of ${cents(d.amountCents)} requested`,
+        body: `${str(d.description)}${d.capture === "hold" ? ". Held on the card, charged when collected." : ""}`,
+      };
+    case "payment.resent":
+      return { ...base, kind: "money", icon: IconSend, tone: "neutral", title: `Pay link for ${cents(d.amountCents)} sent again` };
+    case "payment.viewed":
+      return { ...base, kind: "money", icon: IconEye, tone: "neutral", title: "Opened the pay link" };
+    case "payment.failed":
+      return { ...base, kind: "money", icon: IconCreditCardOff, tone: "bad", title: "A card payment didn't go through", body: str(d.reason) };
+    case "payment.held":
+      return { ...base, kind: "money", icon: IconLock, tone: "good", title: `${cents(d.amountCents)} deposit on hold`, body: str(d.card) ? `On ${str(d.card)}. Not charged until you collect it.` : undefined };
+    case "payment.paid":
+      return {
+        ...base,
+        kind: "money",
+        icon: IconReceipt,
+        tone: "good",
+        title: d.collected ? `Collected the ${cents(d.amountCents)} deposit` : d.recorded ? `${cents(d.amountCents)} received by ${methodLabel(d.method)}` : `Paid ${cents(d.amountCents)} by card`,
+        body: str(d.card) || undefined,
+      };
+    case "payment.released":
+      return {
+        ...base,
+        kind: "money",
+        icon: IconLockOpen,
+        tone: "neutral",
+        title: d.reason === "owner" ? `Released the ${cents(d.amountCents)} hold` : `The ${cents(d.amountCents)} hold ended`,
+        body: d.reason === "owner" ? "The card wasn't charged." : "Not collected within 7 days, so the card was released.",
+      };
+    case "payment.canceled":
+      return { ...base, kind: "money", icon: IconCircleX, tone: "neutral", title: `Pay link for ${cents(d.amountCents)} closed` };
+    case "payment.reported":
+      return { ...base, kind: "money", icon: IconCurrencyDollar, tone: "waiting", title: `Says they paid ${cents(d.amountCents)} by ${methodLabel(d.method)}`, body: "Check it arrived, then mark it received." };
+    default:
+      return null;
+  }
+}
 
 function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
   const d = event.data;
   const base = { id: event.id, at: event.createdAt };
+  if (event.type.startsWith("quote.")) return quoteRow(event, base);
+  if (event.type.startsWith("payment.")) return paymentRow(event, base);
   switch (event.type) {
     case "call.ghost":
       return { ...base, kind: "calls", icon: IconPhoneX, tone: "waiting", title: "Missed call", body: "Hung up before leaving a message." };
@@ -183,10 +322,11 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
     case "value.set":
       return {
         ...base,
-        kind: "other",
+        kind: "money",
         icon: IconCurrencyDollar,
         tone: "good",
         title: typeof d.valueCents === "number" ? `Job value set to ${money(d.valueCents)}` : "Job value cleared",
+        body: str(d.quote) ? `From quote ${str(d.quote)}.` : undefined,
       };
     case "request.received":
       return {
@@ -214,16 +354,18 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
 function messageRow(message: MessageItem): Row {
   const blocked = message.status === "blocked";
   const failed = message.status === "failed";
+  const what = message.channel === "email" ? "Email" : "Text";
   return {
     id: `msg-${message.id}`,
     at: message.createdAt,
     kind: "messages",
-    icon: IconSend,
+    icon: message.channel === "email" ? IconMail : IconSend,
     tone: failed ? "bad" : blocked ? "waiting" : "good",
-    title: failed ? "Text failed" : blocked ? "Text not sent" : "Text sent",
+    title: failed ? `${what} failed` : blocked ? `${what} not sent` : `${what} sent`,
     body: (
       <>
-        <span className="block rounded-md bg-muted px-3 py-2 text-foreground">{message.body}</span>
+        {message.subject && <span className="mb-1 block font-medium text-foreground">{message.subject}</span>}
+        <span className="block rounded-md bg-muted px-3 py-2 whitespace-pre-line text-foreground">{message.body}</span>
         {blocked && message.blockedReason && <span className="mt-1.5 block">{message.blockedReason}</span>}
       </>
     ),
@@ -236,6 +378,7 @@ const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: "calls", label: "Calls" },
   { id: "messages", label: "Texts" },
   { id: "photos", label: "Photos" },
+  { id: "money", label: "Money" },
 ];
 
 export function LeadTimeline({ lead, onPhoto }: { lead: LeadDetail; onPhoto: (id: string) => void }) {

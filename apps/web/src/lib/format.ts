@@ -5,8 +5,12 @@ export { formatPhone } from "@leadanchor/contracts";
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const usdCompact = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
 
+const usdCents = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
+
 /** "$4,820" — whole dollars; owners think in job prices. "$12.9K" from $10k up when space is tight. */
 export const money = (cents: number | null | undefined) => (cents == null ? "—" : usd.format(cents / 100));
+/** Money that was actually charged: "$42" or "$42.50", never rounded. */
+export const amount = (cents: number) => (cents % 100 === 0 ? usd.format(cents / 100) : usdCents.format(cents / 100));
 export const moneyCompact = (cents: number) => (cents >= 1_000_000 ? usdCompact.format(cents / 100) : money(cents));
 
 const minutesSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));

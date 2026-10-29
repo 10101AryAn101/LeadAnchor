@@ -14,9 +14,13 @@ import { calls, customers, leadEvents, leads, mediaAssets, messages, tenants } f
 import { tenantWork } from "../../db/unit-of-work";
 import { withTenant } from "../../db/client";
 import { notFound } from "../../lib/errors";
-import { iso, isoOrNow } from "../../lib/time";
+import { iso } from "../../lib/time";
 import { createIntakeLink } from "../intake/intake.service";
+import { toMessageItem } from "../messaging/message-item";
 import { requestMessage } from "../messaging/send-path";
+import { balanceOf } from "../payments/money";
+import { paymentsFor } from "../payments/payment.service";
+import { quotesFor } from "../quotes/quote.service";
 import { profileLine } from "../profile/profile";
 import { addLeadEvent, topPosition } from "./lead-capture";
 import { advanceLead } from "./pipeline";
@@ -114,7 +118,7 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       .where(eq(leads.id, leadId));
     if (!row) throw notFound("Lead");
 
-    const [events, callRows, messageRows, mediaRows, otherRows] = await Promise.all([
+    const [events, callRows, messageRows, mediaRows, otherRows, quoteItems, paymentItems] = await Promise.all([
       // Events saved together share a timestamp; their time-ordered ids keep them in the order they happened.
       tx.select().from(leadEvents).where(eq(leadEvents.leadId, leadId)).orderBy(desc(leadEvents.createdAt), desc(leadEvents.id)),
       tx.select().from(calls).where(eq(calls.leadId, leadId)).orderBy(desc(calls.startedAt)),
@@ -126,6 +130,8 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
         .where(and(eq(leads.customerId, row.customer.id), ne(leads.id, leadId)))
         .orderBy(desc(leads.createdAt))
         .limit(20),
+      quotesFor(tx, [leadId]),
+      paymentsFor(tx, [leadId]),
     ]);
 
     const photos = mediaRows.filter((m) => m.kind === "photo");
@@ -140,6 +146,10 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       media: mediaRows.map(toMediaItem),
       otherLeads: otherRows.map((o) => ({ ...o, createdAt: o.createdAt.toISOString() })),
       intakeUrl: null,
+      quotes: quoteItems,
+      payments: paymentItems,
+      // The job's price is the owner's own figure: set by a sent quote, or by hand.
+      balance: balanceOf(row.lead.valueCents, paymentItems),
     };
   });
 }
@@ -301,20 +311,6 @@ export function toCallItem(c: typeof calls.$inferSelect, customer: CustomerRow |
     consentCapturedAt: iso(c.consentCapturedAt),
     startedAt: c.startedAt.toISOString(),
     endedAt: iso(c.endedAt),
-  };
-}
-
-export function toMessageItem(m: typeof messages.$inferSelect): MessageItem {
-  return {
-    id: m.id,
-    direction: m.direction,
-    channel: m.channel,
-    purpose: m.purpose,
-    status: m.status,
-    body: m.body,
-    blockedReason: m.blockedReason,
-    provider: m.provider,
-    createdAt: isoOrNow(m.createdAt),
   };
 }
 

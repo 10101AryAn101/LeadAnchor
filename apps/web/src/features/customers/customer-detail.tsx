@@ -1,20 +1,21 @@
 "use client";
 
-import { CALL_OUTCOME_LABELS, type CustomerJob, LEAD_STAGE_LABELS } from "@leadanchor/contracts";
-import { IconChevronLeft, IconChevronRight, IconMessage, IconPhone, IconShieldCheck, IconShieldX } from "@tabler/icons-react";
+import { CALL_OUTCOME_LABELS, type CustomerDetail, type CustomerJob, LEAD_STAGE_LABELS, PAYMENT_METHOD_LABELS } from "@leadanchor/contracts";
+import { IconChevronLeft, IconChevronRight, IconFileDollar, IconLock, IconMessage, IconPhone, IconReceipt, IconSend, IconShieldCheck, IconShieldX } from "@tabler/icons-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { QuoteStatusChip } from "@/features/money/quote-status";
 import { StageGlyph, UrgencyChip } from "@/features/leads/lead-meta";
 import { TagChips } from "@/features/leads/lead-tags";
 import { useRecordContact } from "@/features/leads/use-lead-actions";
-import { duration, formatPhone, fullDate, money, smsHref, telHref, timeAgo } from "@/lib/format";
+import { amount, duration, formatPhone, fullDate, money, smsHref, telHref, timeAgo } from "@/lib/format";
 import { useConsent, useCustomer } from "@/lib/queries";
 
-/** C-34: one customer's whole story in one place: jobs, calls, photos and what they've spent. */
+/** C-34: one customer's whole story in one place: jobs, quotes, payments, calls, photos and what they've spent. */
 export function CustomerDetailView() {
   const { id } = useParams<{ id: string }>();
   const { data: customer, isPending, error } = useCustomer(id);
@@ -70,19 +71,24 @@ export function CustomerDetailView() {
 
       <dl className="grid grid-cols-2 gap-3 sm:grid-cols-4">
         <Stat label="Jobs" value={String(customer.stats.jobs)} />
-        <Stat label="Open now" value={String(customer.stats.openJobs)} />
         <Stat label="Won" value={String(customer.stats.wonJobs)} />
-        <Stat label="Spent with you" value={money(customer.stats.lifetimeValueCents)} />
+        <Stat label="Won jobs worth" value={money(customer.stats.lifetimeValueCents)} />
+        <Stat label="Paid you so far" value={amount(customer.stats.paidCents)} />
       </dl>
 
       <section className="space-y-3">
-        <h2 className="text-[17px] font-bold">What they&apos;ve asked for</h2>
+        <h2 className="text-[17px] font-bold">
+          What they&apos;ve asked for
+          {customer.stats.openJobs > 0 && <span className="ml-2 text-[15px] font-medium text-muted-foreground">{customer.stats.openJobs} open now</span>}
+        </h2>
         <ul className="divide-y rounded-lg border bg-card">
           {customer.jobs.map((job) => (
             <JobRow key={job.id} job={job} />
           ))}
         </ul>
       </section>
+
+      {(customer.quotes.length > 0 || customer.payments.length > 0) && <MoneyHistory customer={customer} />}
 
       {customer.photos.length > 0 && (
         <section className="space-y-3">
@@ -149,6 +155,70 @@ function JobRow({ job }: { job: CustomerJob }) {
         <IconChevronRight className="size-5 shrink-0 text-muted-foreground" />
       </Link>
     </li>
+  );
+}
+
+/** Quotes and payments across all their jobs, newest first. */
+function MoneyHistory({ customer }: { customer: CustomerDetail }) {
+  const rows = [
+    ...customer.quotes.map((quote) => ({ key: `q-${quote.id}`, at: quote.sentAt ?? quote.updatedAt, href: `/leads/${quote.leadId}/quotes/${quote.id}`, quote, payment: null })),
+    ...customer.payments.map((payment) => ({ key: `p-${payment.id}`, at: payment.paidAt ?? payment.heldAt ?? payment.createdAt, href: `/leads/${payment.leadId}`, quote: null, payment })),
+  ].sort((a, b) => b.at.localeCompare(a.at));
+
+  return (
+    <section className="space-y-3">
+      <h2 className="text-[17px] font-bold">Quotes and payments</h2>
+      <ul className="divide-y rounded-lg border bg-card">
+        {rows.map((row) => (
+          <li key={row.key}>
+            <Link href={row.href} className="flex min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/60">
+              {row.quote ? (
+                <>
+                  <IconFileDollar className="size-5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2 font-semibold">
+                      Quote {row.quote.number} <QuoteStatusChip quote={row.quote} />
+                    </span>
+                    <span className="block truncate text-sm text-muted-foreground">
+                      {row.quote.title}, {timeAgo(row.at)}
+                    </span>
+                  </span>
+                  <span className="tabular shrink-0 text-[15px] font-semibold">{money(row.quote.totalCents)}</span>
+                </>
+              ) : row.payment ? (
+                <>
+                  {row.payment.status === "paid" ? (
+                    <IconReceipt className="size-5 shrink-0 text-primary" />
+                  ) : row.payment.status === "held" ? (
+                    <IconLock className="size-5 shrink-0 text-info-strong" />
+                  ) : (
+                    <IconSend className="size-5 shrink-0 text-muted-foreground" />
+                  )}
+                  <span className="min-w-0 flex-1">
+                    <span className="block font-semibold">
+                      {row.payment.status === "paid"
+                        ? `Paid${row.payment.card ? ` by ${row.payment.card}` : row.payment.method ? ` by ${PAYMENT_METHOD_LABELS[row.payment.method]}` : ""}`
+                        : row.payment.status === "held"
+                          ? "Deposit on hold"
+                          : row.payment.status === "open"
+                            ? "Pay link, not paid yet"
+                            : row.payment.status === "released"
+                              ? "Hold released"
+                              : "Pay link closed"}
+                    </span>
+                    <span className="block truncate text-sm text-muted-foreground">
+                      {row.payment.description}, {timeAgo(row.at)}
+                    </span>
+                  </span>
+                  <span className="tabular shrink-0 text-[15px] font-semibold">{amount(row.payment.amountCents)}</span>
+                </>
+              ) : null}
+              <IconChevronRight className="size-5 shrink-0 text-muted-foreground" />
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

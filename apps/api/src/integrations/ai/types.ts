@@ -40,6 +40,36 @@ export interface PhotoTriageInput {
   customerNote?: string;
 }
 
+export interface QuoteDraftInput {
+  businessName: string;
+  trade: Trade;
+  job: { title: string; summary: string | null; serviceCategory: string | null; customerNote: string | null };
+  /** Small copies of the customer's photos, with what the photo reading (C-09) already found. */
+  photos: Array<{ image: Buffer; mimeType: string; findings: string | null }>;
+  /** The owner's price list. Prices are left out on purpose: the AI picks lines, it never sets a price (C-45). */
+  priceList: Array<{ ref: string; name: string; description: string | null }>;
+  /** Hard limit for this call; the quote falls back to the price list after it. */
+  timeoutMs: number;
+}
+
+export interface QuoteDraftLine {
+  /** The price-list entry this line uses, or null for work that isn't on the list (the owner prices it). */
+  ref: string | null;
+  description: string;
+  quantity: number;
+  /** False when the photos and description don't clearly show the line is needed. */
+  sure: boolean;
+  /** Why the AI isn't sure, or what the owner should check. */
+  note: string | null;
+}
+
+export interface QuoteDraft {
+  title: string;
+  lines: QuoteDraftLine[];
+  /** A short note to the customer about what the quote assumes. */
+  notes: string | null;
+}
+
 /**
  * AI provider port. Business code depends on this interface only, so the model
  * vendor can change without touching it (spec: "provider abstraction is a requirement").
@@ -50,4 +80,6 @@ export interface AiProvider {
   readonly configured: boolean;
   extractCallerNeed(input: CallerNeedInput): Promise<CallerNeed>;
   triagePhoto(input: PhotoTriageInput): Promise<PhotoTriage>;
+  /** C-45: a first draft of a quote, built only from the owner's price list. */
+  draftQuote(input: QuoteDraftInput): Promise<QuoteDraft>;
 }
