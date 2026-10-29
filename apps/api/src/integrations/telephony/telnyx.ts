@@ -15,7 +15,7 @@ import type { CallHandle, ProvisionedNumber, TelephonyEvent, TelephonyProvider }
 const API = "https://api.telnyx.com/v2";
 
 interface ClientState {
-  role: "caller" | "owner";
+  role: "caller" | "owner" | "test";
   /** Caller leg id — lets owner-leg events find the leg to bridge. */
   aLeg?: string;
   tag?: string;
@@ -142,6 +142,17 @@ export class TelnyxTelephony implements TelephonyProvider {
     this.listenTimers.set(call.callControlId, timer);
   }
 
+  async placeTestCall(input: { from: string; to: string; ringSecs: number }) {
+    await this.request("POST", "/calls", {
+      connection_id: this.config.connectionId,
+      to: input.to,
+      from: input.from,
+      timeout_secs: input.ringSecs,
+      client_state: encodeState({ role: "test" }),
+      command_id: randomUUID(),
+    });
+  }
+
   async stopListening(call: CallHandle) {
     const timer = this.listenTimers.get(call.callControlId);
     if (!timer) return;
@@ -195,6 +206,12 @@ export class TelnyxTelephony implements TelephonyProvider {
     const state = decodeState(p.client_state);
     const sessionId = String(p.call_session_id ?? "");
     const base = { eventId: data.id, occurredAt: new Date(data.occurred_at), sessionId };
+
+    // Our own forwarding test leg. If the owner picks it up, end it: the test needs it to ring out.
+    if (state?.role === "test") {
+      if (data.event_type === "call.answered") await this.command(String(p.call_control_id), "hangup", {}, state).catch(() => {});
+      return [];
+    }
 
     if (state?.role === "owner") {
       const callerLeg = state.aLeg ?? "";

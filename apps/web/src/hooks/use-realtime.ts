@@ -10,7 +10,8 @@ type RealtimeEvent =
   | { type: "call.updated"; callId: string }
   | { type: "notification.created"; notificationId: string; title: string; body: string; leadId: string | null }
   | { type: "message.created"; messageId: string; leadId: string | null }
-  | { type: "registration.updated" };
+  | { type: "registration.updated" }
+  | { type: "settings.updated" };
 
 /**
  * Subscribes to the API's server-sent events and refreshes exactly the data that
@@ -58,6 +59,9 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
             void queryClient.invalidateQueries({ queryKey: ["sim-inbox"] });
             void queryClient.invalidateQueries({ queryKey: keys.outbox });
             void queryClient.invalidateQueries({ queryKey: ["consent"] });
+            break;
+          case "settings.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.settings });
             break;
           case "registration.updated":
             void queryClient.invalidateQueries({ queryKey: keys.registration });

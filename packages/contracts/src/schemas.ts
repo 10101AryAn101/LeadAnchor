@@ -6,6 +6,7 @@ import {
   CONSENT_SOURCES,
   CONSENT_TYPES,
   CONTACT_CHANNELS,
+  FORWARDING_STATUSES,
   INTAKE_STATUSES,
   INTEGRATIONS,
   INTEGRATION_STATES,
@@ -452,8 +453,15 @@ export const settingsResponse = z.object({
   dispatcherEnabled: z.boolean(),
   valueProofFrequency: z.enum(["daily", "weekly", "off"]),
   trackingNumber: z.string().nullable(),
+  forwardingStatus: z.enum(FORWARDING_STATUSES),
+  forwardingCheckedAt: isoDate.nullable(),
+  /** True while calls run on the built-in simulator instead of Telnyx. */
+  simulated: z.boolean(),
 });
 export type SettingsResponse = z.infer<typeof settingsResponse>;
+
+/** Start a forwarding test; `simulate` only applies on the call simulator. */
+export const forwardingCheckInput = z.object({ simulate: z.enum(["forwards", "no_forward"]).optional() }).default({});
 
 export const settingsUpdateInput = z.object({
   businessName: z.string().trim().min(2).max(80).optional(),

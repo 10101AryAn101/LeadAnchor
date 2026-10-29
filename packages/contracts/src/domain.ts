@@ -93,6 +93,10 @@ export function autoMoveTarget(current: LeadStage, reason: AutoMoveReason): Lead
   return LEAD_STAGES.indexOf(target) > LEAD_STAGES.indexOf(current) ? target : null;
 }
 
+/** The "is my call forwarding on?" test (C-01): a call to the owner's cell that should come back to the LeadAnchor line. */
+export const FORWARDING_STATUSES = ["unknown", "checking", "verified", "not_detected"] as const;
+export type ForwardingStatus = (typeof FORWARDING_STATUSES)[number];
+
 /** How the owner reached out from a card: the Call or Text button. */
 export const CONTACT_CHANNELS = ["call", "text"] as const;
 export type ContactChannel = (typeof CONTACT_CHANNELS)[number];

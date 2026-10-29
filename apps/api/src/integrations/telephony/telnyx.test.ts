@@ -71,4 +71,8 @@ describe("Telnyx event translation", () => {
     const [event] = await telnyx.ingest(webhook("call.hangup", { call_control_id: "a-leg", hangup_cause: "originator_cancel" }));
     expect(event).toMatchObject({ kind: "caller.hangup", cause: "originator_cancel" });
   });
+
+  it("keeps the forwarding test call's own leg out of the call flow (C-01)", async () => {
+    expect(await telnyx.ingest(webhook("call.hangup", { call_control_id: "t-leg", hangup_cause: "timeout", client_state: state({ role: "test" }) }))).toEqual([]);
+  });
 });

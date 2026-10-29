@@ -65,4 +65,11 @@ export interface TelephonyProvider {
   recordVoicemail(call: CallHandle, input: { maxSecs: number }): Promise<void>;
 
   hangup(call: CallHandle): Promise<void>;
+
+  /**
+   * Forwarding test (C-01): calls the owner's cell from their LeadAnchor number and lets it
+   * ring out. If forwarding is on, their carrier sends it straight back to the LeadAnchor
+   * number, which arrives as an incoming call from the LeadAnchor number to itself.
+   */
+  placeTestCall(input: { from: string; to: string; ringSecs: number }): Promise<void>;
 }

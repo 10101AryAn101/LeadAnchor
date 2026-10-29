@@ -1,4 +1,4 @@
-import { ROLES, TRACKS, TRADES } from "@leadanchor/contracts";
+import { FORWARDING_STATUSES, ROLES, TRACKS, TRADES } from "@leadanchor/contracts";
 import { boolean, index, integer, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { user } from "./auth";
 import { createdAt, pk, tsz, updatedAt } from "./columns";
@@ -28,6 +28,9 @@ export const tenants = pgTable("tenants", {
   /** Used only to label an *estimated* pipeline value; recovered revenue always uses real job values. */
   avgJobValueCents: integer("avg_job_value_cents").notNull().default(25_000),
   ringTimeoutSecs: integer("ring_timeout_secs").notNull().default(18),
+  /** Result of the last "is my call forwarding on?" test call (C-01). */
+  forwardingStatus: text("forwarding_status", { enum: FORWARDING_STATUSES }).notNull().default("unknown"),
+  forwardingCheckedAt: tsz("forwarding_checked_at"),
   dispatcherEnabled: boolean("dispatcher_enabled").notNull().default(true),
   valueProofFrequency: text("value_proof_frequency", { enum: ["daily", "weekly", "off"] })
     .notNull()

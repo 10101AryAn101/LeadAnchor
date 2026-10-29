@@ -11,7 +11,8 @@ export type RealtimeEvent =
   | { type: "call.updated"; callId: string }
   | { type: "notification.created"; notificationId: string; title: string; body: string; leadId: string | null }
   | { type: "message.created"; messageId: string; leadId: string | null }
-  | { type: "registration.updated" };
+  | { type: "registration.updated" }
+  | { type: "settings.updated" };
 
 const bus = new EventEmitter();
 bus.setMaxListeners(0);

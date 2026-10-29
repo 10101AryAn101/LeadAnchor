@@ -12,6 +12,8 @@ export const QUEUES = {
   dispatchMessage: "messaging.dispatch",
   /** Every 15 minutes: send value-proof summaries that are due (C-40). */
   valueProofTick: "value-proof.tick",
+  /** Closes a forwarding test that never came back (C-01). */
+  forwardingCheckTimeout: "forwarding.check-timeout",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -21,6 +23,7 @@ export interface JobPayloads {
   [QUEUES.triagePhoto]: { tenantId: string; mediaId: string };
   [QUEUES.dispatchMessage]: { tenantId: string; messageId: string };
   [QUEUES.valueProofTick]: Record<string, never>;
+  [QUEUES.forwardingCheckTimeout]: { tenantId: string; startedAt: string };
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });

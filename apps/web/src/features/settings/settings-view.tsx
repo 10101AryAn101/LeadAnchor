@@ -20,6 +20,7 @@ import { api } from "@/lib/api";
 import { formatPhone } from "@/lib/format";
 import { showFormError } from "@/lib/forms";
 import { keys, useSettings } from "@/lib/queries";
+import { ForwardingCheck } from "./forwarding-check";
 import { ForwardingGuide } from "./forwarding-guide";
 import { ServicesSection } from "./services-section";
 
@@ -134,6 +135,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
           <p className="tabular font-display text-3xl font-semibold">{formatPhone(settings.trackingNumber)}</p>
         </div>
         <ForwardingGuide trackingNumber={settings.trackingNumber ?? ""} />
+        <ForwardingCheck settings={settings} />
       </Section>
 
       <Section title="When you can't pick up" description="Calls ring your cell first. If you don't answer in time, LeadAnchor takes over.">

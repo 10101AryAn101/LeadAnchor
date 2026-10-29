@@ -1,6 +1,7 @@
 import { logger } from "../lib/logger";
 import { extractCallerNeedJob, triagePhotoJob } from "../modules/ai/ai-jobs";
 import { dispatchMessage } from "../modules/messaging/dispatch";
+import { forwardingCheckTimeoutJob } from "../modules/tenants/forwarding";
 import { valueProofTickJob } from "../modules/value-proof/value-proof";
 import { type JobPayloads, QUEUES, type QueueName, RETRY_LIMIT, boss } from "./queue";
 
@@ -21,4 +22,5 @@ export async function startWorkers() {
   await work(QUEUES.triagePhoto, triagePhotoJob);
   await work(QUEUES.dispatchMessage, dispatchMessage);
   await work(QUEUES.valueProofTick, valueProofTickJob);
+  await work(QUEUES.forwardingCheckTimeout, forwardingCheckTimeoutJob);
 }

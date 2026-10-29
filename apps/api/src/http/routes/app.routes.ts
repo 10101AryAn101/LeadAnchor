@@ -1,6 +1,7 @@
 import {
   type MeResponse,
   dashboardRange,
+  forwardingCheckInput,
   leadContactInput,
   leadUpdateInput,
   mediaUpdateInput,
@@ -32,6 +33,7 @@ import { getDashboard } from "../../modules/dashboard/dashboard.service";
 import { integrationStatuses } from "../../modules/integrations/integration-status";
 import { addNote, getLeadDetail, listBoard, recordContact, requestDetails, updateLead } from "../../modules/leads/lead.service";
 import { listNotifications, markNotificationsRead } from "../../modules/notifications/notification.queries";
+import { startForwardingCheck } from "../../modules/tenants/forwarding";
 import { findMembership, getSettings, getTenantSummary, onboardTenant, updateSettings } from "../../modules/tenants/tenant.service";
 import { tenantContext, userContext } from "../context";
 
@@ -172,6 +174,13 @@ export async function appRoutes(app: FastifyInstance) {
   app.patch("/api/settings", async (req) => {
     const ctx = await tenantContext(req, ["owner", "manager"]);
     return updateSettings(ctx.tenantId, ctx.userId, parseInput(settingsUpdateInput, req.body));
+  });
+
+  /** C-01: ring the owner's cell and check that the call comes back to the LeadAnchor number. */
+  app.post("/api/settings/forwarding-check", async (req, reply) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    await startForwardingCheck(ctx.tenantId, ctx.userId, parseInput(forwardingCheckInput, req.body ?? {}));
+    return reply.status(202).send(await getSettings(ctx.tenantId));
   });
 
   /* ── Compliance (C-27, C-43) ──────────────────────────────────────────── */

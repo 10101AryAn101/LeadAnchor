@@ -112,6 +112,9 @@ export async function getSettings(tenantId: string): Promise<SettingsResponse> {
       dispatcherEnabled: tenant.dispatcherEnabled,
       valueProofFrequency: tenant.valueProofFrequency,
       trackingNumber: number?.e164 ?? null,
+      forwardingStatus: tenant.forwardingStatus,
+      forwardingCheckedAt: tenant.forwardingCheckedAt?.toISOString() ?? null,
+      simulated: telephony.name === "simulator",
     };
   });
 }

@@ -101,6 +101,16 @@ export class CallEngine {
     await tenantWork(number.tenantId, async (tx, fx) => {
       const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, number.tenantId));
       if (!tenant) return;
+
+      // C-01: our own forwarding test came back through the owner's carrier, so forwarding works.
+      // It isn't a customer call: no call record, no lead, just end it.
+      if (event.from === event.to && tenant.forwardingStatus === "checking") {
+        await tx.update(tenants).set({ forwardingStatus: "verified", forwardingCheckedAt: new Date() }).where(eq(tenants.id, tenant.id));
+        fx.publish({ type: "settings.updated" });
+        fx.afterCommit(() => this.telephony.hangup({ sessionId: event.sessionId, callControlId: event.callControlId }));
+        return;
+      }
+
       const customer = await findCustomerByPhone(tx, tenant.id, event.from);
 
       const [call] = await tx

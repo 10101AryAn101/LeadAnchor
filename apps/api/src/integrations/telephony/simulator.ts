@@ -101,6 +101,22 @@ export class SimulatorTelephony implements TelephonyProvider {
     this.emitLater(call, 1900, { kind: "speech.result", tag: input.tag, transcript: utterance, confidence: 0.91 });
   }
 
+  /** Whether each simulated owner phone has call forwarding switched on (C-01). Defaults to on. */
+  private readonly forwarding = new Map<string, boolean>();
+
+  simulateForwarding(ownerE164: string, forwards: boolean) {
+    this.forwarding.set(ownerE164, forwards);
+  }
+
+  async placeTestCall(input: { from: string; to: string; ringSecs: number }) {
+    if (this.forwarding.get(input.to) === false) return; // the cell just rings out; nothing comes back
+    // Unanswered, the owner's carrier forwards it to the LeadAnchor number: a call from our own number.
+    const handle: CallHandle = { sessionId: `sim-session-${randomUUID()}`, callControlId: `sim-call-${randomUUID()}` };
+    const scenario: Scenario = { callerPhone: input.from, ownerBehavior: "no_answer", callerBehavior: "hangs_up_while_ringing", utterance: "", consent: "no", voicemailText: "" };
+    this.calls.set(handle.sessionId, { handle, scenario, ended: false, timers: [] });
+    this.emitLater(handle, Math.min(input.ringSecs, 4) * 700, { kind: "call.incoming", from: input.from, to: input.from });
+  }
+
   async stopListening() {
     // The simulated caller answers with either speech or the keypad, never both.
   }
