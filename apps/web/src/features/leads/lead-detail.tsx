@@ -8,6 +8,7 @@ import {
   IconCheck,
   IconChevronDown,
   IconChevronLeft,
+  IconChevronRight,
   IconCopy,
   IconFileText,
   IconLink,
@@ -284,6 +285,9 @@ function CustomerCard({ lead }: { lead: LeadDetailData }) {
           </dd>
         </div>
       </dl>
+      <Link href={`/customers/${lead.customer.id}`} className="mt-3 inline-flex min-h-11 items-center gap-1 text-[15px] font-semibold text-primary">
+        All jobs and history <IconChevronRight className="size-4" />
+      </Link>
       {lead.otherLeads.length > 0 && (
         <div className="mt-4 border-t pt-4">
           <h3 className="text-sm font-semibold text-muted-foreground">Earlier jobs</h3>

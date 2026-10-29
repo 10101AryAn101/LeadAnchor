@@ -41,6 +41,8 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
             void queryClient.invalidateQueries({ queryKey: keys.leads });
             void queryClient.invalidateQueries({ queryKey: keys.lead(event.leadId) });
             void queryClient.invalidateQueries({ queryKey: keys.dashboardAll });
+            void queryClient.invalidateQueries({ queryKey: keys.customersAll });
+            void queryClient.invalidateQueries({ queryKey: keys.customerAll });
             break;
           case "call.updated":
             void queryClient.invalidateQueries({ queryKey: keys.calls });

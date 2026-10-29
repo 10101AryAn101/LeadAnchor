@@ -23,6 +23,7 @@ import { realtime } from "../../lib/realtime";
 import { storage } from "../../container";
 import { listCalls } from "../../modules/calls/call.queries";
 import { createService, listServices, reorderServices, updateService } from "../../modules/catalog/catalog.service";
+import { getCustomer, listCustomers } from "../../modules/customers/customer.queries";
 import { consentLedger } from "../../container";
 import { getRegistration, submitRegistration } from "../../modules/compliance/registration.service";
 import { getDashboard } from "../../modules/dashboard/dashboard.service";
@@ -99,6 +100,20 @@ export async function appRoutes(app: FastifyInstance) {
     const ctx = await tenantContext(req);
     const { id } = parseInput(idParam, req.params);
     return recordContact(ctx.tenantId, ctx.userId, id, parseInput(leadContactInput, req.body).channel);
+  });
+
+  /* ── Customers (C-34) ─────────────────────────────────────────────────── */
+
+  app.get("/api/customers", async (req) => {
+    const ctx = await tenantContext(req);
+    const { q } = parseInput(z.object({ q: z.string().max(80).optional().default("") }), req.query);
+    return { customers: await listCustomers(ctx.tenantId, q) };
+  });
+
+  app.get("/api/customers/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return getCustomer(ctx.tenantId, id);
   });
 
   /* ── Services and prices (C-17) ───────────────────────────────────────── */

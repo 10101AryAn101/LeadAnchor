@@ -203,6 +203,57 @@ export type LeadUpdateInput = z.infer<typeof leadUpdateInput>;
 
 export const leadContactInput = z.object({ channel: z.enum(CONTACT_CHANNELS) });
 
+/* ----------------------------------------------------------------------------
+ * Customers (C-34): one person's whole history with the business
+ * ------------------------------------------------------------------------- */
+
+export const customerListItem = z.object({
+  id,
+  name: z.string().nullable(),
+  phone: z.string().nullable(),
+  jobs: z.number().int(),
+  openJobs: z.number().int(),
+  wonJobs: z.number().int(),
+  /** Real job values of won jobs only — never estimates. */
+  lifetimeValueCents: z.number().int(),
+  lastActivityAt: isoDate,
+});
+export type CustomerListItem = z.infer<typeof customerListItem>;
+
+export const customerJob = z.object({
+  id,
+  title: z.string(),
+  stage: z.enum(LEAD_STAGES),
+  source: z.enum(LEAD_SOURCES),
+  serviceCategory: z.string().nullable(),
+  urgency: z.enum(URGENCY_LEVELS),
+  valueCents: z.number().int().nullable(),
+  estimatedValueCents: z.number().int().nullable(),
+  scheduledFor: isoDate.nullable(),
+  createdAt: isoDate,
+  wonAt: isoDate.nullable(),
+});
+export type CustomerJob = z.infer<typeof customerJob>;
+
+export const customerDetail = z.object({
+  id,
+  name: z.string().nullable(),
+  phone: z.string().nullable(),
+  email: z.string().nullable(),
+  address: z.string().nullable(),
+  firstSeenAt: isoDate,
+  stats: z.object({
+    jobs: z.number().int(),
+    openJobs: z.number().int(),
+    wonJobs: z.number().int(),
+    lifetimeValueCents: z.number().int(),
+  }),
+  jobs: z.array(customerJob),
+  calls: z.array(callItem),
+  photos: z.array(z.object({ id, leadId: z.string(), issue: z.string().nullable(), createdAt: isoDate })),
+});
+export type CustomerDetail = z.infer<typeof customerDetail>;
+
 /** Answer to "the owner tapped Call/Text": where the card moved, if it did. */
 export interface LeadContactResult {
   moved: { from: LeadStage; to: LeadStage } | null;

@@ -235,7 +235,7 @@ function BottomTabs() {
 
   return (
     <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-background lg:hidden" aria-label="Main">
-      <div className="mx-auto grid h-14 max-w-md grid-cols-4">
+      <div className="mx-auto grid h-14 max-w-md grid-cols-5">
         {PRIMARY_NAV.map((item) => {
           const active = isActive(pathname, item.href);
           const Icon = active && item.activeIcon ? item.activeIcon : item.icon;

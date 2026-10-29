@@ -3,6 +3,8 @@
 import type {
   CallItem,
   ConsentEntry,
+  CustomerDetail,
+  CustomerListItem,
   DashboardRange,
   DashboardSummary,
   IntegrationStatus,
@@ -25,6 +27,10 @@ export const keys = {
   leads: ["leads"] as const,
   lead: (id: string) => ["lead", id] as const,
   calls: ["calls"] as const,
+  customers: (search = "") => ["customers", search] as const,
+  customersAll: ["customers"] as const,
+  customer: (id: string) => ["customer", id] as const,
+  customerAll: ["customer"] as const,
   notifications: ["notifications"] as const,
   settings: ["settings"] as const,
   services: ["services"] as const,
@@ -55,6 +61,15 @@ export const useLead = (id: string | null) =>
 
 export const useCalls = () =>
   useQuery({ queryKey: keys.calls, queryFn: async () => (await api<{ calls: CallItem[] }>("/calls")).calls });
+
+export const useCustomers = (search: string) =>
+  useQuery({
+    queryKey: keys.customers(search),
+    queryFn: async () => (await api<{ customers: CustomerListItem[] }>(`/customers?q=${encodeURIComponent(search)}`)).customers,
+    placeholderData: (previous) => previous,
+  });
+
+export const useCustomer = (id: string) => useQuery({ queryKey: keys.customer(id), queryFn: () => api<CustomerDetail>(`/customers/${id}`) });
 
 export const useNotifications = () =>
   useQuery({
