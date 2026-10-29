@@ -21,6 +21,7 @@ import { formatPhone } from "@/lib/format";
 import { showFormError } from "@/lib/forms";
 import { keys, useSettings } from "@/lib/queries";
 import { ForwardingGuide } from "./forwarding-guide";
+import { ServicesSection } from "./services-section";
 
 /** Form shape: plain strings/numbers in the inputs, validated by the shared schema on submit. */
 const formSchema = z.object({
@@ -66,7 +67,12 @@ export function SettingsView() {
       </div>
     );
   }
-  return <SettingsForm settings={settings} />;
+  return (
+    <div className="space-y-6 pb-24 lg:pb-0">
+      <SettingsForm settings={settings} />
+      <ServicesSection />
+    </div>
+  );
 }
 
 /** Mounted only once settings are loaded, so every control starts controlled. */
@@ -103,7 +109,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
   });
 
   return (
-    <form className="space-y-6 pb-24 lg:pb-0" onSubmit={form.handleSubmit((values) => save.mutate(values))} noValidate>
+    <form className="space-y-6" onSubmit={form.handleSubmit((values) => save.mutate(values))} noValidate>
       <PageHeader
         title="Settings"
         description="How LeadAnchor answers for you, and what customers see."

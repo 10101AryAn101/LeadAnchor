@@ -65,6 +65,15 @@ export function duration(secs: number | null | undefined) {
 
 export const percent = (value: number) => `${Math.round(value * 100)}%`;
 
+/** How long a job takes: "45 min", "1 hr", "2 hr 30 min". */
+export function jobLength(mins: number | null | undefined) {
+  if (mins == null) return null;
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  if (hours === 0) return `${rest} min`;
+  return rest === 0 ? `${hours} hr` : `${hours} hr ${rest} min`;
+}
+
 export const initials = (name: string | null | undefined) =>
   (name ?? "")
     .split(/\s+/)

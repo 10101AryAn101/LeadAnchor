@@ -1,4 +1,4 @@
-import { type DashboardRange, type DashboardSummary, LEAD_SOURCES, type LeadSource } from "@leadanchor/contracts";
+import { type DashboardRange, type DashboardSummary, LEAD_SOURCES, type LeadSource, URGENCY_LEVELS, type Urgency } from "@leadanchor/contracts";
 import { sql } from "drizzle-orm";
 import { withTenant } from "../../db/client";
 
@@ -60,6 +60,13 @@ export async function getDashboard(tenantId: string, range: DashboardRange): Pro
       await tx.execute(sql`select source, count(*)::int as count from leads where created_at >= ${since} group by source order by count desc`)
     ).rows as Array<{ source: LeadSource; count: number }>;
 
+    const urgencyRows = (
+      await tx.execute(sql`select urgency, count(*)::int as count from leads where created_at >= ${since} group by urgency`)
+    ).rows as Array<{ urgency: Urgency; count: number }>;
+    const urgency = Object.fromEntries(
+      URGENCY_LEVELS.map((level) => [level, urgencyRows.find((row) => row.urgency === level)?.count ?? 0]),
+    ) as Record<Urgency, number>;
+
     const recoveredCents = Number(leadRow.recovered);
     const pipelineCents = Number(leadRow.pipeline);
     const missed = callRow.captured;
@@ -90,6 +97,7 @@ export async function getDashboard(tenantId: string, range: DashboardRange): Pro
       needsCallback: leadRow.callbacks,
       series: seriesRows,
       sources: sourceRows.filter((row) => (LEAD_SOURCES as readonly string[]).includes(row.source)),
+      urgency,
       valueProof: { headline, detail },
     };
   });

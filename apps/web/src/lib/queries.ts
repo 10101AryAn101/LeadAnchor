@@ -11,6 +11,7 @@ import type {
   MeResponse,
   NotificationItem,
   RegistrationResponse,
+  ServiceItem,
   SettingsResponse,
 } from "@leadanchor/contracts";
 import { useQuery } from "@tanstack/react-query";
@@ -26,6 +27,7 @@ export const keys = {
   calls: ["calls"] as const,
   notifications: ["notifications"] as const,
   settings: ["settings"] as const,
+  services: ["services"] as const,
   registration: ["registration"] as const,
   consent: (phone?: string) => ["consent", phone ?? "all"] as const,
   integrations: ["integrations"] as const,
@@ -61,6 +63,9 @@ export const useNotifications = () =>
   });
 
 export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: () => api<SettingsResponse>("/settings") });
+
+export const useServices = () =>
+  useQuery({ queryKey: keys.services, queryFn: async () => (await api<{ services: ServiceItem[] }>("/services")).services });
 
 export const useRegistration = () =>
   useQuery({ queryKey: keys.registration, queryFn: () => api<RegistrationResponse>("/compliance/registration") });

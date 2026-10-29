@@ -6,6 +6,9 @@ import {
   noteInput,
   onboardingInput,
   registrationInput,
+  serviceInput,
+  serviceOrderInput,
+  serviceUpdateInput,
   settingsUpdateInput,
   toE164,
 } from "@leadanchor/contracts";
@@ -19,6 +22,7 @@ import { notFound, parseInput } from "../../lib/errors";
 import { realtime } from "../../lib/realtime";
 import { storage } from "../../container";
 import { listCalls } from "../../modules/calls/call.queries";
+import { createService, listServices, reorderServices, updateService } from "../../modules/catalog/catalog.service";
 import { consentLedger } from "../../container";
 import { getRegistration, submitRegistration } from "../../modules/compliance/registration.service";
 import { getDashboard } from "../../modules/dashboard/dashboard.service";
@@ -95,6 +99,29 @@ export async function appRoutes(app: FastifyInstance) {
     const ctx = await tenantContext(req);
     const { id } = parseInput(idParam, req.params);
     return recordContact(ctx.tenantId, ctx.userId, id, parseInput(leadContactInput, req.body).channel);
+  });
+
+  /* ── Services and prices (C-17) ───────────────────────────────────────── */
+
+  app.get("/api/services", async (req) => {
+    const ctx = await tenantContext(req);
+    return { services: await listServices(ctx.tenantId) };
+  });
+
+  app.post("/api/services", async (req, reply) => {
+    const ctx = await tenantContext(req);
+    return reply.status(201).send(await createService(ctx.tenantId, ctx.userId, parseInput(serviceInput, req.body)));
+  });
+
+  app.post("/api/services/order", async (req) => {
+    const ctx = await tenantContext(req);
+    return { services: await reorderServices(ctx.tenantId, parseInput(serviceOrderInput, req.body).ids) };
+  });
+
+  app.patch("/api/services/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return updateService(ctx.tenantId, ctx.userId, id, parseInput(serviceUpdateInput, req.body));
   });
 
   /* ── Calls ────────────────────────────────────────────────────────────── */

@@ -233,9 +233,42 @@ export const dashboardSummary = z.object({
   needsCallback: z.number().int(),
   series: z.array(z.object({ date: z.string(), captured: z.number().int(), won: z.number().int() })),
   sources: z.array(z.object({ source: z.enum(LEAD_SOURCES), count: z.number().int() })),
+  /** New leads in the period by urgency (C-14). */
+  urgency: z.record(z.enum(URGENCY_LEVELS), z.number().int()),
   valueProof: z.object({ headline: z.string(), detail: z.string() }),
 });
 export type DashboardSummary = z.infer<typeof dashboardSummary>;
+
+/* ----------------------------------------------------------------------------
+ * Service catalogue (C-17): what the business offers, how long it takes, what it costs
+ * ------------------------------------------------------------------------- */
+
+export const serviceItem = z.object({
+  id,
+  name: z.string(),
+  description: z.string().nullable(),
+  durationMins: z.number().int().nullable(),
+  priceCents: z.number().int().nullable(),
+  /** Shown to customers on the request form. Hidden services stay for history. */
+  active: z.boolean(),
+  sortOrder: z.number().int(),
+});
+export type ServiceItem = z.infer<typeof serviceItem>;
+
+export const serviceInput = z.object({
+  name: z.string().trim().min(2, "Enter a name").max(80),
+  description: z.string().trim().max(200).nullable().optional(),
+  durationMins: z.number().int().min(5, "At least 5 minutes").max(24 * 60).nullable().optional(),
+  priceDollars: z.number().min(0).max(100_000).nullable().optional(),
+  active: z.boolean().optional(),
+});
+export type ServiceInput = z.infer<typeof serviceInput>;
+
+export const serviceUpdateInput = serviceInput.partial();
+export type ServiceUpdateInput = z.infer<typeof serviceUpdateInput>;
+
+/** The full list of service ids in their new order. */
+export const serviceOrderInput = z.object({ ids: z.array(z.string()).min(1).max(200) });
 
 /* ----------------------------------------------------------------------------
  * Notifications

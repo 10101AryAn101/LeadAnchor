@@ -43,14 +43,16 @@ export function SourceLabel({ source, className }: { source: LeadSource; classNa
   );
 }
 
-const URGENCY: Record<Urgency, { label: string; className: string } | null> = {
+const URGENCY: Record<Urgency, { label: string; className: string }> = {
   emergency: { label: "Emergency", className: "bg-destructive-subtle text-destructive-strong" },
   high: { label: "Needs today", className: "bg-signal-subtle text-signal-strong" },
-  normal: null,
+  normal: { label: "Routine", className: "bg-muted text-muted-foreground" },
   low: { label: "Quote only", className: "bg-muted text-muted-foreground" },
 };
 
-export function UrgencyChip({ urgency }: { urgency: Urgency }) {
+/** Routine is the default, so it only shows when asked for (e.g. in a breakdown). */
+export function UrgencyChip({ urgency, showRoutine = false }: { urgency: Urgency; showRoutine?: boolean }) {
+  if (urgency === "normal" && !showRoutine) return null;
   const meta = URGENCY[urgency];
   if (!meta) return null;
   return (
