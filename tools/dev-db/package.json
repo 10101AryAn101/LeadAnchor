@@ -6,7 +6,8 @@
   "description": "Runs a local PostgreSQL server for development (no Docker needed).",
   "scripts": {
     "dev": "node src/index.mjs",
-    "start": "node src/index.mjs"
+    "start": "node src/index.mjs",
+    "to-utf8": "node src/to-utf8.mjs"
   },
   "dependencies": {
     "embedded-postgres": "18.4.0-beta.17"

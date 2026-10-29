@@ -34,6 +34,11 @@ and place a test call.
 Want a ready-made business instead? `pnpm db:seed` creates a demo owner account with texting already
 approved; the sign-in details are at the top of `apps/api/src/db/seed.ts`. It is for local use only.
 
+The local database is UTF-8, so customers' emoji and accents are stored as typed. A database created
+before that (on Windows it took the system code page, e.g. WIN1252) can be converted in place, keeping
+its data: stop the API, then run `pnpm db:utf8`. The original stays as `leadanchor_old_<encoding>`
+until you drop it.
+
 ## What works today
 
 | Area | Capabilities (spreadsheet IDs) | Status |
