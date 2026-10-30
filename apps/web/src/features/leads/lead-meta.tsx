@@ -18,6 +18,7 @@ import {
   IconMessages,
   IconPhoneX,
   IconRecordMail,
+  IconRepeat,
   IconUser,
   IconWorld,
 } from "@tabler/icons-react";
@@ -37,6 +38,7 @@ export const SOURCE_ICON: Record<LeadSource, Icon> = {
   manual: IconUser,
   web_chat: IconMessages,
   text: IconMessage,
+  membership: IconRepeat,
 };
 
 export function SourceLabel({ source, className }: { source: LeadSource; className?: string }) {

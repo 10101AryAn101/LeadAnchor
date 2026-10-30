@@ -10,4 +10,5 @@ export * from "./money";
 export * from "./booking";
 export * from "./reviews";
 export * from "./campaigns";
+export * from "./memberships";
 export * from "./system";

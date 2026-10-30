@@ -17,6 +17,7 @@ type RealtimeEvent =
   | { type: "waitlist.updated" }
   | { type: "reviews.updated" }
   | { type: "chat.updated"; conversationId: string }
+  | { type: "membership.updated"; membershipId: string }
   | { type: "quote.updated"; quoteId: string; leadId: string }
   | ({ type: "push.preview" } & SimulatedAlert);
 
@@ -63,6 +64,11 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
             // Campaign news (a suggestion, a send) arrives as an alert.
             void queryClient.invalidateQueries({ queryKey: keys.campaigns });
             notify(event);
+            break;
+          case "membership.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.memberships });
+            void queryClient.invalidateQueries({ queryKey: keys.membership(event.membershipId) });
+            void queryClient.invalidateQueries({ queryKey: keys.plans });
             break;
           case "message.created":
             if (event.leadId) void queryClient.invalidateQueries({ queryKey: keys.lead(event.leadId) });

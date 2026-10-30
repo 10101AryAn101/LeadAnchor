@@ -19,6 +19,7 @@ import {
   EMAIL_FEEDBACK_TYPES,
   FORWARDING_STATUSES,
   INTAKE_STATUSES,
+  INVOICE_STATUSES,
   INTEGRATIONS,
   INTEGRATION_STATES,
   LEAD_SOURCES,
@@ -28,6 +29,7 @@ import {
   MAX_PAYMENT_CENTS,
   MAX_QUOTE_LINES,
   MAX_TAGS_PER_JOB,
+  MEMBERSHIP_STATUSES,
   MESSAGE_AUTHORS,
   MESSAGE_CHANNELS,
   MESSAGE_DIRECTIONS,
@@ -40,6 +42,8 @@ import {
   PAYMENT_METHODS,
   PAYMENT_PROVIDERS,
   PAYMENT_STATUSES,
+  PLAN_INTERVALS,
+  PLAN_STATUSES,
   PUSH_PROVIDERS,
   QUOTE_DRAFT_SOURCES,
   QUOTE_LINE_ORIGINS,
@@ -59,6 +63,7 @@ import {
   URGENCY_LEVELS,
   WAITLIST_STATUSES,
   WEEKDAY_KEYS,
+  WORK_CADENCES,
   type LeadStage,
   type Track,
 } from "./domain";
@@ -1575,6 +1580,10 @@ export const simCheckout = z.object({
   capture: z.enum(PAYMENT_CAPTURES),
   status: z.enum(["open", "complete", "expired"]),
   lastFailure: z.string().nullable(),
+  /** subscription: a membership that renews (Stripe Billing), with its terms shown in full. */
+  mode: z.enum(["payment", "subscription"]),
+  interval: z.enum(PLAN_INTERVALS).nullable(),
+  terms: z.array(z.string()),
 });
 export type SimCheckout = z.infer<typeof simCheckout>;
 
@@ -1799,6 +1808,209 @@ export type PublicCampaignOffer = z.infer<typeof publicCampaignOffer>;
 
 /** Development: what the simulated weather service forecasts for the business's town. */
 export const simWeatherInput = z.object({ kind: z.enum(["freeze", "heat", "mild"]) });
+
+/* ----------------------------------------------------------------------------
+ * Memberships (module 12; C-48 plans, C-49 billing, C-50 members, C-51 jobs,
+ * C-52 self-service)
+ * ------------------------------------------------------------------------- */
+
+export const workCadence = z.object({
+  kind: z.enum(WORK_CADENCES),
+  every: z.number().int().min(2).max(12).default(2),
+  months: z.array(z.number().int().min(1).max(12)).max(12).default([]),
+});
+
+export const planInput = z.object({
+  name: z.string().trim().min(2, "Name the plan").max(60),
+  description: z.string().trim().max(500).default(""),
+  priceCents: z.number().int().min(100, "At least $1").max(1_000_000, "At most $10,000"),
+  interval: z.enum(PLAN_INTERVALS),
+  /** What members get, one line each. */
+  includes: z.array(z.string().trim().min(1).max(120)).max(10).default([]),
+  /** The job a paid bill puts on the board (C-51). */
+  workServiceId: z.string().nullable().default(null),
+  workCadence: workCadence.default({ kind: "every", every: 2, months: [] }),
+  /** Sent when someone joins. */
+  welcomeMessage: z.string().trim().max(600).default(""),
+});
+export type PlanInput = z.input<typeof planInput>;
+
+export const planItem = z.object({
+  id,
+  name: z.string(),
+  description: z.string(),
+  priceCents: z.number().int(),
+  interval: z.enum(PLAN_INTERVALS),
+  includes: z.array(z.string()),
+  workServiceId: z.string().nullable(),
+  workServiceName: z.string().nullable(),
+  workCadence,
+  welcomeMessage: z.string(),
+  status: z.enum(PLAN_STATUSES),
+  /** The shareable sign-up link (C-48). */
+  signupUrl: z.string(),
+  /** Members by status, and how many keep an older price (C-48 AC 2: nobody is re-priced silently). */
+  members: z.object({
+    active: z.number().int(),
+    pastDue: z.number().int(),
+    paused: z.number().int(),
+    olderPrice: z.number().int(),
+  }),
+  createdAt: isoDate,
+});
+export type PlanItem = z.infer<typeof planItem>;
+
+export const plansResponse = z.object({ plans: z.array(planItem), cardsReady: z.boolean() });
+export type PlansResponse = z.infer<typeof plansResponse>;
+
+/** A renewal that was declined: still being retried, or failed after every retry (C-49 AC 2). */
+export const membershipIssue = z.object({
+  kind: z.enum(["retrying", "failed"]),
+  message: z.string().nullable(),
+  attempts: z.number().int(),
+  nextAttemptAt: isoDate.nullable(),
+});
+
+export const membershipItem = z.object({
+  id,
+  status: z.enum(MEMBERSHIP_STATUSES),
+  customer: z.object({ id, name: z.string().nullable(), phone: z.string().nullable(), email: z.string().nullable() }),
+  plan: z.object({ id, name: z.string() }),
+  /** Their own price: kept when the plan's price changes. */
+  priceCents: z.number().int(),
+  interval: z.enum(PLAN_INTERVALS),
+  monthlyCents: z.number().int(),
+  startedAt: isoDate.nullable(),
+  nextBillAt: isoDate.nullable(),
+  /** Canceled: they keep the plan until this date. */
+  endsAt: isoDate.nullable(),
+  canceledAt: isoDate.nullable(),
+  pausedAt: isoDate.nullable(),
+  card: z.object({ brand: z.string(), last4: z.string() }).nullable(),
+  lifetimeCents: z.number().int(),
+  billsPaid: z.number().int(),
+  issue: membershipIssue.nullable(),
+});
+export type MembershipItem = z.infer<typeof membershipItem>;
+
+export const membershipsSummary = z.object({
+  /** Active members only: past due and paused don't count (C-50 AC 2). */
+  mrrCents: z.number().int(),
+  /** Joined minus cancelled in the last 30 days. */
+  mrrChangeCents: z.number().int(),
+  active: z.number().int(),
+  pastDue: z.number().int(),
+  paused: z.number().int(),
+  joined30d: z.number().int(),
+  canceled30d: z.number().int(),
+});
+export type MembershipsSummary = z.infer<typeof membershipsSummary>;
+
+export const membershipsResponse = z.object({
+  memberships: z.array(membershipItem),
+  summary: membershipsSummary,
+  cardsReady: z.boolean(),
+});
+export type MembershipsResponse = z.infer<typeof membershipsResponse>;
+
+export const membershipInvoice = z.object({
+  id,
+  /** proration: the difference after a mid-cycle plan change, worked out by Stripe. */
+  kind: z.enum(["cycle", "proration"]),
+  amountCents: z.number().int(),
+  status: z.enum(INVOICE_STATUSES),
+  periodStart: isoDate.nullable(),
+  periodEnd: isoDate.nullable(),
+  paidAt: isoDate.nullable(),
+  attempts: z.number().int(),
+  failure: z.string().nullable(),
+  /** The job this bill put on the board (C-51). */
+  leadId: z.string().nullable(),
+  createdAt: isoDate,
+});
+export type MembershipInvoice = z.infer<typeof membershipInvoice>;
+
+export const membershipDetail = membershipItem.extend({
+  invoices: z.array(membershipInvoice),
+  /** What they agreed to, and when (ROSCA, C-49 AC 1). */
+  consent: z.object({ text: z.string(), version: z.string(), at: isoDate }).nullable(),
+});
+export type MembershipDetail = z.infer<typeof membershipDetail>;
+
+export const membershipActionInput = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("pause") }),
+  z.object({ action: z.literal("resume") }),
+  z.object({ action: z.literal("cancel") }),
+  z.object({ action: z.literal("retry") }),
+  z.object({ action: z.literal("change_plan"), planId: z.string() }),
+]);
+export type MembershipActionInput = z.input<typeof membershipActionInput>;
+
+/** A plan's public sign-up page (C-48: the link the owner shares). */
+export const publicPlan = z.object({
+  business: publicBusiness,
+  /** False when the plan is archived or card payments are off. */
+  available: z.boolean(),
+  plan: z.object({
+    name: z.string(),
+    description: z.string(),
+    priceCents: z.number().int(),
+    interval: z.enum(PLAN_INTERVALS),
+    includes: z.array(z.string()),
+  }),
+  /** Shown in full before they pay (C-48 AC 3, C-49 AC 1). */
+  terms: z.array(z.string()),
+  consentText: z.string(),
+});
+export type PublicPlan = z.infer<typeof publicPlan>;
+
+export const planJoinInput = z.object({
+  name: z.string().trim().min(2, "Enter your name").max(80),
+  phone: usPhone,
+  email: z.email("Enter your email, for receipts and the link to manage your plan").max(200),
+  /** The ticked box: express informed consent to the recurring charge. */
+  consent: z.literal(true, { error: "Tick the box to agree to the charges" }),
+  /** Hidden from people; only bots fill it in. */
+  company: z.string().max(200).optional().default(""),
+});
+export type PlanJoinInput = z.input<typeof planJoinInput>;
+
+/** The member's own page behind the link in every receipt (C-52). */
+export const publicMembership = z.object({
+  business: publicBusiness,
+  /** The link is past its date: they can have a fresh one sent to the email on file. */
+  expired: z.boolean(),
+  member: z
+    .object({
+      firstName: z.string().nullable(),
+      plan: z.string(),
+      priceCents: z.number().int(),
+      interval: z.enum(PLAN_INTERVALS),
+      status: z.enum(MEMBERSHIP_STATUSES),
+      nextBillAt: isoDate.nullable(),
+      endsAt: isoDate.nullable(),
+    })
+    .nullable(),
+});
+export type PublicMembership = z.infer<typeof publicMembership>;
+
+/** Development: Stripe's hosted customer portal (C-52), simulated. */
+export const simPortal = z.object({
+  id,
+  businessName: z.string(),
+  returnUrl: z.string(),
+  plan: z.object({ name: z.string(), priceCents: z.number().int(), interval: z.enum(PLAN_INTERVALS) }),
+  status: z.enum(["active", "past_due", "paused", "canceled"]),
+  currentPeriodEnd: isoDate.nullable(),
+  card: z.object({ brand: z.string(), last4: z.string(), failing: z.boolean() }),
+  invoices: z.array(z.object({ id, amountCents: z.number().int(), status: z.enum(["paid", "open", "uncollectible"]), date: isoDate })),
+});
+export type SimPortal = z.infer<typeof simPortal>;
+
+export const simPortalInput = z.object({ action: z.enum(["cancel", "update_card"]) });
+
+/** Development: bill a membership's next cycle now, with a card that pays or declines. */
+export const simRenewInput = z.object({ outcome: z.enum(["pay", "decline"]) });
 
 /* ----------------------------------------------------------------------------
  * Errors

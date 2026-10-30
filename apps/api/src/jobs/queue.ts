@@ -46,6 +46,8 @@ export const QUEUES = {
   campaignSend: "campaigns.send",
   /** Every six hours: weather and holidays that are worth an offer (C-30). */
   campaignSignalsTick: "campaigns.signals-tick",
+  /** Every 15 minutes: the simulated Stripe Billing clock: renewals, retries, cancellations (module 12). */
+  membershipsTick: "memberships.tick",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -72,6 +74,7 @@ export interface JobPayloads {
   [QUEUES.assistantReply]: { tenantId: string; conversationId: string };
   [QUEUES.campaignSend]: { tenantId: string; campaignId: string };
   [QUEUES.campaignSignalsTick]: Record<string, never>;
+  [QUEUES.membershipsTick]: Record<string, never>;
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });
@@ -98,6 +101,7 @@ export async function startQueue() {
   await boss.schedule(QUEUES.listingSyncTick, "*/15 * * * *");
   await boss.schedule(QUEUES.reviewRequestsTick, "*/15 * * * *");
   await boss.schedule(QUEUES.campaignSignalsTick, "0 */6 * * *");
+  await boss.schedule(QUEUES.membershipsTick, "*/15 * * * *");
   started = true;
 }
 

@@ -59,7 +59,8 @@ describe("simulated Stripe (module 7)", () => {
     const session = await checkout(accountId, "hold");
     expect(session.url).toBe(`http://localhost:3000/sim/stripe/checkout/${session.id}`);
 
-    const { redirectUrl, event } = sim.completeCheckout(session.id, "pay");
+    const { redirectUrl, events } = sim.completeCheckout(session.id, "pay");
+    const event = events[0];
     expect(redirectUrl).toContain("checkout=done");
     expect(event?.type === "payment" && event.state).toMatchObject({
       status: "held",

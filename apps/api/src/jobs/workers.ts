@@ -5,6 +5,7 @@ import { bookingsTickJob } from "../modules/booking/booking.service";
 import { campaignSendJob } from "../modules/campaigns/send";
 import { campaignSignalsTickJob } from "../modules/campaigns/signals";
 import { assistantReplyJob } from "../modules/chat/assistant";
+import { membershipsTickJob } from "../modules/memberships/membership.service";
 import { calendarSyncTickJob, pushBookingJob } from "../modules/booking/calendar-sync";
 import { dispatchMessage } from "../modules/messaging/dispatch";
 import { paymentsTickJob } from "../modules/payments/payment.service";
@@ -49,4 +50,5 @@ export async function startWorkers() {
   await work(QUEUES.assistantReply, assistantReplyJob);
   await work(QUEUES.campaignSend, campaignSendJob);
   await work(QUEUES.campaignSignalsTick, campaignSignalsTickJob);
+  await work(QUEUES.membershipsTick, membershipsTickJob);
 }

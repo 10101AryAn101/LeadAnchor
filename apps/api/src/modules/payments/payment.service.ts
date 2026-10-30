@@ -38,6 +38,7 @@ import { HttpError, notFound } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { iso } from "../../lib/time";
 import { audit } from "../compliance/audit";
+import { applyInvoiceState, applySubscriptionState } from "../memberships/billing";
 import { addLeadEvent } from "../leads/lead-capture";
 import { toMessageItem } from "../messaging/message-item";
 import { requestEmail, requestMessage } from "../messaging/send-path";
@@ -921,7 +922,12 @@ export async function receivePaymentEvent(event: PaymentEvent) {
     }
     if (event.type === "account")
       await applyAccountState(account.tenantId, account.id, event.account);
-    else await applyPaymentState(account.tenantId, event.state.reference, event.state);
+    else if (event.type === "payment")
+      await applyPaymentState(account.tenantId, event.state.reference, event.state);
+    // Memberships (module 12): Stripe Billing's subscription and invoice events.
+    else if (event.type === "subscription")
+      await applySubscriptionState(account.tenantId, event.subscription);
+    else await applyInvoiceState(account.tenantId, event.invoice);
     await systemDb
       .update(webhookInbox)
       .set({ status: "processed", processedAt: new Date(), tenantId: account.tenantId })

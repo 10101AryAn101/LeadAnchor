@@ -3,6 +3,7 @@ import {
   cancelBookingInput,
   intakeSubmitFields,
   paymentReportInput,
+  planJoinInput,
   privateFeedbackInput,
   publicChatInput,
   publicRequestFields,
@@ -12,6 +13,7 @@ import {
 } from "@leadanchor/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
+import { linkBaseUrl, webOrigins } from "../../config/env";
 import { storage } from "../../container";
 import { badRequest, notFound, parseInput } from "../../lib/errors";
 import {
@@ -32,6 +34,7 @@ import { acceptQuote, declineQuote, getPublicQuote, publicQuotePdf } from "../..
 import { getFeedbackContext, getUnsubscribe, submitFeedback, unsubscribe } from "../../modules/reviews/review-requests";
 import { getChatContext, getChatThread, postChatMessage } from "../../modules/chat/web-chat";
 import { getCampaignOffer, openCampaignLink } from "../../modules/campaigns/links";
+import { getPublicMembership, getPublicPlan, joinPlan, joinedStatus, openPortal, resendManageLink } from "../../modules/memberships/public";
 
 const tokenParam = z.object({ token: z.string().min(20).max(64) });
 const slugParam = z.object({ slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$/) });
@@ -97,6 +100,45 @@ export async function publicRoutes(app: FastifyInstance) {
     const { token } = parseInput(tokenParam, req.params);
     reply.header("Cache-Control", "no-store");
     return getCampaignOffer(token);
+  });
+
+  /* ── Memberships (module 12): sign up to a plan, and manage it from a receipt ── */
+
+  /** The address the customer is on, when it's one of ours, so pages they're sent to stay there. */
+  const ownOrigin = (origin: string | undefined) => (origin && webOrigins.includes(origin) ? origin : null);
+  const sealedParam = z.object({ token: z.string().min(20).max(400) });
+
+  app.get("/api/public/membership-plans/:token", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return getPublicPlan(token);
+  });
+
+  app.post("/api/public/membership-plans/:token/join", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return joinPlan(token, parseInput(planJoinInput, req.body), { ipAddress: req.ip ?? null, origin: ownOrigin(req.headers.origin) });
+  });
+
+  app.get("/api/public/membership-plans/:token/joined/:membershipId", async (req, reply) => {
+    const { token, membershipId } = parseInput(z.object({ token: z.string().min(20).max(64), membershipId: z.string().max(40) }), req.params);
+    reply.header("Cache-Control", "no-store");
+    return joinedStatus(token, membershipId);
+  });
+
+  app.get("/api/public/memberships/:token", async (req, reply) => {
+    const { token } = parseInput(sealedParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return getPublicMembership(token);
+  });
+
+  app.post("/api/public/memberships/:token/portal", async (req) => {
+    const { token } = parseInput(sealedParam, req.params);
+    return openPortal(token, `${ownOrigin(req.headers.origin) ?? linkBaseUrl}/m/manage/${token}`);
+  });
+
+  app.post("/api/public/memberships/:token/resend", async (req) => {
+    const { token } = parseInput(sealedParam, req.params);
+    return resendManageLink(token);
   });
 
   /* ── Quotes (C-45): read, download, accept or decline ─────────────────── */

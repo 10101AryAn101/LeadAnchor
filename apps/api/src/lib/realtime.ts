@@ -19,6 +19,8 @@ export type RealtimeEvent =
   | { type: "waitlist.updated" }
   | { type: "reviews.updated" }
   | { type: "chat.updated"; conversationId: string }
+  /** A member joined, paid, failed a payment, paused or cancelled (module 12). */
+  | { type: "membership.updated"; membershipId: string }
   | { type: "quote.updated"; quoteId: string; leadId: string }
   /** Simulated phone alert (C-05): shown by the browsers whose token is listed. */
   | {

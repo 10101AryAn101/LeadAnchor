@@ -9,6 +9,8 @@ import {
   campaignSendInput,
   campaignUpdateInput,
   chatHandlerInput,
+  membershipActionInput,
+  planInput,
   chatReplyInput,
   dashboardRange,
   listingPostInput,
@@ -68,6 +70,8 @@ import {
   updateCampaign,
 } from "../../modules/campaigns/campaign.service";
 import { getAssistantSettings, getChat, listChats, ownerReply, setHandler, updateAssistantSettings } from "../../modules/chat/chat.service";
+import { getMembership, listMemberships, membershipAction } from "../../modules/memberships/membership.service";
+import { createPlan, listPlans, setPlanArchived, updatePlan } from "../../modules/memberships/plans.service";
 import {
   connectListing,
   disconnectListing,
@@ -488,6 +492,51 @@ export async function appRoutes(app: FastifyInstance) {
     const ctx = await tenantContext(req, ["owner"]);
     const { id } = parseInput(idParam, req.params);
     return unscheduleCampaign(ctx.tenantId, id, ctx);
+  });
+
+  /* ── Memberships (module 12; C-48 … C-52) ─────────────────────────────── */
+
+  app.get("/api/memberships", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    return listMemberships(ctx.tenantId);
+  });
+
+  app.get("/api/memberships/:id", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return getMembership(ctx.tenantId, id);
+  });
+
+  /** Pause, resume, cancel, change plan or retry a bill: written back to Stripe and audited (C-50 AC 3). */
+  app.post("/api/memberships/:id/action", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(idParam, req.params);
+    return membershipAction(ctx.tenantId, id, parseInput(membershipActionInput, req.body), ctx);
+  });
+
+  app.get("/api/membership-plans", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    return listPlans(ctx.tenantId);
+  });
+
+  app.post("/api/membership-plans", async (req, reply) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const plan = await createPlan(ctx.tenantId, parseInput(planInput, req.body), `user:${ctx.userId}`);
+    return reply.status(201).send(plan);
+  });
+
+  app.patch("/api/membership-plans/:id", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(idParam, req.params);
+    return updatePlan(ctx.tenantId, id, parseInput(planInput, req.body), `user:${ctx.userId}`);
+  });
+
+  /** Archived plans take no new members; existing members carry on (C-48 AC 4). */
+  app.post("/api/membership-plans/:id/archive", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(idParam, req.params);
+    const { archived } = parseInput(z.object({ archived: z.boolean() }), req.body);
+    return setPlanArchived(ctx.tenantId, id, archived, `user:${ctx.userId}`);
   });
 
   /* ── Reviews and the Google listing (module 9, C-21, C-23, C-46, C-47) ─── */

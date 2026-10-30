@@ -53,13 +53,16 @@ export function ResponsiveSheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {/* Grid children may shrink, so a sideways-scrolling row (like the day picker) can't widen the dialog. */}
-      <DialogContent className={cn("sm:max-w-md [&>*]:min-w-0", className)}>
+      {/*
+        Children may shrink, so a sideways-scrolling row (like the day picker) can't widen the dialog.
+        A long form stays inside the window: the body scrolls, the title and footer stay put.
+      */}
+      <DialogContent className={cn("flex max-h-[calc(100dvh-2rem)] flex-col sm:max-w-md [&>*]:min-w-0", className)}>
         <DialogHeader>
           <DialogTitle className="text-lg font-bold">{title}</DialogTitle>
           {description && <DialogDescription className="text-[15px]">{description}</DialogDescription>}
         </DialogHeader>
-        {children}
+        <div className="-mx-6 -my-1 min-h-0 overflow-y-auto overscroll-contain px-6 py-1">{children}</div>
         {footer && <DialogFooter>{footer}</DialogFooter>}
       </DialogContent>
     </Dialog>

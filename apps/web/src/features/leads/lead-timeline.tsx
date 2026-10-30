@@ -36,6 +36,7 @@ import {
   IconPhoneOutgoing,
   IconPhoneX,
   IconReceipt,
+  IconRepeat,
   IconRobot,
   IconRecordMail,
   IconSend,
@@ -481,6 +482,15 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
       return { ...base, kind: "other", icon: IconNote, tone: "neutral", title: "Note", body: <span className="whitespace-pre-wrap text-foreground">{str(d.text)}</span> };
     case "message.received":
       return { ...base, kind: "messages", icon: CHAT_ICON[str(d.channel)] ?? IconMessage, tone: "waiting", title: RECEIVED[str(d.channel)] ?? "Text from customer", body: <Quote>{str(d.text)}</Quote> };
+    case "membership.paid":
+      return {
+        ...base,
+        kind: "money",
+        icon: IconRepeat,
+        tone: "good",
+        title: `Paid for by their ${str(d.plan)} membership`,
+        body: `${str(d.period) ? `${str(d.period)} bill` : "Their bill"}${typeof d.amountCents === "number" ? ` of ${money(d.amountCents)}` : ""} went through, so this job is due. Book the visit.`,
+      };
     case "campaign.responded":
       return {
         ...base,

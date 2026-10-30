@@ -15,6 +15,7 @@ import {
   IconMessages,
   IconPhoneX,
   IconRecordMail,
+  IconRepeat,
   IconShieldCheck,
   IconSpeakerphone,
   IconStar,
@@ -47,6 +48,7 @@ const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   feedback: { icon: IconMessageCircle, tone: "bg-signal-subtle text-signal-strong" },
   chat: { icon: IconMessages, tone: "bg-info-subtle text-info-strong" },
   campaign: { icon: IconSpeakerphone, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  membership: { icon: IconRepeat, tone: "bg-primary-subtle text-primary-subtle-foreground" },
 };
 
 export function NotificationsButton({ className }: { className?: string }) {

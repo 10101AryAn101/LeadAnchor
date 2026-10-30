@@ -1,7 +1,9 @@
 "use client";
 
-import type { SimCheckout, SimOnboarding, SimRedirect } from "@leadanchor/contracts";
+import type { SimCheckout, SimOnboarding, SimPortal, SimRedirect } from "@leadanchor/contracts";
 import {
+  IconAlertTriangle,
+  IconArrowLeft,
   IconBuildingBank,
   IconCircleCheck,
   IconCreditCard,
@@ -10,6 +12,7 @@ import {
   IconLock,
   IconUser,
 } from "@tabler/icons-react";
+import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -63,6 +66,7 @@ export function SimulatedCheckout({ id }: { id: string }) {
     );
 
   const hold = data.capture === "hold";
+  const subscription = data.mode === "subscription";
   const done = data.status !== "open";
   return (
     <div className="mx-auto max-w-md space-y-6 px-5 py-10">
@@ -75,8 +79,18 @@ export function SimulatedCheckout({ id }: { id: string }) {
           <p className="text-[15px] text-muted-foreground">{data.businessName}</p>
           <p className="tabular font-display text-[40px] leading-tight font-semibold">
             {amount(data.amountCents)}
+            {subscription && data.interval && (
+              <span className="text-[17px] font-normal text-muted-foreground"> / {data.interval}</span>
+            )}
           </p>
           <p className="text-[15px]">{data.description}</p>
+          {subscription && data.terms.length > 0 && (
+            <ul className="mt-3 space-y-1.5 rounded-md bg-muted p-3 text-sm">
+              {data.terms.map((term) => (
+                <li key={term}>{term}</li>
+              ))}
+            </ul>
+          )}
           {hold && (
             <p className="mt-2 text-sm text-muted-foreground">
               This is a hold: the card is authorised now and only charged when the business collects
@@ -113,7 +127,11 @@ export function SimulatedCheckout({ id }: { id: string }) {
               disabled={finish.isPending}
             >
               {finish.isPending && finish.variables === "pay" ? <Spinner /> : <IconLock />}{" "}
-              {hold ? `Hold ${amount(data.amountCents)}` : `Pay ${amount(data.amountCents)}`}
+              {subscription
+                ? `Subscribe: ${amount(data.amountCents)} a ${data.interval ?? "month"}`
+                : hold
+                  ? `Hold ${amount(data.amountCents)}`
+                  : `Pay ${amount(data.amountCents)}`}
             </Button>
             <div className="flex flex-wrap justify-between gap-2">
               <Button
@@ -237,6 +255,135 @@ function PageSkeleton() {
     <div className="mx-auto max-w-md space-y-4 px-5 py-10">
       <Skeleton className="h-14 rounded-lg" />
       <Skeleton className="h-72 rounded-xl" />
+    </div>
+  );
+}
+
+const BRAND: Record<string, string> = { visa: "Visa", mastercard: "Mastercard", amex: "Amex" };
+
+/**
+ * Stripe's hosted customer portal (C-52), simulated: the member swaps the card, sees their bills,
+ * or cancels in two taps, with no reason asked and nothing in the way.
+ */
+export function SimulatedPortal({ id }: { id: string }) {
+  const [confirming, setConfirming] = useState(false);
+  const { data, isPending, error, refetch } = useQuery({
+    queryKey: ["sim-portal", id],
+    queryFn: () => api<SimPortal>(`/dev/simulator/stripe/portal/${id}`),
+    retry: false,
+  });
+  const act = useMutation({
+    mutationFn: (action: "cancel" | "update_card") =>
+      api<SimPortal>(`/dev/simulator/stripe/portal/${id}`, { method: "POST", body: { action } }),
+    onSuccess: (next, action) => {
+      setConfirming(false);
+      // A new card pays what was overdue straight away (as Stripe does): say so.
+      const owed = (data?.invoices ?? []).filter((invoice) => invoice.status !== "paid");
+      const paid = owed.filter((invoice) =>
+        next.invoices.some((after) => after.id === invoice.id && after.status === "paid"),
+      );
+      void refetch();
+      toast.success(
+        action === "cancel"
+          ? "Your plan is cancelled."
+          : paid.length > 0
+            ? `Card updated, and your overdue ${amount(paid.reduce((sum, invoice) => sum + invoice.amountCents, 0))} is paid.`
+            : "Card updated.",
+      );
+    },
+    onError: (failure) => toast.error(isApiError(failure) ? failure.message : "Something went wrong."),
+  });
+
+  if (isPending) return <PageSkeleton />;
+  if (error || !data)
+    return <BrokenLink title="This page has expired" body="Open the link in your receipt again." />;
+
+  const cancelled = data.status === "canceled";
+  const until = data.currentPeriodEnd
+    ? new Date(data.currentPeriodEnd).toLocaleDateString("en-US", { month: "long", day: "numeric", year: "numeric" })
+    : null;
+  return (
+    <div className="mx-auto max-w-md space-y-6 px-5 py-10">
+      <SimulatorNote>
+        Simulated Stripe customer portal. In the live app this is Stripe&apos;s own page, so card
+        details never reach {data.businessName}.
+      </SimulatorNote>
+      <a href={data.returnUrl} className="inline-flex min-h-11 items-center gap-1.5 text-[15px] font-semibold text-muted-foreground hover:text-foreground">
+        <IconArrowLeft className="size-4" /> Back to {data.businessName}
+      </a>
+      <section className="space-y-4 rounded-xl border bg-card p-6 shadow-sm">
+        <div>
+          <p className="text-[15px] text-muted-foreground">Current plan</p>
+          <p className="font-display text-[26px] leading-tight font-semibold">{data.plan.name}</p>
+          <p className="tabular text-[15px]">
+            {amount(data.plan.priceCents)} a {data.plan.interval}
+          </p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {cancelled
+              ? `Cancelled. You keep it until ${until ?? "the end of the paid period"} and won't be charged again.`
+              : data.status === "paused"
+                ? "Paused by the business. Nothing is charged while it's paused."
+                : `Renews ${until ?? "next period"}.`}
+          </p>
+        </div>
+        {data.status === "past_due" && (
+          <p className="flex items-start gap-2 rounded-md bg-destructive-subtle p-3 text-[15px] text-destructive-strong">
+            <IconAlertTriangle className="mt-0.5 size-4 shrink-0" /> Your last payment didn&apos;t go
+            through. Update your card to pay it.
+          </p>
+        )}
+        <div className="flex items-center gap-3 rounded-md border p-3">
+          <IconCreditCard className="size-6 text-muted-foreground" />
+          <span className="flex-1">
+            <span className="block font-semibold">
+              {BRAND[data.card.brand] ?? data.card.brand} •••• {data.card.last4}
+            </span>
+            {data.card.failing && <span className="block text-sm text-destructive-strong">This card is being declined</span>}
+          </span>
+          {!cancelled && (
+            <Button variant="outline" size="sm" disabled={act.isPending} onClick={() => act.mutate("update_card")}>
+              {act.isPending && act.variables === "update_card" && <Spinner />} Update card
+            </Button>
+          )}
+        </div>
+        <div>
+          <p className="mb-2 font-semibold">Bills</p>
+          <ul className="divide-y rounded-md border text-[15px]">
+            {data.invoices.map((invoice) => (
+              <li key={invoice.id} className="flex items-center justify-between gap-3 px-3 py-2.5">
+                <span>{new Date(invoice.date).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}</span>
+                <span className="tabular">
+                  {amount(invoice.amountCents)}{" "}
+                  <span className="text-sm text-muted-foreground">
+                    {invoice.status === "paid" ? "Paid" : invoice.status === "open" ? "Retrying" : "Unpaid"}
+                  </span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        {!cancelled &&
+          (confirming ? (
+            <div className="space-y-3 rounded-md border border-destructive/40 p-3">
+              <p className="text-[15px]">
+                Cancel {data.plan.name}? You keep it until {until ?? "the end of the period"} and
+                won&apos;t be charged again.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <Button variant="destructive" disabled={act.isPending} onClick={() => act.mutate("cancel")}>
+                  {act.isPending && act.variables === "cancel" && <Spinner />} Cancel plan
+                </Button>
+                <Button variant="ghost" onClick={() => setConfirming(false)}>
+                  Keep plan
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="outline" className="w-full" onClick={() => setConfirming(true)}>
+              Cancel plan
+            </Button>
+          ))}
+      </section>
     </div>
   );
 }

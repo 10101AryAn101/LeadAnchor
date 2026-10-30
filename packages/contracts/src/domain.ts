@@ -124,6 +124,7 @@ export const LEAD_SOURCES = [
   "manual",
   "web_chat",
   "text",
+  "membership",
 ] as const;
 export type LeadSource = (typeof LEAD_SOURCES)[number];
 
@@ -138,6 +139,7 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   manual: "Added by you",
   web_chat: "Website chat",
   text: "Texted in",
+  membership: "Membership",
 };
 
 export const URGENCY_LEVELS = ["low", "normal", "high", "emergency"] as const;
@@ -245,6 +247,7 @@ export const NOTIFICATION_KINDS = [
   "feedback",
   "chat",
   "campaign",
+  "membership",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -466,3 +469,36 @@ export type CampaignTriggerKind = (typeof CAMPAIGN_TRIGGER_KINDS)[number];
 /** Provider reports about a sent email: it bounced, or the person marked it as spam. */
 export const EMAIL_FEEDBACK_TYPES = ["bounce", "complaint"] as const;
 export type EmailFeedbackType = (typeof EMAIL_FEEDBACK_TYPES)[number];
+
+/**
+ * Memberships (module 12; C-48 … C-52): the business's own maintenance plans, sold to its own
+ * customers and billed by Stripe Billing (the simulator until Stripe is connected).
+ */
+export const PLAN_INTERVALS = ["month", "year"] as const;
+export type PlanInterval = (typeof PLAN_INTERVALS)[number];
+
+export const PLAN_STATUSES = ["active", "archived"] as const;
+export type PlanStatus = (typeof PLAN_STATUSES)[number];
+
+/** As Stripe reports it; "pending" is a sign-up whose checkout isn't finished. */
+export const MEMBERSHIP_STATUSES = ["pending", "active", "past_due", "paused", "canceled"] as const;
+export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
+export const MEMBERSHIP_STATUS_LABELS: Record<MembershipStatus, string> = {
+  pending: "Signing up",
+  active: "Active",
+  past_due: "Past due",
+  paused: "Paused",
+  canceled: "Cancelled",
+};
+
+/** One bill: paid, being retried after a decline, or failed after every retry. */
+export const INVOICE_STATUSES = ["paid", "retrying", "failed"] as const;
+export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
+
+/** When a paid bill puts the plan's job on the board (C-51): every bill, every Nth, in chosen months, or never. */
+export const WORK_CADENCES = ["every", "nth", "months", "none"] as const;
+export type WorkCadenceKind = (typeof WORK_CADENCES)[number];
+
+/** What the owner can do to a membership (C-50). */
+export const MEMBERSHIP_ACTIONS = ["pause", "resume", "cancel", "change_plan", "retry"] as const;
+export type MembershipAction = (typeof MEMBERSHIP_ACTIONS)[number];

@@ -7,6 +7,9 @@ import type {
   CampaignOptions,
   CampaignsResponse,
   ChatDetail,
+  MembershipDetail,
+  MembershipsResponse,
+  PlansResponse,
   ChatsResponse,
   CallItem,
   ConsentEntry,
@@ -72,6 +75,10 @@ export const keys = {
   campaign: (id: string) => ["campaign", id] as const,
   campaignAll: ["campaign"] as const,
   campaignOptions: ["campaign-options"] as const,
+  memberships: ["memberships"] as const,
+  membership: (id: string) => ["membership", id] as const,
+  membershipAll: ["membership"] as const,
+  plans: ["membership-plans"] as const,
   simCalendar: ["sim-calendar"] as const,
   simCall: (sessionId: string) => ["sim-call", sessionId] as const,
   simInbox: (phone: string) => ["sim-inbox", phone] as const,
@@ -140,6 +147,14 @@ export const useCampaign = (id: string) =>
     queryFn: () => api<CampaignDetail>(`/campaigns/${id}`),
     refetchInterval: (query) => (query.state.data?.status === "scheduled" || query.state.data?.status === "sending" ? 5000 : false),
   });
+
+export const useMemberships = () =>
+  useQuery({ queryKey: keys.memberships, queryFn: () => api<MembershipsResponse>("/memberships") });
+
+export const useMembership = (id: string | null) =>
+  useQuery({ queryKey: keys.membership(id ?? ""), queryFn: () => api<MembershipDetail>(`/memberships/${id}`), enabled: Boolean(id) });
+
+export const usePlans = () => useQuery({ queryKey: keys.plans, queryFn: () => api<PlansResponse>("/membership-plans") });
 
 export const useCampaignOptions = () =>
   useQuery({ queryKey: keys.campaignOptions, queryFn: () => api<CampaignOptions>("/campaigns/options"), staleTime: 60_000 });

@@ -4,6 +4,7 @@ import {
   type SimCheckout,
   type SimOnboarding,
   type SimGoogleListing,
+  type SimPortal,
   type SimRedirect,
   type SimWhatsAppThread,
   simCalendarEventInput,
@@ -12,6 +13,8 @@ import {
   simCheckoutInput,
   simOnboardingInput,
   simulatorScenarioInput,
+  simPortalInput,
+  simRenewInput,
   simWeatherInput,
   toE164,
   usPhone,
@@ -37,6 +40,7 @@ import { sendWaitingRequestsNow } from "../../modules/reviews/review-requests";
 import { addSampleCustomers } from "../../modules/campaigns/sample-customers";
 import { checkSignals } from "../../modules/campaigns/signals";
 import { recordEmailFeedback } from "../../modules/messaging/email-feedback";
+import { simulateRenewal, simulateRetry } from "../../modules/memberships/membership.service";
 import { tenantContext } from "../context";
 
 /** Development-only tools: the call simulator, the simulated customer phone and fake carrier approval. */
@@ -194,9 +198,9 @@ export async function devRoutes(app: FastifyInstance) {
     const { id } = parseInput(checkoutParam, req.params);
     const { outcome } = parseInput(simCheckoutInput, req.body);
     try {
-      const { redirectUrl, event } = simulatorPayments.completeCheckout(id, outcome);
+      const { redirectUrl, events } = simulatorPayments.completeCheckout(id, outcome);
       // What Stripe's webhook would deliver, handled exactly like the real one.
-      if (event) await receivePaymentEvent(event);
+      for (const event of events) await receivePaymentEvent(event);
       return redirectUrl ? { redirectUrl } : simulatorPayments.checkoutView(id)!;
     } catch (error) {
       if (error instanceof PaymentRefused) throw new HttpError(409, "payment_refused", error.message);
@@ -219,6 +223,47 @@ export async function devRoutes(app: FastifyInstance) {
     const { redirectUrl, event } = simulatorPayments.completeOnboarding(id, outcome);
     if (event) await receivePaymentEvent(event);
     return { redirectUrl };
+  });
+
+  /* ── Simulated Stripe Billing (module 12): the customer portal, and the billing clock ── */
+
+  const portalParam = z.object({ id: z.string().regex(/^bps_sim_[a-f0-9]+$/) });
+
+  /** The simulated customer portal (C-52). Public, like Stripe's own: the member opens it from a receipt. */
+  app.get("/api/dev/simulator/stripe/portal/:id", async (req): Promise<SimPortal> => {
+    simulatedOnly();
+    const { id } = parseInput(portalParam, req.params);
+    const view = simulatorPayments.portalView(id);
+    if (!view) throw notFound("Portal session");
+    return view;
+  });
+
+  app.post("/api/dev/simulator/stripe/portal/:id", async (req): Promise<SimPortal> => {
+    simulatedOnly();
+    const { id } = parseInput(portalParam, req.params);
+    const { action } = parseInput(simPortalInput, req.body);
+    try {
+      // What Stripe's webhook would deliver, handled exactly like the real one.
+      for (const event of simulatorPayments.portalAction(id, action)) await receivePaymentEvent(event);
+    } catch (error) {
+      if (error instanceof PaymentRefused) throw new HttpError(409, "payment_refused", error.message);
+      throw error;
+    }
+    return simulatorPayments.portalView(id)!;
+  });
+
+  /** Bills a membership's next period now, with a card that pays or declines (instead of waiting a month). */
+  app.post("/api/dev/simulator/memberships/:id/renew", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(z.object({ id: z.uuid() }), req.params);
+    return simulateRenewal(ctx.tenantId, id, parseInput(simRenewInput, req.body).outcome);
+  });
+
+  /** Runs a declined bill's next retry now (instead of in a few days). */
+  app.post("/api/dev/simulator/memberships/:id/retry", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(z.object({ id: z.uuid() }), req.params);
+    return simulateRetry(ctx.tenantId, id);
   });
 
   /** Runs the 15-minute payments check now: reconciliation and hold reminders. */

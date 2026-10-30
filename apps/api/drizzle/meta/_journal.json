@@ -127,6 +127,13 @@
       "when": 1793350579640,
       "tag": "0017_campaign_left_out",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793353025033,
+      "tag": "0018_memberships",
+      "breakpoints": true
     }
   ]
 }
