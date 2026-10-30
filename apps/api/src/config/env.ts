@@ -80,9 +80,12 @@ const schema = z.object({
   // desktop; set the path on a server (e.g. /usr/bin/chromium).
   PDF_BROWSER_PATH: optional,
 
-  // Later phases — read now so the integrations page can report them honestly.
-  // Card payments run on the local Stripe simulator until a Stripe account is connected.
+  // Card payments (Stripe Connect + Billing). Without a key the local Stripe simulator runs.
+  // Test mode: an sk_test_ key; webhooks arrive through the tunnel (docs/integrations/test-mode-setup.md).
   STRIPE_SECRET_KEY: optional,
+  STRIPE_WEBHOOK_SECRET: optional,
+
+  // Later phases — read now so the integrations page can report them honestly.
   GBP_CLIENT_ID: optional,
   /** C-46: minutes between marking a job Won and its review request going out (time to undo a mis-tap). */
   REVIEW_REQUEST_DELAY_MINUTES: z.coerce.number().int().min(0).max(1440).default(30),

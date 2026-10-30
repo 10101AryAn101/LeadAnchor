@@ -24,7 +24,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { api, isApiError } from "@/lib/api";
 import { amount, formatPhone } from "@/lib/format";
-import { keys, useMe, useMembership } from "@/lib/queries";
+import { keys, useMe, useMembership, usePaymentSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { MemberStatus, memberLine, shortDate } from "./membership-meta";
 
@@ -70,6 +70,8 @@ function MemberBody({ member, plans }: { member: MembershipDetail; plans: PlanIt
   const queryClient = useQueryClient();
   const { data: me } = useMe();
   const owner = me?.role === "owner";
+  // The billing-clock buttons drive the Stripe simulator; real Stripe keeps its own clock.
+  const simulated = usePaymentSettings().data?.simulated ?? false;
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [moveTo, setMoveTo] = useState("");
   const refresh = (next: MembershipDetail) => {
@@ -322,7 +324,7 @@ function MemberBody({ member, plans }: { member: MembershipDetail; plans: PlanIt
         </p>
       )}
 
-      {owner && live && member.status !== "paused" && (
+      {owner && simulated && live && member.status !== "paused" && (
         <section className="space-y-2 rounded-lg border border-dashed p-3">
           <p className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
             <IconFlask className="size-4" /> Simulator: Stripe&apos;s billing clock

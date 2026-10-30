@@ -1091,7 +1091,10 @@ export async function startCheckout(token: string): Promise<{ url: string }> {
     throw new HttpError(409, "cards_off", "This business doesn't take cards online yet.");
   const accountId = account!.providerAccountId!;
 
+  // A checkout opened with another provider (the simulator, before Stripe was connected) is left alone.
+  const sameProvider = row.provider === payments.name;
   if (
+    sameProvider &&
     row.providerCheckoutId &&
     row.checkoutUrl &&
     row.checkoutExpiresAt &&
@@ -1102,7 +1105,7 @@ export async function startCheckout(token: string): Promise<{ url: string }> {
     await applyPaymentState(row.tenantId, row.id, state);
     if (state.status === "held" || state.status === "paid")
       throw new HttpError(409, "already_paid", "This is already paid. Thank you!");
-  } else if (row.providerCheckoutId) {
+  } else if (sameProvider && row.providerCheckoutId) {
     // Only one checkout may be open at a time, so the customer can't pay twice.
     await payments.expireCheckout(accountId, row.providerCheckoutId).catch(() => undefined);
   }

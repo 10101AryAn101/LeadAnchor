@@ -189,6 +189,12 @@ async function providerContext(tenantId: string, id: string) {
     const [membership] = await tx.select().from(planMemberships).where(eq(planMemberships.id, id));
     if (!membership) throw notFound("Membership");
     const account = await paymentAccountOf(tx);
+    if (membership.provider && membership.provider !== payments.name)
+      throw new HttpError(
+        409,
+        "other_provider",
+        "This membership was set up on the payments simulator, so it can't be changed through Stripe.",
+      );
     if (!cardsReady(account) || !membership.providerSubscriptionId)
       throw new HttpError(
         409,

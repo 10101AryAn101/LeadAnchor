@@ -7,10 +7,12 @@ import { webhookInbox } from "../../db/schema";
 import { HttpError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { serial } from "../../lib/serial";
-import { telephony } from "../../container";
+import { payments, telephony } from "../../container";
+import { StripePayments } from "../../integrations/payments/stripe";
 import { TelnyxTelephony, type TelnyxWebhook, verifyTelnyxSignature } from "../../integrations/telephony/telnyx";
 import { callEngine } from "../../modules/calls";
 import { handleInboundMessage } from "../../modules/messaging/inbound";
+import { receivePaymentEvent } from "../../modules/payments/payment.service";
 
 /**
  * Provider webhooks. Each delivery is verified, stored once in webhook_inbox
@@ -46,6 +48,29 @@ export async function webhookRoutes(app: FastifyInstance) {
 
     const key = String(webhook.data.payload?.call_session_id ?? webhook.data.payload?.id ?? eventId);
     void serial(key, () => processTelnyx(stored.id, webhook));
+  });
+
+  /**
+   * Stripe (modules 7 and 12): events from the businesses' own accounts (Connect). The current
+   * state is read from Stripe before answering, so if that fails Stripe delivers the event again.
+   */
+  app.post("/api/webhooks/stripe", async (req, reply) => {
+    if (!(payments instanceof StripePayments)) throw new HttpError(503, "not_configured", "Stripe is not connected.");
+    const event = (() => {
+      try {
+        return payments.verifyWebhook(req.rawBody ?? "", header(req.headers["stripe-signature"]));
+      } catch {
+        return null;
+      }
+    })();
+    if (!event) throw new HttpError(400, "invalid_signature", "Webhook signature check failed.");
+    for (const paymentEvent of await payments.eventsFrom(event)) {
+      // A failure is kept in the webhook inbox; the next event about the same object catches up.
+      await receivePaymentEvent(paymentEvent).catch((error) =>
+        logger.error({ err: error, eventId: event.id }, "stripe event failed"),
+      );
+    }
+    return reply.status(200).send({ received: true });
   });
 
   /** WhatsApp Cloud API: verification handshake (GET) and inbound messages (POST). */

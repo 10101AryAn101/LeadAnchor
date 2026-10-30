@@ -16,6 +16,7 @@ import type { ChannelAdapter, WhatsAppAdapter } from "./integrations/messaging/t
 import { MetaWhatsApp, SimulatorWhatsApp } from "./integrations/messaging/whatsapp";
 import { WebChat } from "./integrations/messaging/web-chat";
 import { SimulatorPayments } from "./integrations/payments/simulator";
+import { StripePayments } from "./integrations/payments/stripe";
 import type { PaymentsProvider } from "./integrations/payments/types";
 import { FcmPush } from "./integrations/push/fcm";
 import { SimulatedPush } from "./integrations/push/simulator";
@@ -70,10 +71,12 @@ export const pdf: PdfRenderer = new ChromiumPdf(findBrowser(env.PDF_BROWSER_PATH
 export const simulatorPayments = new SimulatorPayments(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "payments.json"), linkBaseUrl);
 
 /**
- * Card payments (module 7). Stripe Connect is the named provider; until a Stripe account is
- * connected (step 2, free test mode), the simulator plays its part with the same objects.
+ * Card payments (module 7). Stripe Connect is the named provider (test mode with an sk_test_
+ * key); without a key the simulator plays its part with the same objects.
  */
-export const payments: PaymentsProvider = simulatorPayments;
+export const payments: PaymentsProvider = env.STRIPE_SECRET_KEY
+  ? new StripePayments(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET)
+  : simulatorPayments;
 
 export const simulatorCalendar = new SimulatorCalendar(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "calendar.json"));
 

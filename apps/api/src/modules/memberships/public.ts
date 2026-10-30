@@ -212,7 +212,11 @@ export async function joinedStatus(
     );
   const [membership] = await read();
   if (!membership) throw notFound("Membership");
-  if (membership.status === "pending" && membership.providerCheckoutId) {
+  if (
+    membership.status === "pending" &&
+    membership.providerCheckoutId &&
+    membership.provider === payments.name
+  ) {
     const account = await accountOf(tenant.id);
     const state = cardsReady(account)
       ? await payments
@@ -275,7 +279,11 @@ export async function openPortal(token: string, returnUrl: string): Promise<{ ur
       "This link has expired. We can email you a fresh one.",
     );
   const account = await accountOf(tenant.id);
-  if (!cardsReady(account) || !membership.providerCustomerId)
+  if (
+    !cardsReady(account) ||
+    !membership.providerCustomerId ||
+    membership.provider !== payments.name
+  )
     throw new HttpError(409, "not_billing", `Please call ${tenant.name} about your plan.`);
   try {
     return {
