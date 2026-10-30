@@ -187,7 +187,7 @@ export const useConsent = (phone?: string) =>
   useQuery({
     queryKey: keys.consent(phone),
     queryFn: () =>
-      api<{ backend: "local" | "firestore"; entries: ConsentEntry[] }>(
+      api<{ backend: "local" | "firestore" | "local-and-firestore"; entries: ConsentEntry[] }>(
         `/compliance/consent${phone ? `?phone=${encodeURIComponent(phone)}` : ""}`,
       ),
   });

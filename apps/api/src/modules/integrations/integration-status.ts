@@ -76,10 +76,14 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
       name: "Firebase (push + consent ledger)",
       purpose: "High-priority owner alerts (FCM) and the consent ledger.",
       capabilities: ["C-05", "C-27"],
-      state: env.FCM_ENABLED || consentLedger.backend === "firestore" ? "live" : "simulated",
+      state: env.FCM_ENABLED || consentLedger.backend !== "local" ? "live" : "simulated",
       detail: [
         env.FCM_ENABLED ? "Phone alerts go out through Firebase Cloud Messaging." : "Phone alerts are simulated: they show while LeadAnchor is open in a tab.",
-        consentLedger.backend === "firestore" ? "Consent ledger on Firestore." : "Consent is kept in the local append-only ledger.",
+        consentLedger.backend === "firestore"
+          ? "Consent ledger on Firestore."
+          : consentLedger.backend === "local-and-firestore"
+            ? "Consent is kept in the local append-only ledger, and every new record is copied to Firestore."
+            : "Consent is kept in the local append-only ledger.",
       ].join(" "),
       mandatedBySpec: true,
     },

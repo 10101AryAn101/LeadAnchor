@@ -9,7 +9,7 @@ import type { HolidayProvider } from "./integrations/holidays/types";
 import { SimulatorListings } from "./integrations/listings/simulator";
 import type { ListingProvider } from "./integrations/listings/types";
 import { ChromiumPdf, type PdfRenderer, findBrowser } from "./integrations/documents/pdf";
-import { FirestoreConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
+import { FirestoreConsentLedger, MirroredConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
 import { OutboxEmail } from "./integrations/messaging/email";
 import { ResendEmail } from "./integrations/messaging/resend";
 import { SimulatorSms, TelnyxSms } from "./integrations/messaging/sms";
@@ -59,7 +59,11 @@ export const registry: CarrierRegistry =
   env.SMS_PROVIDER === "telnyx" ? new TelnyxRegistry(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx")) : simulatorRegistry;
 
 export const consentLedger: ConsentLedger =
-  env.CONSENT_LEDGER === "firestore" ? new FirestoreConsentLedger() : new LocalConsentLedger();
+  env.CONSENT_LEDGER === "firestore"
+    ? new FirestoreConsentLedger()
+    : env.CONSENT_LEDGER === "local-and-firestore"
+      ? new MirroredConsentLedger(new LocalConsentLedger(), new FirestoreConsentLedger())
+      : new LocalConsentLedger();
 
 /** Phone alerts (C-05): Firebase Cloud Messaging once a Firebase project is connected. */
 export const push: PushProvider = env.FCM_ENABLED ? new FcmPush() : new SimulatedPush();

@@ -1,4 +1,4 @@
-import type { PushDevice, PushProviderName } from "@leadanchor/contracts";
+import type { PushDevice, PushDevicesResponse, PushProviderName } from "@leadanchor/contracts";
 import { api } from "./api";
 
 /**
@@ -52,15 +52,35 @@ function saveDevice(device: { id: string; token: string } | null) {
 }
 
 /** Asks for permission, starts the service worker and registers this browser for alerts. */
-export async function turnOnAlerts(provider: PushProviderName): Promise<PushDevice> {
+export async function turnOnAlerts(
+  provider: PushProviderName,
+  firebase: PushDevicesResponse["firebase"],
+): Promise<PushDevice> {
   const permission = await Notification.requestPermission();
   if (permission !== "granted") throw new Error(permission === "denied" ? "blocked" : "dismissed");
   await navigator.serviceWorker.register("/sw.js");
-  // Connecting Firebase (step 2) adds its getToken() call here; the simulator issues its own token.
-  if (provider === "fcm") throw new Error("firebase_web_not_configured");
-  const device = await api<PushDevice>("/push/devices", { method: "POST", body: { token: savedDevice()?.token, label: deviceLabel() } });
+  // With Firebase, the browser's push token comes from Firebase; the simulator issues its own.
+  const token = provider === "fcm" ? await firebaseToken(firebase) : savedDevice()?.token;
+  const device = await api<PushDevice>("/push/devices", { method: "POST", body: { token, label: deviceLabel() } });
   saveDevice({ id: device.id, token: device.token });
   return device;
+}
+
+/**
+ * This browser's Firebase Cloud Messaging token, tied to our own service worker (public/sw.js),
+ * which shows the alerts. Firebase's code loads only when someone turns alerts on.
+ */
+async function firebaseToken(config: PushDevicesResponse["firebase"]): Promise<string> {
+  if (!config) throw new Error("firebase_web_not_configured");
+  const [{ getApps, initializeApp }, { getMessaging, getToken, isSupported }] = await Promise.all([
+    import("firebase/app"),
+    import("firebase/messaging"),
+  ]);
+  if (!(await isSupported())) throw new Error("firebase_unsupported");
+  const { vapidKey, ...settings } = config;
+  const app = getApps().find((existing) => existing.name === "leadanchor") ?? initializeApp(settings, "leadanchor");
+  // getToken still works with the server's token-based sends (Firebase now also offers register()).
+  return getToken(getMessaging(app), { vapidKey, serviceWorkerRegistration: await navigator.serviceWorker.ready });
 }
 
 export async function turnOffAlerts(deviceId: string) {

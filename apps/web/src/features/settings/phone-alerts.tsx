@@ -36,7 +36,7 @@ export function PhoneAlerts() {
   const refresh = () => queryClient.invalidateQueries({ queryKey: keys.pushDevices });
 
   const turnOn = useMutation({
-    mutationFn: () => turnOnAlerts(data!.provider),
+    mutationFn: () => turnOnAlerts(data!.provider, data!.firebase),
     onSuccess: () => {
       void refresh();
       toast.success("Alerts are on for this phone. Send a test to see one.");

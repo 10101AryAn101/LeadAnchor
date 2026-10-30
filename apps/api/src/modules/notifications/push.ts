@@ -8,6 +8,7 @@ import { badRequest, notFound } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { iso } from "../../lib/time";
 import { push } from "../../container";
+import { firebaseWebConfig } from "../../integrations/firebase/app";
 import type { PushMessage } from "../../integrations/push/types";
 
 /**
@@ -45,7 +46,7 @@ export async function listPushDevices(tenantId: string): Promise<PushDevicesResp
   const rows = await withTenant(tenantId, (tx) =>
     tx.select().from(pushDevices).where(eq(pushDevices.provider, push.name)).orderBy(asc(pushDevices.createdAt)),
   );
-  return { provider: push.name, devices: rows.map(present) };
+  return { provider: push.name, devices: rows.map(present), firebase: firebaseWebConfig() };
 }
 
 /** Turns alerts on for one browser. Re-enabling the same browser keeps a single row. */

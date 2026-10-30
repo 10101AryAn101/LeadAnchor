@@ -730,6 +730,16 @@ export type PushDevice = z.infer<typeof pushDevice>;
 export const pushDevicesResponse = z.object({
   provider: z.enum(PUSH_PROVIDERS),
   devices: z.array(pushDevice),
+  /** Firebase's web settings, which a browser needs to receive alerts. Public by design; null on the simulator. */
+  firebase: z
+    .object({
+      apiKey: z.string(),
+      projectId: z.string(),
+      messagingSenderId: z.string(),
+      appId: z.string(),
+      vapidKey: z.string(),
+    })
+    .nullable(),
 });
 export type PushDevicesResponse = z.infer<typeof pushDevicesResponse>;
 

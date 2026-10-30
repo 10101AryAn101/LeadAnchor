@@ -69,11 +69,17 @@ const schema = z.object({
 
   // Consent ledger (C-27). The spec names a Firebase ledger; "local" is an
   // append-only, hash-chained Postgres ledger used until Firebase is set up.
-  CONSENT_LEDGER: z.enum(["local", "firestore"]).default("local"),
+  // "local-and-firestore" keeps checking the local ledger and copies every new record to Firestore.
+  CONSENT_LEDGER: z.enum(["local", "firestore", "local-and-firestore"]).default("local"),
   FIREBASE_PROJECT_ID: z.string().default("demo-leadanchor"),
   FIRESTORE_EMULATOR_HOST: optional,
   GOOGLE_APPLICATION_CREDENTIALS: optional,
   FCM_ENABLED: flag,
+  // The Firebase web app's settings, handed to browsers so they can receive alerts. Public by design.
+  FIREBASE_WEB_API_KEY: optional,
+  FIREBASE_WEB_APP_ID: optional,
+  FIREBASE_MESSAGING_SENDER_ID: optional,
+  FIREBASE_VAPID_KEY: optional,
 
   STORAGE_DIR: z.string().default("./storage"),
 

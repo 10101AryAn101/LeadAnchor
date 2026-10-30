@@ -511,7 +511,18 @@ function ConsentLedgerSection() {
         <h2 className="text-[17px] font-bold">Consent record</h2>
         <p className="max-w-2xl text-[15px] text-muted-foreground">
           Every yes and every STOP, with the exact words and time. Entries can&apos;t be edited or deleted — a change of mind is a new entry.
-          {data && <> Stored in the {data.backend === "firestore" ? "Firebase ledger" : "local ledger (Firebase not connected yet)"}.</>}
+          {data && (
+            <>
+              {" "}
+              Stored in the{" "}
+              {data.backend === "firestore"
+                ? "Firebase ledger"
+                : data.backend === "local-and-firestore"
+                  ? "local ledger, with a copy in the Firebase ledger"
+                  : "local ledger (Firebase not connected yet)"}
+              .
+            </>
+          )}
         </p>
       </div>
       <form

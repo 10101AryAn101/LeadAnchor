@@ -1,6 +1,7 @@
 import type { ConsentType } from "@leadanchor/contracts";
 import { type Firestore, Timestamp, getFirestore } from "firebase-admin/firestore";
-import type { ConsentInput, ConsentLedger, ConsentRecord } from "../../modules/compliance/consent-ledger";
+import type { ConsentInput, ConsentLedger, ConsentRecord, LocalConsentLedger } from "../../modules/compliance/consent-ledger";
+import { logger } from "../../lib/logger";
 import { firebaseApp } from "./app";
 
 /**
@@ -29,6 +30,25 @@ export class FirestoreConsentLedger implements ConsentLedger {
       recordedAt: Timestamp.now(),
     });
     return { id: ref.id };
+  }
+
+  /** Stores a copy of a record kept elsewhere, under the same id, so copying twice changes nothing. */
+  async copy(record: ConsentRecord) {
+    await this.collection(record.tenantId)
+      .doc(record.id)
+      .set({
+        tenantId: record.tenantId,
+        phoneE164: record.phoneE164,
+        type: record.type,
+        action: record.action,
+        source: record.source,
+        textVersion: record.textVersion,
+        evidence: record.evidence ?? null,
+        ipAddress: record.ipAddress ?? null,
+        grantedTo: record.grantedTo,
+        callId: record.callId ?? null,
+        recordedAt: Timestamp.fromDate(record.recordedAt),
+      });
   }
 
   async latest(tenantId: string, phoneE164: string, type: ConsentType) {
@@ -65,4 +85,48 @@ function toRecord(id: string, data: FirebaseFirestore.DocumentData): ConsentReco
     callId: data.callId ?? null,
     recordedAt: (data.recordedAt as Timestamp).toDate(),
   };
+}
+
+/**
+ * The local ledger stays the record every consent check reads (so nothing recorded before
+ * Firebase was connected is lost, and checks need no Firestore indexes), and each new record is
+ * copied to the Firebase ledger the spec names. Records are often written inside a larger
+ * transaction, so the copy waits until the record can be read back, i.e. has committed.
+ */
+export class MirroredConsentLedger implements ConsentLedger {
+  readonly backend = "local-and-firestore" as const;
+
+  constructor(
+    private readonly local: LocalConsentLedger,
+    private readonly firestore: FirestoreConsentLedger,
+  ) {}
+
+  async record(input: ConsentInput, tx?: Parameters<ConsentLedger["record"]>[1]) {
+    const result = await this.local.record(input, tx);
+    void this.copyOnceCommitted(input.tenantId, result.id);
+    return result;
+  }
+
+  latest(...args: Parameters<ConsentLedger["latest"]>) {
+    return this.local.latest(...args);
+  }
+
+  list(...args: Parameters<ConsentLedger["list"]>) {
+    return this.local.list(...args);
+  }
+
+  private async copyOnceCommitted(tenantId: string, id: string) {
+    for (const waitMs of [300, 2_000, 10_000]) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+      try {
+        const record = await this.local.byId(tenantId, id);
+        if (!record) continue;
+        await this.firestore.copy(record);
+        return;
+      } catch (error) {
+        logger.warn({ err: error, consentId: id }, "consent copy to Firestore failed");
+        return;
+      }
+    }
+  }
 }
