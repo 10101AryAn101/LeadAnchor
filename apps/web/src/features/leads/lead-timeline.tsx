@@ -6,6 +6,7 @@ import {
   IconArrowBackUp,
   IconBell,
   IconBrandGoogle,
+  IconBrandWhatsapp,
   IconCalendarCheck,
   IconCalendarEvent,
   IconCalendarTime,
@@ -28,12 +29,14 @@ import {
   IconMailForward,
   IconMessage,
   IconMessageCircle,
+  IconMessages,
   IconNote,
   IconPencil,
   IconPhoneCall,
   IconPhoneOutgoing,
   IconPhoneX,
   IconReceipt,
+  IconRobot,
   IconRecordMail,
   IconSend,
   IconShieldCheck,
@@ -476,23 +479,38 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
     case "note.added":
       return { ...base, kind: "other", icon: IconNote, tone: "neutral", title: "Note", body: <span className="whitespace-pre-wrap text-foreground">{str(d.text)}</span> };
     case "message.received":
-      return { ...base, kind: "messages", icon: IconMessage, tone: "waiting", title: "Text from customer", body: <Quote>{str(d.text)}</Quote> };
+      return { ...base, kind: "messages", icon: CHAT_ICON[str(d.channel)] ?? IconMessage, tone: "waiting", title: RECEIVED[str(d.channel)] ?? "Text from customer", body: <Quote>{str(d.text)}</Quote> };
+    case "chat.started":
+      return { ...base, kind: "messages", icon: CHAT_ICON[str(d.channel)] ?? IconMessage, tone: "neutral", title: STARTED[str(d.channel)] ?? "Started a chat", body: str(d.text) ? <Quote>{str(d.text)}</Quote> : undefined };
     default:
       return null;
   }
 }
 
+/** Chats (C-11, C-16) say where the message went and who wrote it: the assistant or the owner. */
+const CHAT_ICON: Record<string, Icon> = { whatsapp: IconBrandWhatsapp, web: IconMessages, sms: IconMessage };
+const RECEIVED: Record<string, string> = { whatsapp: "WhatsApp message from customer", web: "Website chat message from customer", sms: "Text from customer" };
+const STARTED: Record<string, string> = { whatsapp: "Messaged you on WhatsApp", web: "Started a chat on your website", sms: "Texted you" };
+const WHERE: Record<string, string> = { whatsapp: "on WhatsApp", web: "in the website chat", sms: "by text", rcs: "by text" };
+
+function sentTitle(message: MessageItem, what: string) {
+  const where = WHERE[message.channel];
+  if (message.author === "assistant" && where) return `The assistant replied ${where}`;
+  if (message.author === "owner" && where) return `You replied ${where}`;
+  return `${what} sent`;
+}
+
 function messageRow(message: MessageItem): Row {
   const blocked = message.status === "blocked";
   const failed = message.status === "failed";
-  const what = message.channel === "email" ? "Email" : "Text";
+  const what = message.channel === "email" ? "Email" : message.channel === "whatsapp" ? "WhatsApp message" : message.channel === "web" ? "Chat reply" : "Text";
   return {
     id: `msg-${message.id}`,
     at: message.createdAt,
     kind: "messages",
-    icon: message.channel === "email" ? IconMail : IconSend,
+    icon: message.channel === "email" ? IconMail : message.author === "assistant" ? IconRobot : (CHAT_ICON[message.channel] ?? IconSend),
     tone: failed ? "bad" : blocked ? "waiting" : "good",
-    title: failed ? `${what} failed` : blocked ? `${what} not sent` : `${what} sent`,
+    title: failed ? `${what} failed` : blocked ? `${what} not sent` : sentTitle(message, what),
     body: (
       <>
         {message.subject && <span className="mb-1 block font-medium text-foreground">{message.subject}</span>}
@@ -507,7 +525,7 @@ function messageRow(message: MessageItem): Row {
 const FILTERS: Array<{ id: Filter; label: string }> = [
   { id: "all", label: "All" },
   { id: "calls", label: "Calls" },
-  { id: "messages", label: "Texts" },
+  { id: "messages", label: "Messages" },
   { id: "photos", label: "Photos" },
   { id: "money", label: "Money" },
 ];

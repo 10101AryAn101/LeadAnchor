@@ -6,6 +6,7 @@ import { tenantWork } from "../../db/unit-of-work";
 import { logger } from "../../lib/logger";
 import { consentLedger } from "../../container";
 import { handleBookingReply } from "../booking/replies";
+import { joinChat } from "../chat/inbound-chat";
 import { keywordReplies } from "../compliance/registration-copy";
 import { upsertCustomerByPhone } from "../customers/customer.repo";
 import { addLeadEvent } from "../leads/lead-capture";
@@ -22,7 +23,16 @@ const HELP = /^\s*(help|info)\s*[.!?]*\s*$/i;
  * Handles a message a customer sends to a business number. Opt-outs are written
  * to the consent ledger for SMS of every purpose before anything else happens.
  */
-export async function handleInboundMessage(input: { from: string; to: string; text: string; channel: MessageChannel; provider: string; providerMessageId?: string | null }) {
+export async function handleInboundMessage(input: {
+  from: string;
+  to: string;
+  text: string;
+  channel: MessageChannel;
+  provider: string;
+  providerMessageId?: string | null;
+  /** WhatsApp: the customer's profile name, used when we don't have their name yet. */
+  profileName?: string | null;
+}) {
   const [number] = await systemDb
     .select({ tenantId: phoneNumbers.tenantId })
     .from(phoneNumbers)
@@ -36,7 +46,7 @@ export async function handleInboundMessage(input: { from: string; to: string; te
   await tenantWork(number.tenantId, async (tx, fx) => {
     const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, number.tenantId));
     if (!tenant) return;
-    const customer = await upsertCustomerByPhone(tx, tenant.id, input.from);
+    const customer = await upsertCustomerByPhone(tx, tenant.id, input.from, { name: input.profileName?.trim() || null });
     const [openLead] = await tx
       .select({ id: leads.id })
       .from(leads)
@@ -106,7 +116,11 @@ export async function handleInboundMessage(input: { from: string; to: string; te
     // Carriers require a reply to STOP, START and HELP, worded as in the business's campaign filing (C-43).
     const keyword = OPT_OUT.test(input.text) ? "optOut" : OPT_IN.test(input.text) ? "optIn" : HELP.test(input.text) ? "help" : null;
     // Anything else may answer a booking text: YES / NO after a reminder, or a waitlist offer (C-20, C-22).
-    if (!keyword && input.channel !== "email") await handleBookingReply(tx, fx, { tenant, customer, text: input.text });
+    const handled = !keyword && input.channel !== "email" ? await handleBookingReply(tx, fx, { tenant, customer, text: input.text }) : false;
+    // The rest is a conversation: the chat assistant answers it, or the owner does (C-11, C-16).
+    if (!keyword && !handled && (input.channel === "whatsapp" || input.channel === "sms")) {
+      await joinChat(tx, fx, { tenant, customer, channel: input.channel, contact: input.from, messageId: message!.id, text: input.text });
+    }
     if (keyword) {
       await requestMessage(tx, fx, {
         tenant,

@@ -122,6 +122,8 @@ export const LEAD_SOURCES = [
   "google",
   "booking",
   "manual",
+  "web_chat",
+  "text",
 ] as const;
 export type LeadSource = (typeof LEAD_SOURCES)[number];
 
@@ -134,6 +136,8 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   google: "Google",
   booking: "Booked online",
   manual: "Added by you",
+  web_chat: "Website chat",
+  text: "Texted in",
 };
 
 export const URGENCY_LEVELS = ["low", "normal", "high", "emergency"] as const;
@@ -171,7 +175,8 @@ export const CALLER_TYPES = ["new", "known"] as const;
 export type CallerType = (typeof CALLER_TYPES)[number];
 
 /** Messaging (Module 5 — one governed send path). */
-export const MESSAGE_CHANNELS = ["sms", "rcs", "whatsapp", "email"] as const;
+/** "web" is the website chat (C-10, C-16): the customer's browser shows the business's replies. */
+export const MESSAGE_CHANNELS = ["sms", "rcs", "whatsapp", "email", "web"] as const;
 export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
 
 /**
@@ -238,6 +243,7 @@ export const NOTIFICATION_KINDS = [
   "booking",
   "review",
   "feedback",
+  "chat",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -281,7 +287,7 @@ export const LISTING_PROVIDERS = ["simulator", "google"] as const;
 export type ListingProviderName = (typeof LISTING_PROVIDERS)[number];
 
 /** What LeadAnchor keeps up to date on the listing (C-21). */
-export const LISTING_SYNC_FIELDS = ["hours", "phone", "website", "bookingLink", "address"] as const;
+export const LISTING_SYNC_FIELDS = ["hours", "phone", "website", "bookingLink", "address", "chatLink"] as const;
 export type ListingSyncField = (typeof LISTING_SYNC_FIELDS)[number];
 export type ListingSyncFields = Record<ListingSyncField, boolean>;
 
@@ -399,3 +405,22 @@ export type IntegrationKey = (typeof INTEGRATIONS)[number];
 
 export const INTEGRATION_STATES = ["live", "simulated", "not_configured", "planned"] as const;
 export type IntegrationState = (typeof INTEGRATION_STATES)[number];
+
+/**
+ * Chats (C-11, C-16): WhatsApp, the website chat and texts. The assistant answers until it hands a
+ * chat to the owner or the owner takes over.
+ */
+export const CHAT_CHANNELS = ["whatsapp", "web", "sms"] as const;
+export type ChatChannel = (typeof CHAT_CHANNELS)[number];
+export const CHAT_CHANNEL_LABELS: Record<ChatChannel, string> = { whatsapp: "WhatsApp", web: "Website chat", sms: "Text" };
+
+/** Who wrote a chat message. */
+export const MESSAGE_AUTHORS = ["customer", "assistant", "owner", "system"] as const;
+export type MessageAuthor = (typeof MESSAGE_AUTHORS)[number];
+
+/** assistant: the AI is answering; needs_owner: it handed over; owner: the owner took over. */
+export const CHAT_STATES = ["assistant", "needs_owner", "owner"] as const;
+export type ChatState = (typeof CHAT_STATES)[number];
+
+/** WhatsApp lets a business reply freely for this long after the customer's last message (C-11). */
+export const WHATSAPP_WINDOW_HOURS = 24;

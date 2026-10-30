@@ -7,6 +7,7 @@
  * customer sends lands on the owner's board like a missed call does. Optional:
  *   data-label="Request service"   data-color="#155e63"   data-position="left"
  *   data-action="book"   opens the online booking page instead (C-18)
+ *   data-action="chat"   opens the website chat, answered by the chat assistant (C-16)
  * Plain JavaScript in its own shadow root, so the host page's styles can't break it.
  */
 (function () {
@@ -21,9 +22,11 @@
   }
 
   var origin = new URL(script.src).origin;
-  var booking = script.getAttribute("data-action") === "book";
-  var formUrl = origin + (booking ? "/b/" : "/r/") + business + "?src=website";
-  var label = script.getAttribute("data-label") || (booking ? "Book online" : "Book / Chat");
+  var action = script.getAttribute("data-action");
+  var booking = action === "book";
+  var chat = action === "chat";
+  var formUrl = origin + (booking ? "/b/" : chat ? "/c/" : "/r/") + business + "?src=website";
+  var label = script.getAttribute("data-label") || (booking ? "Book online" : chat ? "Chat with us" : "Book / Chat");
   var colorAttr = script.getAttribute("data-color") || "";
   var color = /^#[0-9a-f]{3,8}$/i.test(colorAttr) ? colorAttr : "#155e63";
   var side = script.getAttribute("data-position") === "left" ? "left" : "right";
@@ -60,7 +63,9 @@
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
     (booking
       ? '<path d="M4 7a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2zM16 3v4M8 3v4M4 11h16M10 16l2 2 3-3"/></svg>'
-      : '<path d="M8 9h8M8 13h6M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5l-5 3v-3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z"/></svg>');
+      : chat
+        ? '<path d="M21 14l-3-3h-7a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h9a1 1 0 0 1 1 1v10M14 15v2a1 1 0 0 1-1 1H6l-3 3V11a1 1 0 0 1 1-1h2"/></svg>'
+        : '<path d="M8 9h8M8 13h6M18 4a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3h-5l-5 3v-3H6a3 3 0 0 1-3-3V7a3 3 0 0 1 3-3z"/></svg>');
   var text = document.createElement("span");
   text.textContent = label;
   button.appendChild(text);

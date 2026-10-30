@@ -19,7 +19,7 @@ export default function BookingPage({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ src?: string }>;
+  searchParams: Promise<{ src?: string; service?: string }>;
 }) {
   return (
     <main className="min-h-dvh bg-background">
@@ -35,9 +35,9 @@ async function BookingLoader({
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ src?: string }>;
+  searchParams: Promise<{ src?: string; service?: string }>;
 }) {
-  const [{ slug }, { src }] = await Promise.all([params, searchParams]);
+  const [{ slug }, { src, service }] = await Promise.all([params, searchParams]);
   let context: PublicBookingContext | null = null;
   try {
     const response = await fetch(`${API_URL}/api/public/booking/${encodeURIComponent(slug)}`, {
@@ -57,7 +57,7 @@ async function BookingLoader({
   const source: RequestSource = (REQUEST_SOURCES as readonly string[]).includes(src ?? "")
     ? (src as RequestSource)
     : "link";
-  return <CustomerBooking slug={slug} context={context} source={source} />;
+  return <CustomerBooking slug={slug} context={context} source={source} initialServiceId={service ?? null} />;
 }
 
 function BookingSkeleton() {

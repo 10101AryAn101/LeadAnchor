@@ -12,6 +12,7 @@ import {
   IconFileText,
   IconHeadset,
   IconMessageCircle,
+  IconMessages,
   IconPhoneX,
   IconRecordMail,
   IconShieldCheck,
@@ -43,6 +44,7 @@ const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   booking: { icon: IconCalendarEvent, tone: "bg-info-subtle text-info-strong" },
   review: { icon: IconStar, tone: "bg-signal-subtle text-signal-strong" },
   feedback: { icon: IconMessageCircle, tone: "bg-signal-subtle text-signal-strong" },
+  chat: { icon: IconMessages, tone: "bg-info-subtle text-info-strong" },
 };
 
 export function NotificationsButton({ className }: { className?: string }) {
@@ -62,6 +64,7 @@ export function NotificationsButton({ className }: { className?: string }) {
     setOpen(false);
     if (item.leadId) router.push(`/leads/${item.leadId}`);
     else if (item.kind === "review") router.push("/reviews");
+    else if (item.kind === "chat") router.push("/chats");
   };
 
   return (

@@ -3,6 +3,9 @@ import {
   bookingSettings,
   CALENDAR_PROVIDERS,
   LISTING_PROVIDERS,
+  assistantSettingsInput,
+  chatHandlerInput,
+  chatReplyInput,
   dashboardRange,
   listingPostInput,
   listingSettingsInput,
@@ -46,6 +49,7 @@ import { createService, listServices, reorderServices, updateService } from "../
 import { getBookingSettings, markNoShow, ownerBook, ownerCancel, ownerSlots, updateBookingSettings } from "../../modules/booking/booking.service";
 import { connectCalendar, disconnectCalendar, syncCalendar } from "../../modules/booking/calendar-sync";
 import { listWaitlist, removeFromWaitlist } from "../../modules/booking/waitlist.service";
+import { getAssistantSettings, getChat, listChats, ownerReply, setHandler, updateAssistantSettings } from "../../modules/chat/chat.service";
 import {
   connectListing,
   disconnectListing,
@@ -355,6 +359,42 @@ export async function appRoutes(app: FastifyInstance) {
     const ctx = await tenantContext(req);
     await syncCalendar(ctx.tenantId);
     return getBookingSettings(ctx.tenantId);
+  });
+
+  /* ── Chats: WhatsApp, the website chat and texts (C-11, C-16) ─────────── */
+
+  app.get("/api/chats", async (req) => {
+    const ctx = await tenantContext(req);
+    return listChats(ctx.tenantId);
+  });
+
+  app.get("/api/chats/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return getChat(ctx.tenantId, id);
+  });
+
+  /** The owner writes in the chat; the assistant steps back until the chat is handed back. */
+  app.post("/api/chats/:id/reply", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return ownerReply(ctx.tenantId, ctx.userId, id, parseInput(chatReplyInput, req.body).text);
+  });
+
+  app.post("/api/chats/:id/handler", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return setHandler(ctx.tenantId, ctx.userId, id, parseInput(chatHandlerInput, req.body).handler);
+  });
+
+  app.get("/api/assistant", async (req) => {
+    const ctx = await tenantContext(req);
+    return getAssistantSettings(ctx.tenantId);
+  });
+
+  app.put("/api/assistant", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    return updateAssistantSettings(ctx.tenantId, ctx.userId, parseInput(assistantSettingsInput, req.body));
   });
 
   /* ── Reviews and the Google listing (module 9, C-21, C-23, C-46, C-47) ─── */

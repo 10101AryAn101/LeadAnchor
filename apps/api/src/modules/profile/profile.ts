@@ -4,6 +4,7 @@ import { linkBaseUrl } from "../../config/env";
 import { systemDb } from "../../db/client";
 import { mediaAssets, phoneNumbers, services, tenants } from "../../db/schema";
 import { bookingUrl, settingsOf } from "../booking/core";
+import { whatsappLinkFor } from "../chat/links";
 import { profileReviews } from "../reviews/reviews.service";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -61,6 +62,7 @@ export async function getPublicProfile(slug: string): Promise<PublicProfile | nu
     website: tenant.website,
     services: serviceRows,
     bookingUrl: settingsOf(tenant).enabled ? bookingUrl(tenant.slug) : null,
+    whatsappLink: whatsappLinkFor(tenant.name, number?.e164),
     photos: photoRows.map((photo) => {
       const tags = (photo.aiTags ?? {}) as { itemType?: string; issue?: string };
       return { id: photo.id, caption: tags.itemType ?? tags.issue ?? null };

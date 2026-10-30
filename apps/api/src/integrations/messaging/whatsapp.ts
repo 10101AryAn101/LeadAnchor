@@ -1,11 +1,12 @@
-import type { ChannelAdapter, OutboundMessage } from "./types";
+import { randomUUID } from "node:crypto";
+import type { OutboundMessage, WhatsAppAdapter } from "./types";
 
 /**
  * WhatsApp Business Platform (Meta, mandated; reached through a BSP or directly).
  * Free-form replies are only allowed inside the 24-hour window the customer opens
  * by messaging first (C-11, C-31) — the send policy enforces that before this runs.
  */
-export class MetaWhatsApp implements ChannelAdapter {
+export class MetaWhatsApp implements WhatsAppAdapter {
   readonly channel = "whatsapp" as const;
   readonly provider = "meta";
 
@@ -30,6 +31,29 @@ export class MetaWhatsApp implements ChannelAdapter {
     const json = (await response.json().catch(() => ({}))) as { messages?: Array<{ id: string }>; error?: { message?: string } };
     if (!response.ok) throw new Error(`WhatsApp send failed (${response.status}): ${json.error?.message ?? "unknown error"}`);
     return { providerMessageId: json.messages?.[0]?.id ?? null, delivered: false };
+  }
+
+  chatLink(businessE164: string, prefill: string) {
+    return whatsappDeepLink(businessE164, prefill);
+  }
+}
+
+/**
+ * Local WhatsApp while Meta isn't connected: replies are "delivered" at once to the simulated
+ * customer's WhatsApp (/sim/whatsapp/<business number>), where the chat link also leads.
+ */
+export class SimulatorWhatsApp implements WhatsAppAdapter {
+  readonly channel = "whatsapp" as const;
+  readonly provider = "simulator";
+
+  constructor(private readonly pageBase: string) {}
+
+  async send() {
+    return { providerMessageId: `sim-wa-${randomUUID()}`, delivered: true };
+  }
+
+  chatLink(businessE164: string, prefill: string) {
+    return `${this.pageBase}/sim/whatsapp/${businessE164.replace(/^\+/, "")}?text=${encodeURIComponent(prefill)}`;
   }
 }
 

@@ -70,6 +70,7 @@ export async function webhookRoutes(app: FastifyInstance) {
     for (const entry of body.entry ?? []) {
       for (const change of entry.changes ?? []) {
         const businessNumber = change.value?.metadata?.display_phone_number;
+        const profiles = new Map((change.value?.contacts ?? []).map((contact) => [contact.wa_id, contact.profile?.name ?? null]));
         for (const message of change.value?.messages ?? []) {
           if (message.type !== "text" || !businessNumber) continue;
           void handleInboundMessage({
@@ -79,6 +80,7 @@ export async function webhookRoutes(app: FastifyInstance) {
             channel: "whatsapp",
             provider: "meta",
             providerMessageId: message.id,
+            profileName: profiles.get(message.from) ?? null,
           }).catch((error) => logger.error({ err: error }, "whatsapp inbound failed"));
         }
       }
@@ -118,6 +120,7 @@ interface WhatsAppWebhook {
     changes?: Array<{
       value?: {
         metadata?: { display_phone_number?: string };
+        contacts?: Array<{ wa_id: string; profile?: { name?: string } }>;
         messages?: Array<{ id: string; from: string; type: string; text?: { body?: string } }>;
       };
     }>;

@@ -30,6 +30,7 @@ import { logger } from "../../lib/logger";
 import { iso } from "../../lib/time";
 import { bookingUrl, settingsOf } from "../booking/core";
 import { audit } from "../compliance/audit";
+import { whatsappLinkFor } from "../chat/links";
 import { requestUrl } from "../intake/intake.service";
 import { profileUrl } from "../profile/profile";
 import { ingestReviews } from "./reviews.service";
@@ -39,6 +40,21 @@ type Connection = typeof listingConnections.$inferSelect;
 
 const DAY_MS = 86_400_000;
 const WEEK: WeekdayKey[] = [...WEEKDAY_KEYS.slice(1), "sun"];
+
+const DEFAULT_SYNC_FIELDS: ListingSyncFields = {
+  hours: true,
+  phone: true,
+  website: true,
+  bookingLink: true,
+  address: true,
+  chatLink: true,
+};
+
+/** Fields added later are on for connections made before them. */
+const syncFieldsOf = (connection: Connection | null | undefined): ListingSyncFields => ({
+  ...DEFAULT_SYNC_FIELDS,
+  ...connection?.syncFields,
+});
 
 export function listingStatusOf(connection: Connection | null | undefined): ListingStatus {
   return {
@@ -115,6 +131,8 @@ async function desiredDetails(tx: Tx, tenant: Tenant) {
     hours,
     bookingLink: `${settings.enabled ? bookingUrl(tenant.slug) : requestUrl(tenant.slug)}?src=google`,
     address,
+    // C-21: the WhatsApp chat link, so Google's Chat button opens a chat the assistant answers.
+    chatLink: whatsappLinkFor(tenant.name, number?.e164),
   };
   return { details, bookingLinkIs: settings.enabled ? ("booking" as const) : ("request" as const) };
 }
@@ -132,13 +150,7 @@ export async function getListing(tenantId: string): Promise<ListingResponse> {
     return {
       listing: listingStatusOf(connection),
       replyTone: tenant!.reviewReplyTone,
-      syncFields: connection?.syncFields ?? {
-        hours: true,
-        phone: true,
-        website: true,
-        bookingLink: true,
-        address: true,
-      },
+      syncFields: syncFieldsOf(connection),
       pushes: {
         hours: hoursList(details.hours),
         phone: details.phone,
@@ -148,6 +160,7 @@ export async function getListing(tenantId: string): Promise<ListingResponse> {
         address: details.address
           ? `${details.address.street}, ${details.address.city}, ${details.address.state} ${details.address.postalCode}`
           : null,
+        chatLink: details.chatLink,
       },
       posts: posts.map((post) => ({
         id: post.id,
@@ -235,13 +248,14 @@ export async function pushListing(tenantId: string) {
     const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, tenantId));
     return desiredDetails(tx, tenant!);
   });
-  const fields = connection.syncFields;
+  const fields = syncFieldsOf(connection);
   const patch: Partial<ListingDetails> = {
     ...(fields.hours && { hours: details.hours }),
     ...(fields.phone && details.phone && { phone: details.phone }),
     ...(fields.website && { website: details.website }),
     ...(fields.bookingLink && { bookingLink: details.bookingLink }),
     ...(fields.address && details.address && { address: details.address }),
+    ...(fields.chatLink && details.chatLink && { chatLink: details.chatLink }),
   };
   try {
     if (Object.keys(patch).length > 0) await adapter.update(connection.account, patch);
@@ -317,7 +331,7 @@ export async function updateListingSettings(
       const [connection] = await tx.select().from(listingConnections).limit(1);
       if (!connection)
         throw new HttpError(409, "not_connected", "Connect your Google listing first.");
-      const syncFields: ListingSyncFields = { ...connection.syncFields, ...input.syncFields };
+      const syncFields: ListingSyncFields = { ...syncFieldsOf(connection), ...input.syncFields };
       await tx
         .update(listingConnections)
         .set({ syncFields })

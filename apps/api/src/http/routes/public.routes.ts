@@ -4,6 +4,7 @@ import {
   intakeSubmitFields,
   paymentReportInput,
   privateFeedbackInput,
+  publicChatInput,
   publicRequestFields,
   quoteDeclineInput,
   rescheduleInput,
@@ -29,6 +30,7 @@ import { getPublicPayment, reportPayment, startCheckout, syncPublicPayment } fro
 import { findShowcasePhoto, getPublicProfile } from "../../modules/profile/profile";
 import { acceptQuote, declineQuote, getPublicQuote, publicQuotePdf } from "../../modules/quotes/quote.service";
 import { getFeedbackContext, getUnsubscribe, submitFeedback, unsubscribe } from "../../modules/reviews/review-requests";
+import { getChatContext, getChatThread, postChatMessage } from "../../modules/chat/web-chat";
 
 const tokenParam = z.object({ token: z.string().min(20).max(64) });
 const slugParam = z.object({ slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$/) });
@@ -171,6 +173,29 @@ export async function publicRoutes(app: FastifyInstance) {
   app.post("/api/public/offers/:token/take", async (req) => {
     const { token } = parseInput(tokenParam, req.params);
     return takeOffer(token);
+  });
+
+  /* ── The website chat (C-10, C-16): the chat's token travels in a header, never the URL ── */
+
+  const slugParam = z.object({ slug: z.string().min(1).max(80) });
+  const chatToken = (req: { headers: Record<string, string | string[] | undefined> }) => {
+    const value = req.headers["x-chat-token"];
+    return Array.isArray(value) ? value[0] : value;
+  };
+
+  app.get("/api/public/chat/:slug", async (req) => {
+    const { slug } = parseInput(slugParam, req.params);
+    return getChatContext(slug);
+  });
+
+  app.get("/api/public/chat/:slug/thread", async (req) => {
+    const { slug } = parseInput(slugParam, req.params);
+    return getChatThread(slug, chatToken(req));
+  });
+
+  app.post("/api/public/chat/:slug/messages", async (req) => {
+    const { slug } = parseInput(slugParam, req.params);
+    return postChatMessage(slug, chatToken(req), parseInput(publicChatInput, req.body), { ipAddress: req.ip ?? null });
   });
 
   /* ── The review request's private line (C-46) and email unsubscribe ───── */

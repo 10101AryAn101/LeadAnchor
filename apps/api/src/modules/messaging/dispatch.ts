@@ -13,7 +13,14 @@ export async function dispatchMessage({ tenantId, messageId }: { tenantId: strin
   });
   if (!message || message.status !== "queued") return;
 
-  const adapter = message.channel === "whatsapp" ? channels.whatsapp : message.channel === "email" ? channels.email : channels.sms;
+  const adapter =
+    message.channel === "whatsapp"
+      ? channels.whatsapp
+      : message.channel === "email"
+        ? channels.email
+        : message.channel === "web"
+          ? channels.web
+          : channels.sms;
   if (!adapter) {
     await markFailed(tenantId, messageId, message.leadId, `No ${message.channel} adapter is configured.`);
     return;

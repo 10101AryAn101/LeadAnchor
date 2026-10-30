@@ -6,7 +6,7 @@ import { type NextRequest, NextResponse } from "next/server";
  * session cookie exists — a fast, optimistic gate. The API re-validates the
  * session on every request, so a forged cookie gets nothing.
  */
-const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/i/", "/p/", "/r/", "/b/", "/w/", "/f/", "/u/", "/q/", "/pay/", "/sim/", "/privacy", "/terms"];
+const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/i/", "/p/", "/r/", "/b/", "/w/", "/f/", "/u/", "/c/", "/q/", "/pay/", "/sim/", "/privacy", "/terms"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;

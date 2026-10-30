@@ -5,6 +5,8 @@ import {
   BOOKING_STATUSES,
   CALENDAR_PROVIDERS,
   CALLER_TYPES,
+  CHAT_CHANNELS,
+  CHAT_STATES,
   CALL_OUTCOMES,
   CONSENT_ACTIONS,
   CONSENT_SOURCES,
@@ -21,6 +23,7 @@ import {
   MAX_PAYMENT_CENTS,
   MAX_QUOTE_LINES,
   MAX_TAGS_PER_JOB,
+  MESSAGE_AUTHORS,
   MESSAGE_CHANNELS,
   MESSAGE_DIRECTIONS,
   MESSAGE_PURPOSES,
@@ -208,6 +211,8 @@ export const publicProfile = z.object({
   photos: z.array(z.object({ id, caption: z.string().nullable() })),
   /** The booking page, when the business takes online bookings (C-18). */
   bookingUrl: z.string().nullable(),
+  /** Chat on WhatsApp (C-11), when the business has it. */
+  whatsappLink: z.string().nullable(),
   /** The Google rating, from the connected listing (C-41 AC 2, C-21). */
   rating: z.object({ average: z.number(), count: z.number().int(), url: z.string().nullable() }).nullable(),
   /** Google reviews the owner chose to show; only ones already public on Google (C-23). */
@@ -226,6 +231,8 @@ export const messageItem = z.object({
   body: z.string(),
   blockedReason: z.string().nullable(),
   provider: z.string(),
+  /** Chats: who wrote it (the customer, the assistant or the owner). */
+  author: z.enum(MESSAGE_AUTHORS).nullable(),
   createdAt: isoDate,
 });
 export type MessageItem = z.infer<typeof messageItem>;
@@ -377,6 +384,8 @@ export const leadDetail = leadCard.extend({
   balance: leadBalance,
   /** The upcoming visit, or the latest one when none is coming up. */
   booking: bookingItem.nullable(),
+  /** The customer's chat about this job (C-11, C-16). */
+  chat: z.object({ id, channel: z.enum(CHAT_CHANNELS), state: z.enum(CHAT_STATES) }).nullable(),
 });
 export type LeadDetail = z.infer<typeof leadDetail>;
 
@@ -1258,6 +1267,7 @@ const syncFields = z.object({
   website: z.boolean(),
   bookingLink: z.boolean(),
   address: z.boolean(),
+  chatLink: z.boolean(),
 });
 
 export const listingResponse = z.object({
@@ -1274,6 +1284,8 @@ export const listingResponse = z.object({
     bookingLinkIs: z.enum(["booking", "request"]),
     /** Null until the street address and ZIP are filled in. */
     address: z.string().nullable(),
+    /** The WhatsApp chat link (C-21 "set WA chat link"); null while WhatsApp isn't available. */
+    chatLink: z.string().nullable(),
   }),
   posts: z.array(listingPost),
 });
@@ -1376,6 +1388,130 @@ export const publicUnsubscribe = z.object({
   unsubscribed: z.boolean(),
 });
 export type PublicUnsubscribe = z.infer<typeof publicUnsubscribe>;
+
+/* ----------------------------------------------------------------------------
+ * Chats (C-10, C-11, C-16): WhatsApp, the website chat and texts, answered by the assistant
+ * ------------------------------------------------------------------------- */
+
+export const chatMessage = z.object({
+  id,
+  author: z.enum(MESSAGE_AUTHORS),
+  text: z.string(),
+  at: isoDate,
+  /** Outbound only: queued, sent, delivered, blocked or failed. */
+  status: z.enum(MESSAGE_STATUSES),
+  blockedReason: z.string().nullable(),
+});
+export type ChatMessage = z.infer<typeof chatMessage>;
+
+export const chatSummary = z.object({
+  id,
+  channel: z.enum(CHAT_CHANNELS),
+  state: z.enum(CHAT_STATES),
+  /** Why the assistant handed it over, in plain words. */
+  stateReason: z.string().nullable(),
+  /** The customer's name, their number, or "Website visitor". */
+  title: z.string(),
+  phone: z.string().nullable(),
+  lead: z.object({ id, title: z.string(), stage: z.enum(LEAD_STAGES) }).nullable(),
+  lastMessage: z.object({ text: z.string(), at: isoDate, author: z.enum(MESSAGE_AUTHORS) }).nullable(),
+  /** The customer wrote last and nobody has answered yet. */
+  waiting: z.boolean(),
+  createdAt: isoDate,
+});
+export type ChatSummary = z.infer<typeof chatSummary>;
+
+export const chatDetail = chatSummary.extend({
+  messages: z.array(chatMessage),
+  /** The owner can send a reply now on this channel. */
+  canReply: z.boolean(),
+  /** Why not, or a limit to know about (WhatsApp's 24-hour window). */
+  replyNote: z.string().nullable(),
+  /** The assistant is writing a reply. */
+  typing: z.boolean(),
+});
+export type ChatDetail = z.infer<typeof chatDetail>;
+
+export const chatsResponse = z.object({
+  chats: z.array(chatSummary),
+  assistantOn: z.boolean(),
+});
+export type ChatsResponse = z.infer<typeof chatsResponse>;
+
+export const chatReplyInput = z.object({ text: z.string().trim().min(1, "Write a reply").max(1500) });
+/** Take over from the assistant, or hand the chat back to it. */
+export const chatHandlerInput = z.object({ handler: z.enum(["owner", "assistant"]) });
+
+export const assistantSettings = z.object({
+  /** The assistant answers WhatsApp, the website chat and texts (C-16). */
+  enabled: z.boolean(),
+  /** What the owner wants it to know beyond the price list and hours, e.g. "We don't do septic tanks." */
+  notes: z.string(),
+  /** The business's WhatsApp chat link (wa.me), or the simulator's page. */
+  whatsappLink: z.string().nullable(),
+  whatsappNumber: z.string().nullable(),
+  /** The website chat page; the website button can open it too. */
+  webChatUrl: z.string(),
+  /** WhatsApp isn't connected to Meta yet, so a simulator stands in. */
+  whatsappSimulated: z.boolean(),
+  /** Texts can only be answered once carriers approve the business (C-43). */
+  textsAllowed: z.boolean(),
+});
+export type AssistantSettings = z.infer<typeof assistantSettings>;
+
+export const assistantSettingsInput = z.object({
+  enabled: z.boolean().optional(),
+  notes: z.string().trim().max(1500, "Keep it under 1,500 characters").optional(),
+});
+
+/** The website chat, as the customer sees it (C-10, C-16). */
+export const publicChatContext = z.object({
+  business: publicBusiness,
+  /** The first line, shown before they write. */
+  greeting: z.string(),
+});
+export type PublicChatContext = z.infer<typeof publicChatContext>;
+
+export const publicChatMessage = z.object({
+  id,
+  from: z.enum(["customer", "business"]),
+  text: z.string(),
+  at: isoDate,
+});
+export type PublicChatMessage = z.infer<typeof publicChatMessage>;
+
+export const publicChatThread = z.object({
+  /** Keeps the chat going on this device: sent once, when the chat starts. */
+  token: z.string().nullable(),
+  messages: z.array(publicChatMessage),
+  typing: z.boolean(),
+});
+export type PublicChatThread = z.infer<typeof publicChatThread>;
+
+export const publicChatInput = z.object({
+  text: z.string().trim().min(1).max(1000),
+  source: z.enum(REQUEST_SOURCES).catch("link"),
+  /** Hidden from people; only bots fill it in. */
+  company: z.string().max(200).optional().default(""),
+});
+
+/* ----------------------------------------------------------------------------
+ * Simulated WhatsApp (development only): the customer's WhatsApp, chatting with a business
+ * ------------------------------------------------------------------------- */
+
+export const simWhatsAppThread = z.object({
+  business: z.object({ name: z.string(), number: z.string() }),
+  messages: z.array(publicChatMessage),
+  typing: z.boolean(),
+});
+export type SimWhatsAppThread = z.infer<typeof simWhatsAppThread>;
+
+export const simWhatsAppInput = z.object({
+  from: usPhone,
+  /** The customer's WhatsApp profile name. */
+  name: z.string().trim().max(60).optional().default(""),
+  text: z.string().trim().min(1).max(1000),
+});
 
 /* ----------------------------------------------------------------------------
  * Simulated Google listing (development only): the business's page and "write a review"

@@ -42,6 +42,10 @@ export const tenants = pgTable("tenants", {
   valueProofLastSentAt: tsz("value_proof_last_sent_at"),
   /** Opening hours and booking rules (module 8). Null until the owner sets them: the defaults apply. */
   booking: jsonb("booking").$type<BookingSettings>(),
+  /** The chat assistant answers WhatsApp, the website chat and texts (C-16). */
+  assistantEnabled: boolean("assistant_enabled").notNull().default(true),
+  /** What the owner wants the assistant to know beyond the price list and hours. */
+  assistantNotes: text("assistant_notes"),
   /** The voice of AI-drafted replies to Google reviews (C-47 AC 5). */
   reviewReplyTone: text("review_reply_tone", { enum: REPLY_TONES }).notNull().default("warm"),
   status: text("status", { enum: ["trial", "active", "past_due", "suspended", "cancelled"] })

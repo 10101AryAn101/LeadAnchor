@@ -1,4 +1,4 @@
-import type { MessageChannel, MessagePurpose } from "@leadanchor/contracts";
+import type { MessageAuthor, MessageChannel, MessagePurpose } from "@leadanchor/contracts";
 import { and, desc, eq, gt } from "drizzle-orm";
 import type { Tx } from "../../db/client";
 import { carrierRegistrations, messages, phoneNumbers, type tenants } from "../../db/schema";
@@ -20,6 +20,9 @@ export interface MessageIntent {
   body: string;
   purpose: MessagePurpose;
   preferredChannels?: MessageChannel[];
+  /** Chats (C-11, C-16): the thread it belongs to, and who wrote it. */
+  conversationId?: string | null;
+  author?: MessageAuthor;
 }
 
 /**
@@ -66,10 +69,12 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
     whatsappConfigured: channels.whatsapp !== null,
     recipientLocalHour: localHour(intent.tenant.timezone),
     waitlistTextsCleared: env.WAITLIST_TEXTS_CLEARED,
+    webChatOpen: intent.to.startsWith("web:"),
   });
 
   const channel = decision.channel ?? intent.preferredChannels?.[0] ?? "sms";
-  const provider = channel === "whatsapp" ? (channels.whatsapp?.provider ?? "meta") : channels.sms.provider;
+  const provider =
+    channel === "whatsapp" ? (channels.whatsapp?.provider ?? "meta") : channel === "web" ? channels.web.provider : channels.sms.provider;
 
   const [message] = await tx
     .insert(messages)
@@ -87,6 +92,8 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
       blockedReason: decision.reason,
       provider,
       policy: { checks: decision.checks, consentRecordId: consent?.id ?? null },
+      conversationId: intent.conversationId ?? null,
+      author: intent.author ?? null,
     })
     .returning();
 

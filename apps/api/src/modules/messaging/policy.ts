@@ -21,6 +21,8 @@ export interface PolicyFacts {
   recipientLocalHour: number;
   /** Counsel has confirmed the waitlist opt-in wording covers texts (C-22). Platform-wide. */
   waitlistTextsCleared: boolean;
+  /** The customer is chatting on the business's website chat, so a reply shows in that window (C-16). */
+  webChatOpen?: boolean;
 }
 
 export interface PolicyCheck {
@@ -93,6 +95,18 @@ export function decide(facts: PolicyFacts): PolicyDecision {
       if (!facts.carrierApproved) continue;
 
       return { allowed: true, channel: "sms", reason: null, checks };
+    }
+
+    if (channel === "web") {
+      // A reply in the chat the customer opened on the business's site: no phone, no texting consent involved.
+      const ok = facts.webChatOpen === true && facts.purpose === "conversational";
+      checks.push({
+        check: "web_chat",
+        passed: ok,
+        detail: ok ? "Reply in the website chat the customer started." : "Only replies go to a website chat.",
+      });
+      if (ok) return { allowed: true, channel: "web", reason: null, checks };
+      continue;
     }
 
     if (channel === "whatsapp") {

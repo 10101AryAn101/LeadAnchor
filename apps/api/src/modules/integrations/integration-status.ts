@@ -37,10 +37,15 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
     {
       key: "whatsapp",
       name: "WhatsApp Business Platform",
-      purpose: "Customer chats, photos and replies inside the 24-hour window.",
-      capabilities: ["C-07", "C-11", "C-31"],
-      state: channels.whatsapp ? "live" : "not_configured",
-      detail: channels.whatsapp ? "Connected to Meta Cloud API." : "Needs a Meta Business account (directly or through a BSP).",
+      purpose: "Customers chat with the business on WhatsApp; the assistant answers inside the 24-hour window, and the owner can take over.",
+      capabilities: ["C-07", "C-11", "C-16", "C-21", "C-31"],
+      state: channels.whatsapp?.provider === "meta" ? "live" : channels.whatsapp ? "simulated" : "not_configured",
+      detail:
+        channels.whatsapp?.provider === "meta"
+          ? "Connected to Meta Cloud API."
+          : channels.whatsapp
+            ? "A simulated WhatsApp stands in (Chats and the call simulator). Real WhatsApp needs a Meta Business account, a WhatsApp number and the API keys (free to set up, step 2)."
+            : "Needs a Meta Business account (directly or through a BSP).",
       mandatedBySpec: true,
     },
     {
@@ -81,8 +86,8 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
     {
       key: "gemini",
       name: "Google Gemini",
-      purpose: "Reads voicemails, call answers and customer photos.",
-      capabilities: ["C-09", "C-13", "C-39"],
+      purpose: "Reads voicemails, call answers and customer photos; drafts quotes and review replies; answers chats.",
+      capabilities: ["C-09", "C-13", "C-16", "C-39", "C-45", "C-47"],
       state: ai.configured ? "live" : "not_configured",
       detail: ai.configured ? `Model ${ai.model}.` : "Add GEMINI_API_KEY to enable AI summaries.",
       mandatedBySpec: false,

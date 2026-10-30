@@ -10,8 +10,9 @@ import { ChromiumPdf, type PdfRenderer, findBrowser } from "./integrations/docum
 import { FirestoreConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
 import { OutboxEmail } from "./integrations/messaging/email";
 import { SimulatorSms, TelnyxSms } from "./integrations/messaging/sms";
-import type { ChannelAdapter } from "./integrations/messaging/types";
-import { MetaWhatsApp } from "./integrations/messaging/whatsapp";
+import type { ChannelAdapter, WhatsAppAdapter } from "./integrations/messaging/types";
+import { MetaWhatsApp, SimulatorWhatsApp } from "./integrations/messaging/whatsapp";
+import { WebChat } from "./integrations/messaging/web-chat";
 import { SimulatorPayments } from "./integrations/payments/simulator";
 import type { PaymentsProvider } from "./integrations/payments/types";
 import { FcmPush } from "./integrations/push/fcm";
@@ -89,7 +90,11 @@ export const simulatorListings = new SimulatorListings(
  */
 export const listingProviders: Partial<Record<ListingProvider["name"], ListingProvider>> = { simulator: simulatorListings };
 
-export const channels: { sms: ChannelAdapter; whatsapp: ChannelAdapter | null; email: ChannelAdapter } = {
+/**
+ * Message channels (module 5). WhatsApp is Meta's Cloud API once its keys are set; until then a
+ * simulator stands in during development (C-11). The website chat is LeadAnchor's own (C-16).
+ */
+export const channels: { sms: ChannelAdapter; whatsapp: WhatsAppAdapter | null; email: ChannelAdapter; web: ChannelAdapter } = {
   email: new OutboxEmail(),
   sms:
     env.SMS_PROVIDER === "telnyx"
@@ -98,7 +103,10 @@ export const channels: { sms: ChannelAdapter; whatsapp: ChannelAdapter | null; e
   whatsapp:
     env.WHATSAPP_ACCESS_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID
       ? new MetaWhatsApp(env.WHATSAPP_ACCESS_TOKEN, env.WHATSAPP_PHONE_NUMBER_ID)
-      : null,
+      : env.NODE_ENV === "production"
+        ? null
+        : new SimulatorWhatsApp(linkBaseUrl),
+  web: new WebChat(),
 };
 
 function requireSetting(name: string, value: string | undefined): string {

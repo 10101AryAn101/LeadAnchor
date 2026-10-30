@@ -6,6 +6,7 @@ import {
   IconLayoutKanban,
   IconLayoutKanbanFilled,
   IconMail,
+  IconMessages,
   IconPhone,
   IconPhoneFilled,
   IconPlug,
@@ -35,6 +36,7 @@ export const PRIMARY_NAV: NavItem[] = [
 ];
 
 export const SECONDARY_NAV: NavItem[] = [
+  { href: "/chats", label: "Chats", icon: IconMessages },
   { href: "/reviews", label: "Reviews", icon: IconStar },
   { href: "/compliance", label: "Texting and consent", icon: IconShieldCheck },
   { href: "/integrations", label: "Integrations", icon: IconPlug },

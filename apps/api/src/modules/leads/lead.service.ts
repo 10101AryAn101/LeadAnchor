@@ -10,12 +10,13 @@ import {
 } from "@leadanchor/contracts";
 import { and, asc, desc, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import type { Tx } from "../../db/client";
-import { calls, customers, leadEvents, leads, mediaAssets, messages, tenants } from "../../db/schema";
+import { calls, conversations, customers, leadEvents, leads, mediaAssets, messages, tenants } from "../../db/schema";
 import { tenantWork } from "../../db/unit-of-work";
 import { withTenant } from "../../db/client";
 import { notFound } from "../../lib/errors";
 import { iso } from "../../lib/time";
 import { bookingForLead, closeBookingsForLead, setVisit } from "../booking/booking.service";
+import { stateOf } from "../chat/chat.service";
 import { createIntakeLink } from "../intake/intake.service";
 import { toMessageItem } from "../messaging/message-item";
 import { requestMessage } from "../messaging/send-path";
@@ -120,7 +121,7 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       .where(eq(leads.id, leadId));
     if (!row) throw notFound("Lead");
 
-    const [events, callRows, messageRows, mediaRows, otherRows, quoteItems, paymentItems, booking] = await Promise.all([
+    const [events, callRows, messageRows, mediaRows, otherRows, quoteItems, paymentItems, booking, [chat], [tenant]] = await Promise.all([
       // Events saved together share a timestamp; their time-ordered ids keep them in the order they happened.
       tx.select().from(leadEvents).where(eq(leadEvents.leadId, leadId)).orderBy(desc(leadEvents.createdAt), desc(leadEvents.id)),
       tx.select().from(calls).where(eq(calls.leadId, leadId)).orderBy(desc(calls.startedAt)),
@@ -135,6 +136,8 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       quotesFor(tx, [leadId]),
       paymentsFor(tx, [leadId]),
       bookingForLead(tx, leadId),
+      tx.select().from(conversations).where(eq(conversations.leadId, leadId)).orderBy(desc(conversations.lastMessageAt)).limit(1),
+      tx.select({ assistantEnabled: tenants.assistantEnabled }).from(tenants).where(eq(tenants.id, tenantId)),
     ]);
 
     const photos = mediaRows.filter((m) => m.kind === "photo");
@@ -154,6 +157,7 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       // The job's price is the owner's own figure: set by a sent quote, or by hand.
       balance: balanceOf(row.lead.valueCents, paymentItems),
       booking,
+      chat: chat ? { id: chat.id, channel: chat.channel, state: stateOf(chat, tenant?.assistantEnabled ?? true) } : null,
     };
   });
 }

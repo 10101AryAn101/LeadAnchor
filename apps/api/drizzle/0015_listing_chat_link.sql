@@ -1,0 +1,1 @@
+ALTER TABLE "listing_connections" ALTER COLUMN "sync_fields" SET DEFAULT '{"hours":true,"phone":true,"website":true,"bookingLink":true,"address":true,"chatLink":true}'::jsonb;

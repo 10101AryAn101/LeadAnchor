@@ -4,19 +4,21 @@ import {
   type SimOnboarding,
   type SimGoogleListing,
   type SimRedirect,
+  type SimWhatsAppThread,
   simCalendarEventInput,
   simGoogleReviewInput,
+  simWhatsAppInput,
   simCheckoutInput,
   simOnboardingInput,
   simulatorScenarioInput,
   toE164,
   usPhone,
 } from "@leadanchor/contracts";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { systemDb, withTenant } from "../../db/client";
-import { listingConnections, messages, phoneNumbers } from "../../db/schema";
+import { conversations, listingConnections, messages, phoneNumbers, tenants } from "../../db/schema";
 import { HttpError, badRequest, notFound, parseInput } from "../../lib/errors";
 import { payments, simulatorListings, simulatorPayments, simulatorTelephony, telephony } from "../../container";
 import { PaymentRefused } from "../../integrations/payments/types";
@@ -220,6 +222,78 @@ export async function devRoutes(app: FastifyInstance) {
     const { id } = parseInput(z.object({ id: z.string().regex(/^evt_sim_[a-f0-9]+$/) }), req.params);
     await removeSimulatedEvent(ctx.tenantId, id);
     return { events: await simulatedCalendarEvents(ctx.tenantId) };
+  });
+
+  /* ── Simulated WhatsApp: the customer's WhatsApp, chatting with a business (C-11) ── */
+
+  const whatsappBusiness = z.object({ business: z.string().regex(/^\d{11}$/) });
+
+  // Public on purpose: it plays the customer's own WhatsApp, opened from the business's chat link.
+  const simWhatsApp = async (businessE164: string, customer: string): Promise<SimWhatsAppThread> => {
+    const [number] = await systemDb
+      .select({ tenantId: phoneNumbers.tenantId, name: tenants.name })
+      .from(phoneNumbers)
+      .innerJoin(tenants, eq(tenants.id, phoneNumbers.tenantId))
+      .where(and(eq(phoneNumbers.e164, businessE164), eq(phoneNumbers.status, "active")))
+      .limit(1);
+    if (!number) throw notFound("Business");
+    const rows = await systemDb
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.tenantId, number.tenantId),
+          eq(messages.channel, "whatsapp"),
+          inArray(messages.status, ["queued", "sent", "delivered", "received"]),
+          or(
+            and(eq(messages.direction, "inbound"), eq(messages.fromAddress, customer)),
+            and(eq(messages.direction, "outbound"), eq(messages.toAddress, customer)),
+          ),
+        ),
+      )
+      .orderBy(asc(messages.createdAt), asc(messages.id))
+      .limit(200);
+    const [conversation] = await systemDb
+      .select({ pending: conversations.assistantPendingAt })
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, number.tenantId), eq(conversations.channel, "whatsapp"), eq(conversations.contact, customer)))
+      .limit(1);
+    // A reply on its way still shows as typing, as it would until WhatsApp delivers it.
+    const sending = rows.some((row) => row.status === "queued" && Date.now() - row.createdAt.getTime() < 90_000);
+    return {
+      business: { name: number.name, number: businessE164 },
+      messages: rows
+        .filter((row) => row.status !== "queued")
+        .map((row) => ({
+          id: row.id,
+          from: row.direction === "inbound" ? ("customer" as const) : ("business" as const),
+          text: row.body,
+          at: row.createdAt.toISOString(),
+        })),
+      typing: sending || (conversation?.pending != null && Date.now() - conversation.pending.getTime() < 90_000),
+    };
+  };
+
+  app.post("/api/dev/simulator/whatsapp/:business/thread", async (req) => {
+    const { business } = parseInput(whatsappBusiness, req.params);
+    const { from } = parseInput(z.object({ from: usPhone }), req.body);
+    return simWhatsApp(`+${business}`, from);
+  });
+
+  /** The simulated customer writes to the business on WhatsApp, as Meta's webhook would deliver it. */
+  app.post("/api/dev/simulator/whatsapp/:business/messages", async (req) => {
+    const { business } = parseInput(whatsappBusiness, req.params);
+    const input = parseInput(simWhatsAppInput, req.body);
+    await handleInboundMessage({
+      from: input.from,
+      to: `+${business}`,
+      text: input.text,
+      channel: "whatsapp",
+      provider: "simulator",
+      providerMessageId: null,
+      profileName: input.name || null,
+    });
+    return simWhatsApp(`+${business}`, input.from);
   });
 
   /* ── Simulated Google listing: the business's page, where customers leave reviews (C-21) ── */

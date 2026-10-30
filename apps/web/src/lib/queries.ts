@@ -1,7 +1,10 @@
 "use client";
 
 import type {
+  AssistantSettings,
   BookingSettingsResponse,
+  ChatDetail,
+  ChatsResponse,
   CallItem,
   ConsentEntry,
   CustomerDetail,
@@ -58,6 +61,10 @@ export const keys = {
   reviews: ["reviews"] as const,
   reviewsSummary: ["reviews-summary"] as const,
   listing: ["listing"] as const,
+  chats: ["chats"] as const,
+  chat: (id: string) => ["chat", id] as const,
+  chatAll: ["chat"] as const,
+  assistant: ["assistant"] as const,
   simCalendar: ["sim-calendar"] as const,
   simCall: (sessionId: string) => ["sim-call", sessionId] as const,
   simInbox: (phone: string) => ["sim-inbox", phone] as const,
@@ -114,6 +121,13 @@ export const useBookingSettings = () => useQuery({ queryKey: keys.bookingSetting
 export const useReviews = () => useQuery({ queryKey: keys.reviews, queryFn: () => api<ReviewsResponse>("/reviews") });
 
 export const useReviewsSummary = () => useQuery({ queryKey: keys.reviewsSummary, queryFn: () => api<ReviewsSummary>("/reviews/summary") });
+
+export const useChats = () => useQuery({ queryKey: keys.chats, queryFn: () => api<ChatsResponse>("/chats") });
+
+export const useChat = (id: string | null) =>
+  useQuery({ queryKey: keys.chat(id ?? "none"), queryFn: () => api<ChatDetail>(`/chats/${id}`), enabled: Boolean(id) });
+
+export const useAssistant = () => useQuery({ queryKey: keys.assistant, queryFn: () => api<AssistantSettings>("/assistant") });
 
 export const useListing = () => useQuery({ queryKey: keys.listing, queryFn: () => api<ListingResponse>("/listing") });
 

@@ -14,6 +14,8 @@ import {
   IconClock,
   type Icon,
   IconHeadset,
+  IconMessage,
+  IconMessages,
   IconPhoneX,
   IconRecordMail,
   IconUser,
@@ -33,6 +35,8 @@ export const SOURCE_ICON: Record<LeadSource, Icon> = {
   google: IconBrandGoogle,
   booking: IconCalendarCheck,
   manual: IconUser,
+  web_chat: IconMessages,
+  text: IconMessage,
 };
 
 export function SourceLabel({ source, className }: { source: LeadSource; className?: string }) {

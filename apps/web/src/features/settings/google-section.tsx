@@ -245,6 +245,11 @@ function SyncedFields({ data }: { data: ListingResponse }) {
         pushes.address ??
         "Add your street address and ZIP under Business profile to keep it on Google",
     },
+    {
+      field: "chatLink",
+      label: "Chat button",
+      value: pushes.chatLink ? `WhatsApp, answered by your assistant: ${pushes.chatLink}` : "Appears once WhatsApp is connected",
+    },
   ];
   return (
     <div className="rounded-lg border bg-background p-4">

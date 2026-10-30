@@ -1,4 +1,5 @@
 import {
+  MESSAGE_AUTHORS,
   MESSAGE_CHANNELS,
   MESSAGE_DIRECTIONS,
   MESSAGE_PURPOSES,
@@ -8,6 +9,7 @@ import {
   PUSH_STATUSES,
 } from "@leadanchor/contracts";
 import { index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { conversations } from "./chat";
 import { createdAt, pk, tsz } from "./columns";
 import { customers, leads } from "./crm";
 import { tenantRef } from "./tenancy";
@@ -37,6 +39,9 @@ export const messages = pgTable(
     providerMessageId: text("provider_message_id"),
     policy: jsonb("policy").$type<Record<string, unknown>>(),
     error: text("error"),
+    /** Chats (C-11, C-16): the thread it belongs to, and who wrote it. */
+    conversationId: uuid("conversation_id").references(() => conversations.id, { onDelete: "set null" }),
+    author: text("author", { enum: MESSAGE_AUTHORS }),
     createdAt: createdAt(),
     sentAt: tsz("sent_at"),
     deliveredAt: tsz("delivered_at"),
@@ -45,6 +50,7 @@ export const messages = pgTable(
     index("messages_customer_idx").on(t.tenantId, t.customerId, t.createdAt),
     index("messages_lead_idx").on(t.leadId),
     index("messages_to_idx").on(t.toAddress, t.createdAt),
+    index("messages_conversation_idx").on(t.conversationId, t.createdAt),
   ],
 );
 

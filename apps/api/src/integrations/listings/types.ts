@@ -16,6 +16,8 @@ export interface ListingDetails {
   /** The listing's "Book" / appointment link (C-10, C-18). */
   bookingLink: string | null;
   address: { street: string; city: string; state: string; postalCode: string } | null;
+  /** The WhatsApp chat link (C-21 "set WA chat link"). */
+  chatLink: string | null;
 }
 
 export interface ListingSnapshot {

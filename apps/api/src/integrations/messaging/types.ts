@@ -21,3 +21,8 @@ export interface ChannelAdapter {
   readonly provider: string;
   send(message: OutboundMessage): Promise<SendResult>;
 }
+
+/** WhatsApp also gives the business a link customers tap to start a chat (C-11). */
+export interface WhatsAppAdapter extends ChannelAdapter {
+  chatLink(businessE164: string, prefill: string): string;
+}

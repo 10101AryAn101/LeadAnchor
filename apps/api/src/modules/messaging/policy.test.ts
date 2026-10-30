@@ -27,6 +27,20 @@ describe("send policy (governed send path)", () => {
     expect(decide({ ...base, purpose: "waitlist_offer", waitlistTextsCleared: true, smsConsent: null }).allowed).toBe(false);
   });
 
+  it("answers a website chat in the chat itself, and only with replies (C-16)", () => {
+    const reply = decide({ ...base, purpose: "conversational", preferredChannels: ["web"], smsConsent: null, carrierApproved: false, webChatOpen: true });
+    expect(reply.allowed).toBe(true);
+    expect(reply.channel).toBe("web");
+    expect(decide({ ...base, purpose: "marketing", preferredChannels: ["web"], webChatOpen: true }).allowed).toBe(false);
+    expect(decide({ ...base, purpose: "conversational", preferredChannels: ["web"], webChatOpen: false }).allowed).toBe(false);
+  });
+
+  it("answers WhatsApp freely only inside the 24-hour window the customer opened (C-11)", () => {
+    const facts = { ...base, purpose: "conversational" as const, preferredChannels: ["whatsapp" as const], smsConsent: null, whatsappConfigured: true };
+    expect(decide({ ...facts, whatsappWindowOpen: true }).channel).toBe("whatsapp");
+    expect(decide({ ...facts, whatsappWindowOpen: false }).allowed).toBe(false);
+  });
+
   it("sends review requests by email only: they count as marketing (C-46)", () => {
     const decision = decide({ ...base, purpose: "review_request" });
     expect(decision.allowed).toBe(false);

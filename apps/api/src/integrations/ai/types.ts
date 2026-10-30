@@ -1,4 +1,4 @@
-import type { ReplyTone, Trade, Urgency } from "@leadanchor/contracts";
+import type { ChatChannel, ReplyTone, Trade, Urgency } from "@leadanchor/contracts";
 
 /** What the AI pulls out of a voicemail, an AI Dispatcher answer or a web form (C-13, C-39). */
 export interface CallerNeed {
@@ -83,6 +83,44 @@ export interface ReviewReplyInput {
   timeoutMs: number;
 }
 
+/** C-16: one turn of a chat with a customer. Facts come only from the business's own settings. */
+export interface ChatTurnInput {
+  business: {
+    name: string;
+    trade: Trade;
+    area: string | null;
+    /** To call for emergencies and anything urgent. */
+    phone: string | null;
+    hours: string[];
+    services: Array<{ ref: string; name: string; description: string | null; fromPrice: string | null; length: string | null }>;
+    /** The owner's own statements, e.g. "Licensed and insured", "12 years in business". */
+    claims: string[];
+    canBookOnline: boolean;
+    /** What the owner wants the assistant to know. */
+    notes: string | null;
+  };
+  channel: ChatChannel;
+  customer: { name: string | null; hasPhone: boolean; openJob: string | null };
+  /** Oldest first; the last one is the customer's newest message. */
+  history: Array<{ from: "customer" | "business"; text: string }>;
+  timeoutMs: number;
+}
+
+export interface ChatTurn {
+  reply: string;
+  /** answer / ask: keep chatting; book: send the booking (or request) link; handoff: pass to the owner. */
+  action: "answer" | "ask" | "book" | "handoff";
+  /** The price-list entry their job matches. */
+  serviceRef: string | null;
+  urgency: Urgency;
+  /** One line for the job card: what they need. */
+  need: string | null;
+  customerName: string | null;
+  /** A phone number the customer typed (website chat). */
+  phone: string | null;
+  handoffReason: string | null;
+}
+
 export interface ListingPostInput {
   businessName: string;
   trade: Trade;
@@ -110,4 +148,6 @@ export interface AiProvider {
   draftReviewReply(input: ReviewReplyInput): Promise<{ reply: string }>;
   /** Module 9: an update for the Google listing, built from the business's real recent work. */
   draftListingPost(input: ListingPostInput): Promise<{ text: string }>;
+  /** C-16: the assistant's next message in a chat, and what to do with the conversation. */
+  chatTurn(input: ChatTurnInput): Promise<ChatTurn>;
 }

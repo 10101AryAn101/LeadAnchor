@@ -1,5 +1,5 @@
 import { type PublicProfile, TRADE_LABELS } from "@leadanchor/contracts";
-import { IconBrandGoogle, IconCalendarEvent, IconExternalLink, IconMessage, IconPhone, IconShieldCheck, IconUserOff } from "@tabler/icons-react";
+import { IconBrandGoogle, IconBrandWhatsapp, IconCalendarEvent, IconExternalLink, IconMessage, IconPhone, IconShieldCheck, IconUserOff } from "@tabler/icons-react";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
@@ -86,7 +86,7 @@ function ProfileView({ slug, profile }: { slug: string; profile: PublicProfile }
             </span>
           )}
         </div>
-        {(profile.phone || profile.bookingUrl) && (
+        {(profile.phone || profile.bookingUrl || profile.whatsappLink) && (
           <div className="flex flex-wrap gap-2 pt-2">
             {profile.bookingUrl && (
               <Button size="lg" nativeButton={false} render={<a href={profile.bookingUrl} />}>
@@ -102,6 +102,11 @@ function ProfileView({ slug, profile }: { slug: string; profile: PublicProfile }
                   <IconMessage /> Text
                 </Button>
               </>
+            )}
+            {profile.whatsappLink && (
+              <Button size="lg" variant="outline" nativeButton={false} render={<a href={profile.whatsappLink} target="_blank" rel="noopener noreferrer" />}>
+                <IconBrandWhatsapp /> WhatsApp
+              </Button>
             )}
           </div>
         )}

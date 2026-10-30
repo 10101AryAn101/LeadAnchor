@@ -39,13 +39,17 @@ export function CustomerBooking({
   slug,
   context,
   source,
+  initialServiceId,
 }: {
   slug: string;
   context: PublicBookingContext;
   source: RequestSource;
+  /** Opened from a link for one service (the chat assistant's): start at its free times. */
+  initialServiceId?: string | null;
 }) {
-  const [step, setStep] = useState<Step>("service");
-  const [service, setService] = useState<Service | null>(null);
+  const preset = context.services.find((item) => item.id === initialServiceId) ?? null;
+  const [step, setStep] = useState<Step>(preset ? "time" : "service");
+  const [service, setService] = useState<Service | null>(preset);
   const [slot, setSlot] = useState<string | null>(null);
   const [booked, setBooked] = useState<BookingCreated | null>(null);
   const base = `/public/booking/${slug}`;

@@ -34,6 +34,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { BookingCard } from "@/features/booking/booking-card";
+import { ChatCard } from "@/features/chat/chat-card";
 import { LeadMoney } from "@/features/money/lead-money";
 import { api, isApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -126,6 +127,7 @@ export function LeadDetailView() {
 
         <aside className="space-y-4">
           <CustomerCard lead={lead} />
+          {lead.chat && <ChatCard chat={lead.chat} />}
           <BookingCard lead={lead} onMarkWon={() => setMoving({ target: moveTarget, stage: "won" })} />
           <RequestDetailsCard lead={lead} />
         </aside>

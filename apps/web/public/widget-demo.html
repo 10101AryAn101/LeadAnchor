@@ -33,7 +33,8 @@
         tag.src = "/widget.js?preview=" + Date.now();
         tag.async = true;
         tag.setAttribute("data-business", business);
-        if (params.get("action") === "book") tag.setAttribute("data-action", "book");
+        var action = params.get("action");
+        if (action === "book" || action === "chat") tag.setAttribute("data-action", action);
         document.body.appendChild(tag);
       })();
     </script>

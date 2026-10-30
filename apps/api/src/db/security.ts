@@ -37,6 +37,7 @@ export const TENANT_TABLES = [
   "review_requests",
   "listing_posts",
   "email_opt_outs",
+  "conversations",
 ] as const;
 
 /** Append-only tables: no UPDATE or DELETE for application roles. */

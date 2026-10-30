@@ -13,6 +13,7 @@ export function toMessageItem(m: typeof messages.$inferSelect): MessageItem {
     body: m.body,
     blockedReason: m.blockedReason,
     provider: m.provider,
+    author: m.author,
     createdAt: isoOrNow(m.createdAt),
   };
 }

@@ -48,7 +48,7 @@ export class SimulatorListings implements ListingProvider {
     this.write((store) => {
       const listing = (store[account] ??= {
         name: input.businessName,
-        details: { phone: null, website: null, hours: null, bookingLink: null, address: null },
+        details: { phone: null, website: null, hours: null, bookingLink: null, address: null, chatLink: null },
         reviews: {},
         posts: [],
         failNextReply: false,

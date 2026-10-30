@@ -40,6 +40,8 @@ export const QUEUES = {
   reviewRequestSend: "reviews.request-send",
   /** Every 15 minutes: review requests that were waiting on setup try again (C-46). */
   reviewRequestsTick: "reviews.requests-tick",
+  /** The chat assistant answers a customer's latest message (C-11, C-16). */
+  assistantReply: "chat.assistant-reply",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -63,6 +65,7 @@ export interface JobPayloads {
   [QUEUES.reviewReplyPost]: { tenantId: string; reviewId: string };
   [QUEUES.reviewRequestSend]: { tenantId: string; requestId: string };
   [QUEUES.reviewRequestsTick]: Record<string, never>;
+  [QUEUES.assistantReply]: { tenantId: string; conversationId: string };
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });

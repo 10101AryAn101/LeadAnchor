@@ -43,7 +43,7 @@ export const listingConnections = pgTable(
     syncFields: jsonb("sync_fields")
       .$type<ListingSyncFields>()
       .notNull()
-      .default({ hours: true, phone: true, website: true, bookingLink: true, address: true }),
+      .default({ hours: true, phone: true, website: true, bookingLink: true, address: true, chatLink: true }),
     lastSyncedAt: tsz("last_synced_at"),
     lastPushedAt: tsz("last_pushed_at"),
     lastError: text("last_error"),
