@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { env, linkBaseUrl } from "./config/env";
 import { GeminiProvider } from "./integrations/ai/gemini";
 import type { AiProvider } from "./integrations/ai/types";
+import { GoogleCalendar } from "./integrations/calendar/google";
 import { SimulatorCalendar } from "./integrations/calendar/simulator";
 import type { CalendarProvider } from "./integrations/calendar/types";
 import { SimulatorHolidays } from "./integrations/holidays/simulator";
@@ -86,10 +87,15 @@ export const payments: PaymentsProvider = env.STRIPE_SECRET_KEY
 export const simulatorCalendar = new SimulatorCalendar(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "calendar.json"));
 
 /**
- * Calendar sync (module 8), one adapter per provider a business can connect. Google Calendar
- * and Microsoft Outlook join in step 2 (both free); until then the simulator stands in.
+ * Calendar sync (module 8), one adapter per provider a business can connect: Google Calendar once
+ * its OAuth client is set, and the simulator for development. Outlook joins later.
  */
-export const calendarProviders: Partial<Record<CalendarProvider["name"], CalendarProvider>> = { simulator: simulatorCalendar };
+export const calendarProviders: Partial<Record<CalendarProvider["name"], CalendarProvider>> = {
+  ...(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET
+    ? { google: new GoogleCalendar(env.GOOGLE_OAUTH_CLIENT_ID, env.GOOGLE_OAUTH_CLIENT_SECRET) }
+    : {}),
+  simulator: simulatorCalendar,
+};
 
 export const simulatorListings = new SimulatorListings(
   resolve(process.cwd(), env.STORAGE_DIR, "simulator", "google.json"),

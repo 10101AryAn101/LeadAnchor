@@ -1080,6 +1080,8 @@ export const calendarStatus = z.object({
   error: z.string().nullable(),
   /** Google and Microsoft aren't set up yet, so the simulator stands in. */
   simulated: z.boolean(),
+  /** The calendars that can be connected right now. */
+  available: z.array(z.enum(CALENDAR_PROVIDERS)),
 });
 export type CalendarStatus = z.infer<typeof calendarStatus>;
 

@@ -27,6 +27,7 @@ import {
   rescheduleByCustomer,
 } from "../../modules/booking/booking.service";
 import { getPublicOffer, joinWaitlist, takeOffer } from "../../modules/booking/waitlist.service";
+import { finishCalendarSignIn } from "../../modules/booking/calendar-sync";
 import { MAX_PHOTOS, getIntakeContext, getRequestContext, submitIntake, submitPublicRequest } from "../../modules/intake/intake.service";
 import { getPublicPayment, reportPayment, startCheckout, syncPublicPayment } from "../../modules/payments/payment.service";
 import { findShowcasePhoto, getPublicProfile } from "../../modules/profile/profile";
@@ -41,6 +42,23 @@ const slugParam = z.object({ slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$
 
 /** Customer-facing endpoints. No login: the link token is the credential (C-07, C-08, C-09). */
 export async function publicRoutes(app: FastifyInstance) {
+  /**
+   * Google's sign-in page sends the owner back here (module 8). The sealed `state` says who and
+   * which business; the owner then lands on Settings with the outcome.
+   */
+  app.get("/api/calendar/:provider/callback", async (req, reply) => {
+    const { provider } = parseInput(z.object({ provider: z.string().max(20) }), req.params);
+    const query = parseInput(
+      z.object({
+        state: z.string().max(2000).optional(),
+        code: z.string().max(2000).optional(),
+        error: z.string().max(100).optional(),
+      }),
+      req.query,
+    );
+    return reply.redirect(await finishCalendarSignIn(provider, query));
+  });
+
   /** The business's public profile page data (C-41). */
   app.get("/api/public/profile/:slug", async (req, reply) => {
     const { slug } = parseInput(slugParam, req.params);

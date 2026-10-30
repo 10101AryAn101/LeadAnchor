@@ -1,11 +1,17 @@
 import type { CalendarProviderName, CalendarStatus, SimCalendarEvent } from "@leadanchor/contracts";
 import { and, eq, gt, isNull, lt } from "drizzle-orm";
+import { env } from "../../config/env";
 import { calendarProviders, simulatorCalendar } from "../../container";
 import { type Tx, systemDb, withTenant } from "../../db/client";
 import { bookings, calendarConnections, calendarEvents, customers, tenants } from "../../db/schema";
 import { type Effects, tenantWork } from "../../db/unit-of-work";
+import {
+  type CalendarConnection,
+  CalendarAuthExpired,
+  CalendarConnectRefused,
+} from "../../integrations/calendar/types";
 import { QUEUES } from "../../jobs/queue";
-import { encryptSecret } from "../../lib/crypto";
+import { decryptSecret, encryptSecret } from "../../lib/crypto";
 import { HttpError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { iso } from "../../lib/time";
@@ -34,32 +40,95 @@ export async function calendarStatusOf(tx: Tx): Promise<CalendarStatus> {
     lastSyncedAt: iso(connection?.lastSyncedAt),
     error: connection?.lastError ?? null,
     simulated: !realProviders(),
+    available: Object.keys(calendarProviders) as CalendarProviderName[],
   };
 }
 
+/** Where the provider's sign-in page sends the owner back: one fixed address, registered with it. */
+const callbackUri = (provider: CalendarProviderName) =>
+  `${env.PUBLIC_WEB_URL}/api/calendar/${provider}/callback`;
+
+interface SignInState {
+  tenantId: string;
+  userId: string;
+  provider: CalendarProviderName;
+  returnTo: string;
+  expires: number;
+}
+
 /**
- * Connects the business's calendar (module 8). Google and Microsoft send the owner to sign in
- * first (step 2); the simulator connects straight away. Existing bookings are then written to it.
+ * Connects the business's calendar (module 8). Google sends the owner to sign in first; the
+ * simulator connects straight away. Existing bookings are then written to it. `returnTo` is the
+ * Settings page the owner comes back to.
  */
 export async function connectCalendar(
   tenantId: string,
   userId: string,
   provider: CalendarProviderName,
-  redirectUri: string,
+  returnTo: string,
 ): Promise<{ url: string | null }> {
   const adapter = calendarProviders[provider];
   if (!adapter) throw new HttpError(409, "not_available", "That calendar can't be connected yet.");
-  const signIn = adapter.authorizeUrl(tenantId, redirectUri);
+  // Sealed, so the sign-in round trip can't be forged or replayed later.
+  const state: SignInState = {
+    tenantId,
+    userId,
+    provider,
+    returnTo,
+    expires: Date.now() + 15 * 60_000,
+  };
+  const signIn = adapter.authorizeUrl(encryptSecret(JSON.stringify(state)), callbackUri(provider));
   if (signIn) return { url: signIn };
+  await finishConnect(tenantId, userId, provider, null);
+  return { url: null };
+}
 
+/**
+ * Back from the provider's sign-in page: finish connecting, then return the owner to Settings
+ * with the outcome (connected, denied, no_access, no_offline, expired or failed).
+ */
+export async function finishCalendarSignIn(
+  provider: string,
+  query: { state?: string; code?: string; error?: string },
+): Promise<string> {
+  const state = (() => {
+    try {
+      return JSON.parse(decryptSecret(query.state ?? "")) as SignInState;
+    } catch {
+      return null;
+    }
+  })();
+  if (!state || state.provider !== provider)
+    return `${env.PUBLIC_WEB_URL}/settings?calendar=failed#booking`;
+  const back = (outcome: string) => `${state.returnTo}?calendar=${outcome}#booking`;
+  if (state.expires < Date.now()) return back("expired");
+  if (query.error) return back(query.error === "access_denied" ? "denied" : "failed");
+  try {
+    await finishConnect(state.tenantId, state.userId, state.provider, query.code ?? null);
+    return back("connected");
+  } catch (error) {
+    if (error instanceof CalendarConnectRefused) return back(error.reason);
+    logger.warn({ err: error, provider }, "calendar sign-in failed");
+    return back("failed");
+  }
+}
+
+async function finishConnect(
+  tenantId: string,
+  userId: string,
+  provider: CalendarProviderName,
+  code: string | null,
+) {
+  const adapter = calendarProviders[provider];
+  if (!adapter) throw new HttpError(409, "not_available", "That calendar can't be connected yet.");
   const [tenant] = await withTenant(tenantId, (tx) =>
     tx.select().from(tenants).where(eq(tenants.id, tenantId)),
   );
   const { account, credentials } = await adapter.finishConnect({
     tenantId,
     businessName: tenant!.name,
-    code: null,
-    redirectUri,
+    code,
+    redirectUri: callbackUri(provider),
   });
   await tenantWork(tenantId, async (tx, fx) => {
     const values = {
@@ -90,7 +159,6 @@ export async function connectCalendar(
     fx.publish({ type: "settings.updated" });
   });
   await syncCalendar(tenantId);
-  return { url: null };
 }
 
 export async function disconnectCalendar(tenantId: string, userId: string) {
@@ -118,6 +186,13 @@ async function connectionOf(tenantId: string) {
   return connection ?? null;
 }
 
+/** The connection as its adapter needs it, with the stored credentials unsealed. */
+const forAdapter = (connection: { account: string | null; credentialsSealed: string | null }) =>
+  ({
+    account: connection.account ?? "",
+    credentials: connection.credentialsSealed ? decryptSecret(connection.credentialsSealed) : null,
+  }) satisfies CalendarConnection;
+
 /** Writes one booking into the calendar, or takes it out once it isn't booked any more. */
 export async function pushBookingJob(data: { tenantId: string; bookingId: string }) {
   const connection = await connectionOf(data.tenantId);
@@ -134,7 +209,7 @@ export async function pushBookingJob(data: { tenantId: string; bookingId: string
   const { booking, customer } = row;
 
   if (booking.status === "booked") {
-    const { eventId } = await adapter.upsertEvent(connection.account, booking.calendarEventId, {
+    const { eventId } = await adapter.upsertEvent(forAdapter(connection), booking.calendarEventId, {
       bookingId: booking.id,
       title: `${booking.serviceName ?? "Visit"}: ${customer.name ?? customer.phoneE164 ?? "customer"}`,
       description: `Booked in LeadAnchor.${customer.phoneE164 ? ` Phone ${customer.phoneE164}.` : ""}`,
@@ -166,7 +241,7 @@ export async function pushBookingJob(data: { tenantId: string; bookingId: string
         });
     });
   } else if (booking.calendarEventId) {
-    await adapter.deleteEvent(connection.account, booking.calendarEventId);
+    await adapter.deleteEvent(forAdapter(connection), booking.calendarEventId);
     await withTenant(data.tenantId, async (tx) => {
       await tx
         .delete(calendarEvents)
@@ -192,7 +267,7 @@ export async function syncCalendar(tenantId: string) {
   if (!connection?.account || !adapter) return;
   try {
     const now = Date.now();
-    const changes = await adapter.changes(connection.account, connection.syncToken, {
+    const changes = await adapter.changes(forAdapter(connection), connection.syncToken, {
       from: new Date(now - DAY_MS),
       to: new Date(now + SYNC_AHEAD_DAYS * DAY_MS),
     });
@@ -261,10 +336,16 @@ export async function syncCalendar(tenantId: string) {
     });
   } catch (error) {
     logger.warn({ err: error, tenantId }, "calendar sync failed");
+    const lastError =
+      error instanceof CalendarAuthExpired
+        ? connection.provider === "google"
+          ? "Google ended LeadAnchor's access to your calendar (while LeadAnchor's Google app is in testing, it does this every 7 days). Connect it again."
+          : "Your calendar connection has ended. Connect it again."
+        : "We couldn't read your calendar. We'll keep trying.";
     await withTenant(tenantId, (tx) =>
       tx
         .update(calendarConnections)
-        .set({ lastError: "We couldn't read your calendar. We'll keep trying." })
+        .set({ lastError })
         .where(eq(calendarConnections.id, connection.id)),
     );
   }

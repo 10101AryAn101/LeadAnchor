@@ -98,6 +98,9 @@ const schema = z.object({
 
   // Later phases — read now so the integrations page can report them honestly.
   GBP_CLIENT_ID: optional,
+  // Google sign-in for Google Calendar (OAuth web client). Without it the simulated calendar stands in.
+  GOOGLE_OAUTH_CLIENT_ID: optional,
+  GOOGLE_OAUTH_CLIENT_SECRET: optional,
   /** C-46: minutes between marking a job Won and its review request going out (time to undo a mis-tap). */
   REVIEW_REQUEST_DELAY_MINUTES: z.coerce.number().int().min(0).max(1440).default(30),
   SCHEDULER_PROVIDER: optional,

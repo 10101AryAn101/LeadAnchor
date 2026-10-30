@@ -368,7 +368,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/calendar/connect", async (req) => {
     const ctx = await tenantContext(req, ["owner"]);
     const { provider } = parseInput(z.object({ provider: z.enum(CALENDAR_PROVIDERS) }), req.body);
-    return connectCalendar(ctx.tenantId, ctx.userId, provider, `${ownerOrigin(req)}/settings?calendar=back#booking`);
+    return connectCalendar(ctx.tenantId, ctx.userId, provider, `${ownerOrigin(req)}/settings`);
   });
 
   app.post("/api/calendar/disconnect", async (req) => {

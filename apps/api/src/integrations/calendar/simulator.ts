@@ -1,7 +1,13 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { CalendarChanges, CalendarEventInput, CalendarProvider, ExternalEvent } from "./types";
+import type {
+  CalendarChanges,
+  CalendarConnection,
+  CalendarEventInput,
+  CalendarProvider,
+  ExternalEvent,
+} from "./types";
 
 interface SimEvent {
   id: string;
@@ -53,7 +59,11 @@ export class SimulatorCalendar implements CalendarProvider {
     return { account, credentials: null };
   }
 
-  async upsertEvent(account: string, eventId: string | null, input: CalendarEventInput) {
+  async upsertEvent(
+    { account }: CalendarConnection,
+    eventId: string | null,
+    input: CalendarEventInput,
+  ) {
     const id = eventId && this.calendar(this.read(), account).events[eventId] ? eventId : newId();
     this.write((store) => {
       const calendar = this.calendar(store, account);
@@ -71,7 +81,7 @@ export class SimulatorCalendar implements CalendarProvider {
     return { eventId: id };
   }
 
-  async deleteEvent(account: string, eventId: string) {
+  async deleteEvent({ account }: CalendarConnection, eventId: string) {
     this.write((store) => {
       const calendar = this.calendar(store, account);
       const event = calendar.events[eventId];
@@ -83,7 +93,7 @@ export class SimulatorCalendar implements CalendarProvider {
   }
 
   async changes(
-    account: string,
+    { account }: CalendarConnection,
     syncToken: string | null,
     window: { from: Date; to: Date },
   ): Promise<CalendarChanges> {
@@ -146,7 +156,7 @@ export class SimulatorCalendar implements CalendarProvider {
   }
 
   remove(account: string, eventId: string) {
-    return this.deleteEvent(account, eventId);
+    return this.deleteEvent({ account, credentials: null }, eventId);
   }
 
   private calendar(store: Store, account: string) {

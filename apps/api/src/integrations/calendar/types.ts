@@ -33,6 +33,28 @@ export interface CalendarChanges {
   full: boolean;
 }
 
+/** A connected calendar as an adapter needs it: its account, and the credentials it was given. */
+export interface CalendarConnection {
+  account: string;
+  credentials: string | null;
+}
+
+/** The provider no longer accepts LeadAnchor's access (revoked or expired): the owner connects again. */
+export class CalendarAuthExpired extends Error {
+  constructor() {
+    super("The calendar connection has ended.");
+    this.name = "CalendarAuthExpired";
+  }
+}
+
+/** Connecting didn't work out, for a reason the owner can act on. */
+export class CalendarConnectRefused extends Error {
+  constructor(readonly reason: "no_access" | "no_offline" | "failed") {
+    super(`Calendar connection refused: ${reason}`);
+    this.name = "CalendarConnectRefused";
+  }
+}
+
 export interface CalendarProvider {
   readonly name: CalendarProviderName;
   /** Where to send the owner to allow access (OAuth), or null when no sign-in is needed. */
@@ -45,14 +67,14 @@ export interface CalendarProvider {
     redirectUri: string;
   }): Promise<{ account: string; credentials: string | null }>;
   upsertEvent(
-    account: string,
+    connection: CalendarConnection,
     eventId: string | null,
     input: CalendarEventInput,
   ): Promise<{ eventId: string }>;
-  deleteEvent(account: string, eventId: string): Promise<void>;
+  deleteEvent(connection: CalendarConnection, eventId: string): Promise<void>;
   /** Changes since `syncToken` (or everything from `from` when it's null). */
   changes(
-    account: string,
+    connection: CalendarConnection,
     syncToken: string | null,
     window: { from: Date; to: Date },
   ): Promise<CalendarChanges>;

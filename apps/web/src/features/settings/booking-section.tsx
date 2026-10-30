@@ -3,6 +3,7 @@
 import {
   type BookingSettings,
   type BookingSettingsResponse,
+  type CalendarProviderName,
   type CalendarStatus,
   WEEKDAY_KEYS,
   WEEKDAY_LABELS,
@@ -19,7 +20,7 @@ import {
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -375,18 +376,35 @@ function LinkRow({ url, on }: { url: string; on: boolean }) {
   );
 }
 
+/** What happened on Google's sign-in page, as the API reports it when the owner comes back. */
+const SIGN_IN_OUTCOMES: Record<string, { ok: boolean; text: string }> = {
+  connected: { ok: true, text: "Google Calendar connected. Your events now block those times." },
+  denied: { ok: false, text: "Google sign-in was cancelled, so the calendar isn't connected." },
+  no_access: {
+    ok: false,
+    text: "LeadAnchor needs permission to see and edit your calendar events. Connect again and tick that box.",
+  },
+  no_offline: {
+    ok: false,
+    text: "Google didn't allow ongoing access. Remove LeadAnchor from your Google account's connected apps, then connect again.",
+  },
+  expired: { ok: false, text: "That sign-in took too long. Please connect again." },
+  failed: { ok: false, text: "Couldn't connect the calendar. Please try again." },
+};
+
 /** Two-way sync with the owner's calendar: their events block times; bookings show up there. */
 function CalendarCard({ calendar }: { calendar: CalendarStatus }) {
   const queryClient = useQueryClient();
   const onSettings = (next: BookingSettingsResponse) =>
     queryClient.setQueryData(keys.bookingSettings, next);
   const connect = useMutation({
-    mutationFn: () =>
+    mutationFn: (provider: CalendarProviderName) =>
       api<{ url: string | null }>("/calendar/connect", {
         method: "POST",
-        body: { provider: "simulator" },
+        body: { provider },
       }),
     onSuccess: ({ url }) => {
+      // Google: off to its sign-in page; the owner comes back here with the outcome.
       if (url) return window.location.assign(url);
       void queryClient.invalidateQueries({ queryKey: keys.bookingSettings });
       void queryClient.invalidateQueries({ queryKey: keys.simCalendar });
@@ -395,6 +413,16 @@ function CalendarCard({ calendar }: { calendar: CalendarStatus }) {
     onError: (error) =>
       toast.error(isApiError(error) ? error.message : "Couldn't connect the calendar."),
   });
+  useEffect(() => {
+    const url = new URL(window.location.href);
+    const outcome = SIGN_IN_OUTCOMES[url.searchParams.get("calendar") ?? ""];
+    if (!outcome) return;
+    if (outcome.ok) toast.success(outcome.text);
+    else toast.error(outcome.text);
+    url.searchParams.delete("calendar");
+    window.history.replaceState(null, "", url);
+  }, []);
+  const google = calendar.available.includes("google");
   const sync = useMutation({
     mutationFn: () => api<BookingSettingsResponse>("/calendar/sync", { method: "POST" }),
     onSuccess: (next) => {
@@ -461,6 +489,15 @@ function CalendarCard({ calendar }: { calendar: CalendarStatus }) {
       <div className="flex flex-wrap gap-2">
         {on ? (
           <>
+            {calendar.error && calendar.provider === "google" && google && (
+              <Button
+                type="button"
+                disabled={connect.isPending}
+                onClick={() => connect.mutate("google")}
+              >
+                {connect.isPending && <Spinner />} Connect again
+              </Button>
+            )}
             <Button
               type="button"
               variant="outline"
@@ -478,8 +515,33 @@ function CalendarCard({ calendar }: { calendar: CalendarStatus }) {
               Disconnect
             </Button>
           </>
+        ) : google ? (
+          <>
+            <Button
+              type="button"
+              disabled={connect.isPending}
+              onClick={() => connect.mutate("google")}
+            >
+              {connect.isPending && connect.variables === "google" && <Spinner />} Connect Google
+              Calendar
+            </Button>
+            {calendar.available.includes("simulator") && (
+              <Button
+                type="button"
+                variant="ghost"
+                disabled={connect.isPending}
+                onClick={() => connect.mutate("simulator")}
+              >
+                Use the simulated calendar
+              </Button>
+            )}
+          </>
         ) : (
-          <Button type="button" disabled={connect.isPending} onClick={() => connect.mutate()}>
+          <Button
+            type="button"
+            disabled={connect.isPending}
+            onClick={() => connect.mutate("simulator")}
+          >
             {connect.isPending && <Spinner />} Connect my calendar
           </Button>
         )}
