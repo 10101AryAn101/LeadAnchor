@@ -15,6 +15,7 @@ import { tenantWork } from "../../db/unit-of-work";
 import { withTenant } from "../../db/client";
 import { notFound } from "../../lib/errors";
 import { iso } from "../../lib/time";
+import { bookingForLead, closeBookingsForLead, setVisit } from "../booking/booking.service";
 import { createIntakeLink } from "../intake/intake.service";
 import { toMessageItem } from "../messaging/message-item";
 import { requestMessage } from "../messaging/send-path";
@@ -118,11 +119,11 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       .where(eq(leads.id, leadId));
     if (!row) throw notFound("Lead");
 
-    const [events, callRows, messageRows, mediaRows, otherRows, quoteItems, paymentItems] = await Promise.all([
+    const [events, callRows, messageRows, mediaRows, otherRows, quoteItems, paymentItems, booking] = await Promise.all([
       // Events saved together share a timestamp; their time-ordered ids keep them in the order they happened.
       tx.select().from(leadEvents).where(eq(leadEvents.leadId, leadId)).orderBy(desc(leadEvents.createdAt), desc(leadEvents.id)),
       tx.select().from(calls).where(eq(calls.leadId, leadId)).orderBy(desc(calls.startedAt)),
-      tx.select().from(messages).where(eq(messages.leadId, leadId)).orderBy(desc(messages.createdAt)),
+      tx.select().from(messages).where(eq(messages.leadId, leadId)).orderBy(desc(messages.createdAt), desc(messages.id)),
       tx.select().from(mediaAssets).where(eq(mediaAssets.leadId, leadId)).orderBy(asc(mediaAssets.createdAt)),
       tx
         .select({ id: leads.id, title: leads.title, stage: leads.stage, createdAt: leads.createdAt, valueCents: leads.valueCents })
@@ -132,6 +133,7 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
         .limit(20),
       quotesFor(tx, [leadId]),
       paymentsFor(tx, [leadId]),
+      bookingForLead(tx, leadId),
     ]);
 
     const photos = mediaRows.filter((m) => m.kind === "photo");
@@ -150,6 +152,7 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       payments: paymentItems,
       // The job's price is the owner's own figure: set by a sent quote, or by hand.
       balance: balanceOf(row.lead.valueCents, paymentItems),
+      booking,
     };
   });
 }
@@ -168,6 +171,11 @@ export async function updateLead(tenantId: string, userId: string, leadId: strin
       patch.needsCallback = input.stage === "new" ? lead.needsCallback : false;
       patch.position = input.position ?? (await topPosition(tx, tenantId, input.stage));
       await addLeadEvent(tx, { tenantId, leadId, type: "stage.changed", actor, data: { from: lead.stage, to: input.stage } });
+      // Won: the visit is done. Lost: its slot is freed for someone else.
+      if (input.stage === "won" || input.stage === "lost") {
+        const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, tenantId));
+        await closeBookingsForLead(tx, fx, { tenant: tenant!, leadId, outcome: input.stage, actor });
+      }
     } else if (input.position !== undefined) {
       patch.position = input.position;
     }
@@ -184,16 +192,8 @@ export async function updateLead(tenantId: string, userId: string, leadId: strin
     }
     if (input.scheduledFor !== undefined) {
       const scheduledFor = input.scheduledFor === null ? null : new Date(input.scheduledFor);
-      if (scheduledFor?.getTime() !== lead.scheduledFor?.getTime()) {
-        patch.scheduledFor = scheduledFor;
-        await addLeadEvent(tx, {
-          tenantId,
-          leadId,
-          type: scheduledFor ? "visit.booked" : "visit.cleared",
-          actor,
-          data: scheduledFor ? { at: scheduledFor.toISOString() } : {},
-        });
-      }
+      // Visits are bookings now (module 8): this keeps the slot, the calendar and the waitlist in step.
+      if (scheduledFor?.getTime() !== lead.scheduledFor?.getTime()) await setVisit(tx, fx, { tenantId, leadId, startsAt: scheduledFor, actor });
     }
     if (input.tags !== undefined) {
       const tags = await canonicalTags(tx, tenantId, input.tags);
@@ -216,7 +216,7 @@ export async function updateLead(tenantId: string, userId: string, leadId: strin
 
     // A new visit or price moves the card along by itself, unless the owner picked a stage in this same change.
     if (input.stage === undefined) {
-      const reason = patch.scheduledFor ? "visit_booked" : patch.valueCents != null ? "price_set" : null;
+      const reason = patch.valueCents != null ? "price_set" : null;
       if (reason) await advanceLead(tx, fx, { tenantId, leadId, reason });
     }
     fx.publish({ type: "lead.updated", leadId });

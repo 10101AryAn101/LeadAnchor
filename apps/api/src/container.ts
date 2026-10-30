@@ -2,6 +2,8 @@ import { resolve } from "node:path";
 import { env, linkBaseUrl } from "./config/env";
 import { GeminiProvider } from "./integrations/ai/gemini";
 import type { AiProvider } from "./integrations/ai/types";
+import { SimulatorCalendar } from "./integrations/calendar/simulator";
+import type { CalendarProvider } from "./integrations/calendar/types";
 import { ChromiumPdf, type PdfRenderer, findBrowser } from "./integrations/documents/pdf";
 import { FirestoreConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
 import { OutboxEmail } from "./integrations/messaging/email";
@@ -65,6 +67,14 @@ export const simulatorPayments = new SimulatorPayments(resolve(process.cwd(), en
  * connected (step 2, free test mode), the simulator plays its part with the same objects.
  */
 export const payments: PaymentsProvider = simulatorPayments;
+
+export const simulatorCalendar = new SimulatorCalendar(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "calendar.json"));
+
+/**
+ * Calendar sync (module 8), one adapter per provider a business can connect. Google Calendar
+ * and Microsoft Outlook join in step 2 (both free); until then the simulator stands in.
+ */
+export const calendarProviders: Partial<Record<CalendarProvider["name"], CalendarProvider>> = { simulator: simulatorCalendar };
 
 export const channels: { sms: ChannelAdapter; whatsapp: ChannelAdapter | null; email: ChannelAdapter } = {
   email: new OutboxEmail(),

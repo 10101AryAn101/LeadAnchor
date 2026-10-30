@@ -1,5 +1,5 @@
-import { FORWARDING_STATUSES, ROLES, TRACKS, TRADES } from "@leadanchor/contracts";
-import { boolean, index, integer, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { type BookingSettings, FORWARDING_STATUSES, ROLES, TRACKS, TRADES } from "@leadanchor/contracts";
+import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { user } from "./auth";
 import { createdAt, pk, tsz, updatedAt } from "./columns";
 
@@ -37,6 +37,8 @@ export const tenants = pgTable("tenants", {
     .default("weekly"),
   /** When the last value-proof summary went out (C-40), so each period sends once. */
   valueProofLastSentAt: tsz("value_proof_last_sent_at"),
+  /** Opening hours and booking rules (module 8). Null until the owner sets them: the defaults apply. */
+  booking: jsonb("booking").$type<BookingSettings>(),
   status: text("status", { enum: ["trial", "active", "past_due", "suspended", "cancelled"] })
     .notNull()
     .default("trial"),

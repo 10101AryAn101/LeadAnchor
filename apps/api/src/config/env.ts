@@ -72,6 +72,10 @@ const schema = z.object({
 
   STORAGE_DIR: z.string().default("./storage"),
 
+  // C-22: waitlist offers go by email until counsel confirms the waitlist opt-in wording
+  // covers texts. Platform-wide, so it is a deployment setting rather than a business one.
+  WAITLIST_TEXTS_CLEARED: flag,
+
   // Quote PDFs (C-45) are printed by headless Chrome or Edge. Found automatically on a
   // desktop; set the path on a server (e.g. /usr/bin/chromium).
   PDF_BROWSER_PATH: optional,

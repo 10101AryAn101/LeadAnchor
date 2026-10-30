@@ -1,5 +1,5 @@
 import { type PublicProfile, TRADE_LABELS } from "@leadanchor/contracts";
-import { IconBrandGoogle, IconExternalLink, IconMessage, IconPhone, IconShieldCheck, IconUserOff } from "@tabler/icons-react";
+import { IconBrandGoogle, IconCalendarEvent, IconExternalLink, IconMessage, IconPhone, IconShieldCheck, IconUserOff } from "@tabler/icons-react";
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
@@ -71,14 +71,23 @@ function ProfileView({ slug, profile }: { slug: string; profile: PublicProfile }
             </span>
           )}
         </div>
-        {profile.phone && (
+        {(profile.phone || profile.bookingUrl) && (
           <div className="flex flex-wrap gap-2 pt-2">
-            <Button size="lg" nativeButton={false} render={<a href={telHref(profile.phone)} />}>
-              <IconPhone /> Call {formatPhone(profile.phone)}
-            </Button>
-            <Button size="lg" variant="outline" nativeButton={false} render={<a href={smsHref(profile.phone)} />}>
-              <IconMessage /> Text
-            </Button>
+            {profile.bookingUrl && (
+              <Button size="lg" nativeButton={false} render={<a href={profile.bookingUrl} />}>
+                <IconCalendarEvent /> Book online
+              </Button>
+            )}
+            {profile.phone && (
+              <>
+                <Button size="lg" variant={profile.bookingUrl ? "outline" : "default"} nativeButton={false} render={<a href={telHref(profile.phone)} />}>
+                  <IconPhone /> Call {formatPhone(profile.phone)}
+                </Button>
+                <Button size="lg" variant="outline" nativeButton={false} render={<a href={smsHref(profile.phone)} />}>
+                  <IconMessage /> Text
+                </Button>
+              </>
+            )}
           </div>
         )}
       </header>

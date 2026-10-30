@@ -71,6 +71,20 @@
       "when": 1793277696108,
       "tag": "0009_money",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793338572612,
+      "tag": "0010_booking",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1793339788156,
+      "tag": "0011_booking_backfill",
+      "breakpoints": true
     }
   ]
 }

@@ -53,7 +53,8 @@ export function ResponsiveSheet({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={cn("sm:max-w-md", className)}>
+      {/* Grid children may shrink, so a sideways-scrolling row (like the day picker) can't widen the dialog. */}
+      <DialogContent className={cn("sm:max-w-md [&>*]:min-w-0", className)}>
         <DialogHeader>
           <DialogTitle className="text-lg font-bold">{title}</DialogTitle>
           {description && <DialogDescription className="text-[15px]">{description}</DialogDescription>}

@@ -17,8 +17,8 @@
     <header>Your website</header>
     <main>
       <p class="note">
-        Preview: this stands in for your own website. The <strong>Book / Chat</strong> button in the corner is the one your visitors will
-        see. Try it: what you send shows up on your LeadAnchor board.
+        Preview: this stands in for your own website. The button in the corner is the one your visitors will see. Try it: what you
+        send shows up on your LeadAnchor board.
       </p>
       <h1>Fast, friendly local service</h1>
       <p>Licensed and insured. Same-day visits for urgent jobs. Call us, or tap the button to tell us what you need.</p>
@@ -26,12 +26,14 @@
     <script>
       // Loads the real widget for the business named in the address (?business=...).
       (function () {
-        var business = new URLSearchParams(location.search).get("business") || "";
+        var params = new URLSearchParams(location.search);
+        var business = params.get("business") || "";
         var tag = document.createElement("script");
         // A fresh copy every time, so the preview always shows the current button.
         tag.src = "/widget.js?preview=" + Date.now();
         tag.async = true;
         tag.setAttribute("data-business", business);
+        if (params.get("action") === "book") tag.setAttribute("data-action", "book");
         document.body.appendChild(tag);
       })();
     </script>

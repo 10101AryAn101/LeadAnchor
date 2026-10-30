@@ -10,6 +10,7 @@ import {
   IconAlertTriangle,
   IconBrandGoogle,
   IconBrandWhatsapp,
+  IconCalendarCheck,
   IconClock,
   type Icon,
   IconHeadset,
@@ -30,6 +31,7 @@ export const SOURCE_ICON: Record<LeadSource, Icon> = {
   web_form: IconWorld,
   whatsapp: IconBrandWhatsapp,
   google: IconBrandGoogle,
+  booking: IconCalendarCheck,
   manual: IconUser,
 };
 

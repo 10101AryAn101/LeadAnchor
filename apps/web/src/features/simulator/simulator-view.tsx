@@ -17,6 +17,7 @@ import { formatPhone } from "@/lib/format";
 import { keys, useMe, useRegistration } from "@/lib/queries";
 import { type CallTrace, CallTraceView } from "./call-trace";
 import { PhonePreview } from "./phone-preview";
+import { SimulatedCalendar } from "./sim-calendar";
 
 type OwnerBehavior = SimulatorScenarioInput["ownerBehavior"];
 type CallerBehavior = SimulatorScenarioInput["callerBehavior"];
@@ -54,8 +55,14 @@ export function SimulatorView() {
   const { data: registration } = useRegistration();
   // Random numbers must not be generated while Next.js prerenders the page, so pick one after mount.
   const [callerPhone, setCallerPhone] = useState("");
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only random value, picked once after the page loads
-  useEffect(() => setCallerPhone(randomCaller()), []);
+  // Opened from a job ("reply as the customer"): that customer's phone, before any test call.
+  const [customerPhone, setCustomerPhone] = useState<string | null>(null);
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- browser-only values, read once after the page loads
+    setCallerPhone(randomCaller());
+    const digits = (new URLSearchParams(window.location.search).get("phone") ?? "").replace(/\D/g, "");
+    if (/^1\d{10}$/.test(digits)) setCustomerPhone(`+${digits}`);
+  }, []);
   const [callerName, setCallerName] = useState("");
   const [ownerBehavior, setOwnerBehavior] = useState<OwnerBehavior>("no_answer");
   const [callerBehavior, setCallerBehavior] = useState<CallerBehavior>("talks_to_dispatcher");
@@ -221,10 +228,12 @@ export function SimulatorView() {
         </section>
 
         <section className="space-y-3">
-          <h2 className="text-[17px] font-bold">The caller&apos;s phone</h2>
-          <PhonePreview phone={session ? toE164(session.phone) : null} businessName={me?.tenant?.name ?? "Your business"} />
+          <h2 className="text-[17px] font-bold">{session || !customerPhone ? "The caller’s phone" : `${formatPhone(customerPhone)}’s phone`}</h2>
+          <PhonePreview phone={session ? toE164(session.phone) : customerPhone} businessName={me?.tenant?.name ?? "Your business"} />
         </section>
       </div>
+
+      <SimulatedCalendar />
     </div>
   );
 }

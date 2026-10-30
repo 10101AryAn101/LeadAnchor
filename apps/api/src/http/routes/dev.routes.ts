@@ -3,6 +3,7 @@ import {
   type SimCheckout,
   type SimOnboarding,
   type SimRedirect,
+  simCalendarEventInput,
   simCheckoutInput,
   simOnboardingInput,
   simulatorScenarioInput,
@@ -21,6 +22,8 @@ import { getCallTrace } from "../../modules/calls/call.queries";
 import { approveRegistrationForDev, resetRegistrationForDev, simulatedRegistrationCode } from "../../modules/compliance/registration.service";
 import { handleInboundMessage } from "../../modules/messaging/inbound";
 import { paymentsTickJob, receivePaymentEvent } from "../../modules/payments/payment.service";
+import { bookingsTickJob, sendReminder } from "../../modules/booking/booking.service";
+import { addSimulatedEvent, moveSimulatedEvent, removeSimulatedEvent, simulatedCalendarEvents } from "../../modules/booking/calendar-sync";
 import { paymentRequests } from "../../db/schema";
 import { sendValueProof } from "../../modules/value-proof/value-proof";
 import { tenantContext } from "../context";
@@ -66,7 +69,8 @@ export async function devRoutes(app: FastifyInstance) {
     );
     return {
       messages: [...rows, ...replies]
-        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        // A reply sent while handling a text shares its timestamp; ids are time-ordered.
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
         .map((m) => ({ id: m.id, direction: m.direction, body: m.body, channel: m.channel, status: m.status, createdAt: m.createdAt.toISOString() })),
     };
   });
@@ -184,6 +188,48 @@ export async function devRoutes(app: FastifyInstance) {
     await withTenant(ctx.tenantId, (tx) =>
       tx.update(paymentRequests).set({ holdExpiresAt: new Date(Date.now() + hoursLeft * 3600_000), holdWarnedAt: null }).where(eq(paymentRequests.id, id)),
     );
+    return { ok: true };
+  });
+
+  /* ── Simulated calendar (module 8): edits as if the owner made them in Google Calendar ── */
+
+  app.get("/api/dev/simulator/calendar", async (req) => {
+    const ctx = await tenantContext(req);
+    return { events: await simulatedCalendarEvents(ctx.tenantId) };
+  });
+
+  app.post("/api/dev/simulator/calendar", async (req, reply) => {
+    const ctx = await tenantContext(req);
+    await addSimulatedEvent(ctx.tenantId, parseInput(simCalendarEventInput, req.body));
+    return reply.status(201).send({ events: await simulatedCalendarEvents(ctx.tenantId) });
+  });
+
+  app.patch("/api/dev/simulator/calendar/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(z.object({ id: z.string().regex(/^evt_sim_[a-f0-9]+$/) }), req.params);
+    await moveSimulatedEvent(ctx.tenantId, id, parseInput(simCalendarEventInput.pick({ startsAt: true, endsAt: true }), req.body));
+    return { events: await simulatedCalendarEvents(ctx.tenantId) };
+  });
+
+  app.delete("/api/dev/simulator/calendar/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(z.object({ id: z.string().regex(/^evt_sim_[a-f0-9]+$/) }), req.params);
+    await removeSimulatedEvent(ctx.tenantId, id);
+    return { events: await simulatedCalendarEvents(ctx.tenantId) };
+  });
+
+  /** Sends a booking's day-before reminder now, to try YES / NO replies without waiting (C-20). */
+  app.post("/api/dev/simulator/bookings/:id/remind", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(z.object({ id: z.uuid() }), req.params);
+    await sendReminder(ctx.tenantId, id);
+    return { ok: true };
+  });
+
+  /** Runs the 15-minute booking job now: due reminders and expired waitlist offers. */
+  app.post("/api/dev/simulator/bookings/tick", async (req) => {
+    await tenantContext(req, ["owner"]);
+    await bookingsTickJob();
     return { ok: true };
   });
 

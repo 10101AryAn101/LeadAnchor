@@ -1,6 +1,7 @@
 "use client";
 
 import type {
+  BookingSettingsResponse,
   CallItem,
   ConsentEntry,
   CustomerDetail,
@@ -19,7 +20,9 @@ import type {
   RegistrationResponse,
   ServiceItem,
   SettingsResponse,
+  SimCalendarEvent,
   TagsResponse,
+  WaitlistItem,
 } from "@leadanchor/contracts";
 import { useQuery } from "@tanstack/react-query";
 import { ApiError, api } from "./api";
@@ -47,6 +50,9 @@ export const keys = {
   tags: ["tags"] as const,
   quote: (id: string) => ["quote", id] as const,
   paymentSettings: ["payment-settings"] as const,
+  bookingSettings: ["booking-settings"] as const,
+  waitlist: ["waitlist"] as const,
+  simCalendar: ["sim-calendar"] as const,
   simCall: (sessionId: string) => ["sim-call", sessionId] as const,
   simInbox: (phone: string) => ["sim-inbox", phone] as const,
 };
@@ -96,6 +102,19 @@ export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: ()
 export const useQuote = (id: string) => useQuery({ queryKey: keys.quote(id), queryFn: () => api<QuoteDetail>(`/quotes/${id}`) });
 
 export const usePaymentSettings = () => useQuery({ queryKey: keys.paymentSettings, queryFn: () => api<PaymentSettings>("/payments/settings") });
+
+export const useBookingSettings = () => useQuery({ queryKey: keys.bookingSettings, queryFn: () => api<BookingSettingsResponse>("/booking/settings") });
+
+export const useWaitlist = () =>
+  useQuery({ queryKey: keys.waitlist, queryFn: async () => (await api<{ entries: WaitlistItem[] }>("/waitlist")).entries });
+
+export const useSimCalendar = (enabled: boolean) =>
+  useQuery({
+    queryKey: keys.simCalendar,
+    queryFn: async () => (await api<{ events: SimCalendarEvent[] }>("/dev/simulator/calendar")).events,
+    enabled,
+    retry: false,
+  });
 
 export const useServices = () =>
   useQuery({ queryKey: keys.services, queryFn: async () => (await api<{ services: ServiceItem[] }>("/services")).services });

@@ -1,8 +1,28 @@
-import { intakeSubmitFields, paymentReportInput, publicRequestFields, quoteDeclineInput } from "@leadanchor/contracts";
+import {
+  bookingInput,
+  cancelBookingInput,
+  intakeSubmitFields,
+  paymentReportInput,
+  publicRequestFields,
+  quoteDeclineInput,
+  rescheduleInput,
+  waitlistJoinInput,
+} from "@leadanchor/contracts";
 import type { FastifyInstance, FastifyRequest } from "fastify";
 import { z } from "zod";
 import { storage } from "../../container";
 import { badRequest, notFound, parseInput } from "../../lib/errors";
+import {
+  bookOnline,
+  bookingIcs,
+  cancelByCustomer,
+  getPublicBooking,
+  getPublicBookingContext,
+  publicRescheduleSlots,
+  publicSlots,
+  rescheduleByCustomer,
+} from "../../modules/booking/booking.service";
+import { getPublicOffer, joinWaitlist, takeOffer } from "../../modules/booking/waitlist.service";
 import { MAX_PHOTOS, getIntakeContext, getRequestContext, submitIntake, submitPublicRequest } from "../../modules/intake/intake.service";
 import { getPublicPayment, reportPayment, startCheckout, syncPublicPayment } from "../../modules/payments/payment.service";
 import { findShowcasePhoto, getPublicProfile } from "../../modules/profile/profile";
@@ -85,6 +105,70 @@ export async function publicRoutes(app: FastifyInstance) {
   app.post("/api/public/quotes/:token/decline", async (req) => {
     const { token } = parseInput(tokenParam, req.params);
     return declineQuote(token, parseInput(quoteDeclineInput, req.body ?? {}).reason);
+  });
+
+  /* ── Booking (C-18 … C-22): the booking page, the customer's booking, waitlist offers ── */
+
+  app.get("/api/public/booking/:slug", async (req, reply) => {
+    const { slug } = parseInput(slugParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return getPublicBookingContext(slug);
+  });
+
+  app.get("/api/public/booking/:slug/slots", async (req, reply) => {
+    const { slug } = parseInput(slugParam, req.params);
+    const { serviceId } = parseInput(z.object({ serviceId: z.uuid() }), req.query);
+    reply.header("Cache-Control", "no-store");
+    return publicSlots(slug, serviceId);
+  });
+
+  app.post("/api/public/booking/:slug", async (req, reply) => {
+    const { slug } = parseInput(slugParam, req.params);
+    return reply.status(201).send(await bookOnline(slug, parseInput(bookingInput, req.body), { ipAddress: req.ip ?? null }));
+  });
+
+  app.post("/api/public/booking/:slug/waitlist", async (req, reply) => {
+    const { slug } = parseInput(slugParam, req.params);
+    return reply.status(201).send(await joinWaitlist(slug, parseInput(waitlistJoinInput, req.body), { ipAddress: req.ip ?? null }));
+  });
+
+  app.get("/api/public/bookings/:token", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return getPublicBooking(token);
+  });
+
+  app.get("/api/public/bookings/:token/slots", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return publicRescheduleSlots(token);
+  });
+
+  app.post("/api/public/bookings/:token/cancel", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return cancelByCustomer(token, parseInput(cancelBookingInput, req.body ?? {}).reason);
+  });
+
+  app.post("/api/public/bookings/:token/reschedule", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return rescheduleByCustomer(token, parseInput(rescheduleInput, req.body).startsAt);
+  });
+
+  app.get("/api/public/bookings/:token/ics", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    const { filename, body } = await bookingIcs(token);
+    return reply.header("Content-Type", "text/calendar; charset=utf-8").header("Content-Disposition", `attachment; filename="${filename}"`).send(body);
+  });
+
+  app.get("/api/public/offers/:token", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return getPublicOffer(token);
+  });
+
+  app.post("/api/public/offers/:token/take", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return takeOffer(token);
   });
 
   /* ── Pay links (C-15, C-26): card checkout, Zelle or Venmo ────────────── */

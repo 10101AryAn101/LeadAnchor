@@ -20,6 +20,12 @@ export const QUEUES = {
   registrationTick: "registration.tick",
   /** Every 15 minutes: re-check open checkouts and card holds, and warn before a hold ends (module 7). */
   paymentsTick: "payments.tick",
+  /** Every 15 minutes: day-before booking reminders (C-20) and expired waitlist offers (C-22). */
+  bookingsTick: "bookings.tick",
+  /** Writes one booking into the owner's calendar, or takes it out (module 8). */
+  calendarPush: "calendar.push",
+  /** Every 5 minutes: read what changed in connected calendars (module 8). */
+  calendarSyncTick: "calendar.sync-tick",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -33,6 +39,9 @@ export interface JobPayloads {
   [QUEUES.registrationAdvance]: { tenantId: string };
   [QUEUES.registrationTick]: Record<string, never>;
   [QUEUES.paymentsTick]: Record<string, never>;
+  [QUEUES.bookingsTick]: Record<string, never>;
+  [QUEUES.calendarPush]: { tenantId: string; bookingId: string };
+  [QUEUES.calendarSyncTick]: Record<string, never>;
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });
@@ -54,6 +63,8 @@ export async function startQueue() {
   await boss.schedule(QUEUES.valueProofTick, "*/15 * * * *");
   await boss.schedule(QUEUES.registrationTick, "*/15 * * * *");
   await boss.schedule(QUEUES.paymentsTick, "*/15 * * * *");
+  await boss.schedule(QUEUES.bookingsTick, "*/15 * * * *");
+  await boss.schedule(QUEUES.calendarSyncTick, "*/5 * * * *");
   started = true;
 }
 

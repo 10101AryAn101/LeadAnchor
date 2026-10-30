@@ -4,6 +4,7 @@ import type { NotificationItem, NotificationKind } from "@leadanchor/contracts";
 import {
   type Icon,
   IconBell,
+  IconCalendarEvent,
   IconCamera,
   IconChecks,
   IconCurrencyDollar,
@@ -37,6 +38,7 @@ const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   registration: { icon: IconShieldCheck, tone: "bg-info-subtle text-info-strong" },
   quote: { icon: IconFileDollar, tone: "bg-primary-subtle text-primary-subtle-foreground" },
   payment: { icon: IconCurrencyDollar, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  booking: { icon: IconCalendarEvent, tone: "bg-info-subtle text-info-strong" },
 };
 
 export function NotificationsButton({ className }: { className?: string }) {

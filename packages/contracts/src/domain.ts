@@ -74,7 +74,16 @@ export const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
  * adding a price or sending a quote (Quoted) or booking a visit (Scheduled). Won and Lost
  * always need the owner's word, so nothing moves a card there automatically.
  */
-export const AUTO_MOVE_REASONS = ["owner_called", "owner_texted", "owner_answered", "form_sent", "price_set", "quote_sent", "visit_booked"] as const;
+export const AUTO_MOVE_REASONS = [
+  "owner_called",
+  "owner_texted",
+  "owner_answered",
+  "form_sent",
+  "price_set",
+  "quote_sent",
+  "visit_booked",
+  "booked_online",
+] as const;
 export type AutoMoveReason = (typeof AUTO_MOVE_REASONS)[number];
 
 export const AUTO_MOVE_STAGE: Record<AutoMoveReason, LeadStage> = {
@@ -85,6 +94,7 @@ export const AUTO_MOVE_STAGE: Record<AutoMoveReason, LeadStage> = {
   price_set: "quoted",
   quote_sent: "quoted",
   visit_booked: "scheduled",
+  booked_online: "scheduled",
 };
 
 /** The stage a card moves to after `reason`, or null when it stays put. Cards only ever move forward. */
@@ -110,6 +120,7 @@ export const LEAD_SOURCES = [
   "web_form",
   "whatsapp",
   "google",
+  "booking",
   "manual",
 ] as const;
 export type LeadSource = (typeof LEAD_SOURCES)[number];
@@ -121,6 +132,7 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   web_form: "Website form",
   whatsapp: "WhatsApp",
   google: "Google",
+  booking: "Booked online",
   manual: "Added by you",
 };
 
@@ -162,8 +174,12 @@ export type CallerType = (typeof CALLER_TYPES)[number];
 export const MESSAGE_CHANNELS = ["sms", "rcs", "whatsapp", "email"] as const;
 export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
 
-/** keyword_reply: the one-off answer to a customer's own STOP, START or HELP, which carriers require. */
-export const MESSAGE_PURPOSES = ["transactional", "conversational", "marketing", "keyword_reply"] as const;
+/**
+ * keyword_reply: the one-off answer to a customer's own STOP, START or HELP, which carriers require.
+ * waitlist_offer: a freed slot offered to someone on the waitlist (C-22); by text only once counsel
+ * has confirmed the waitlist opt-in wording, by email until then.
+ */
+export const MESSAGE_PURPOSES = ["transactional", "conversational", "marketing", "keyword_reply", "waitlist_offer"] as const;
 export type MessagePurpose = (typeof MESSAGE_PURPOSES)[number];
 
 export const MESSAGE_DIRECTIONS = ["outbound", "inbound"] as const;
@@ -219,8 +235,44 @@ export const NOTIFICATION_KINDS = [
   "registration",
   "quote",
   "payment",
+  "booking",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+/** Bookings (module 8, C-18 … C-22). Only "booked" holds a slot. */
+export const BOOKING_STATUSES = ["booked", "canceled", "completed", "no_show"] as const;
+export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+
+/** Who made it: the customer online, the owner, or the waitlist taking a freed slot. */
+export const BOOKING_SOURCES = ["customer", "owner", "waitlist"] as const;
+export type BookingSource = (typeof BOOKING_SOURCES)[number];
+
+export const BOOKING_CANCELERS = ["customer", "owner"] as const;
+export type BookingCanceler = (typeof BOOKING_CANCELERS)[number];
+
+export const WEEKDAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+export type WeekdayKey = (typeof WEEKDAY_KEYS)[number];
+export const WEEKDAY_LABELS: Record<WeekdayKey, string> = {
+  sun: "Sunday",
+  mon: "Monday",
+  tue: "Tuesday",
+  wed: "Wednesday",
+  thu: "Thursday",
+  fri: "Friday",
+  sat: "Saturday",
+};
+
+/** How long a job takes when the price list doesn't say. */
+export const DEFAULT_SERVICE_MINUTES = 60;
+/** C-20: the day-before reminder goes out this many hours ahead. */
+export const REMINDER_HOURS = 24;
+
+export const WAITLIST_STATUSES = ["waiting", "booked", "removed"] as const;
+export type WaitlistStatus = (typeof WAITLIST_STATUSES)[number];
+
+/** Two-way calendar sync (module 8): Google Calendar and Microsoft Outlook, or the simulator until they're set up. */
+export const CALENDAR_PROVIDERS = ["simulator", "google", "microsoft"] as const;
+export type CalendarProviderName = (typeof CALENDAR_PROVIDERS)[number];
 
 /** Quotes (module 6, C-45): drafted by the AI or from the price list, checked and sent by the owner. */
 export const QUOTE_STATUSES = ["draft", "sent", "accepted", "declined"] as const;

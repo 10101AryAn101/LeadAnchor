@@ -6,4 +6,5 @@ export * from "./intake";
 export * from "./messaging";
 export * from "./compliance";
 export * from "./money";
+export * from "./booking";
 export * from "./system";

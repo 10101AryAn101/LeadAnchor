@@ -48,7 +48,7 @@ export function ServicesSection() {
   };
 
   return (
-    <section className="rounded-lg border bg-card p-5">
+    <section id="services" className="scroll-mt-24 rounded-lg border bg-card p-5">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="space-y-1">
           <h2 className="text-[17px] font-bold">Services and prices</h2>

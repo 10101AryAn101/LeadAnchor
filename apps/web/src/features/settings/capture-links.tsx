@@ -5,42 +5,48 @@ import { type Icon, IconBrandGoogle, IconCode, IconCopy, IconExternalLink, IconL
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/clipboard";
+import { useBookingSettings } from "@/lib/queries";
 
 /**
- * C-10: catch the people who'd never call. One request form, three ways in: the
- * Google profile's booking link, a button on the owner's website and a link to share.
+ * C-10: catch the people who'd never call. One page, three ways in: the Google profile's
+ * booking link, a button on the owner's website and a link to share. With online booking
+ * on (C-18) they lead to the booking page, which links to the request form for the rest.
  */
 export function CaptureLinks({ settings }: { settings: SettingsResponse }) {
-  const url = new URL(settings.requestUrl);
+  const { data: booking } = useBookingSettings();
+  const booksOnline = booking?.settings.enabled === true;
+  const link = booksOnline ? booking.bookingUrl : settings.requestUrl;
+  const url = new URL(link);
   const slug = url.pathname.split("/").pop() ?? "";
-  const snippet = `<script src="${url.origin}/widget.js" data-business="${slug}" async></script>`;
+  const snippet = `<script src="${url.origin}/widget.js" data-business="${slug}"${booksOnline ? ' data-action="book"' : ""} async></script>`;
 
   return (
     <div className="space-y-3">
       <CopyRow
         icon={IconBrandGoogle}
         title="Your Google profile"
-        body="In Google, open your Business Profile, choose Edit profile, then Contact, and paste this as your appointment link. Requests from it are marked Google."
-        value={`${settings.requestUrl}?src=google`}
+        body={`In Google, open your Business Profile, choose Edit profile, then Contact, and paste this as your appointment link. ${booksOnline ? "Bookings" : "Requests"} from it are marked Google.`}
+        value={`${link}?src=google`}
         copied="Google link copied."
       />
       <CopyRow
         icon={IconCode}
         title="A button on your website"
-        body="Paste this line just before </body>, or in your website builder's custom code box. It adds a Book / Chat button that opens your request form."
+        body={`Paste this line just before </body>, or in your website builder's custom code box. It adds ${booksOnline ? "a Book online button that opens your booking page" : "a Book / Chat button that opens your request form"}.`}
         value={snippet}
         copied="Website code copied."
         code
-        preview={`/widget-demo.html?business=${encodeURIComponent(slug)}`}
+        preview={`/widget-demo.html?business=${encodeURIComponent(slug)}${booksOnline ? "&action=book" : ""}`}
       />
       <CopyRow
         icon={IconLink}
         title="A link to share"
         body="For social media, email signatures and ads."
-        value={settings.requestUrl}
+        value={link}
         copied="Link copied."
-        preview={settings.requestUrl.replace(url.origin, "")}
+        preview={link.replace(url.origin, "")}
       />
+      {booksOnline && <p className="text-sm text-muted-foreground">Online booking is on, so these lead to your booking page. Jobs that need a look first can still send a request from it.</p>}
     </div>
   );
 }

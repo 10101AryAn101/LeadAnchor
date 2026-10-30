@@ -3,6 +3,7 @@ import { and, asc, desc, eq } from "drizzle-orm";
 import { linkBaseUrl } from "../../config/env";
 import { systemDb } from "../../db/client";
 import { mediaAssets, phoneNumbers, services, tenants } from "../../db/schema";
+import { bookingUrl, settingsOf } from "../booking/core";
 
 type Tenant = typeof tenants.$inferSelect;
 
@@ -57,6 +58,7 @@ export async function getPublicProfile(slug: string): Promise<PublicProfile | nu
     googleProfileUrl: tenant.googleProfileUrl,
     website: tenant.website,
     services: serviceRows,
+    bookingUrl: settingsOf(tenant).enabled ? bookingUrl(tenant.slug) : null,
     photos: photoRows.map((photo) => {
       const tags = (photo.aiTags ?? {}) as { itemType?: string; issue?: string };
       return { id: photo.id, caption: tags.itemType ?? tags.issue ?? null };

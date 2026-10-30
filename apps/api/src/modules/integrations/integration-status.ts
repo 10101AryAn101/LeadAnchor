@@ -1,6 +1,6 @@
 import type { IntegrationStatus, RegistrationStatus } from "@leadanchor/contracts";
 import { env } from "../../config/env";
-import { ai, channels, consentLedger, payments, pdf, registry } from "../../container";
+import { ai, calendarProviders, channels, consentLedger, payments, pdf, registry } from "../../container";
 
 /**
  * Honest status of every third-party service the spec names: live, simulated
@@ -88,11 +88,14 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
     },
     {
       key: "scheduler",
-      name: "Scheduling (Calendly / Jobber / Acuity)",
-      purpose: "Real availability and self-booking for appointment businesses.",
-      capabilities: ["C-18", "C-19", "C-20"],
-      state: "planned",
-      detail: "Planned for the workflow-and-money phase.",
+      name: "Calendars (Google Calendar, Microsoft Outlook)",
+      purpose: "Two-way sync: bookings go into the owner's calendar, and its busy times keep customers from booking over them.",
+      capabilities: ["C-18", "C-19", "C-20", "C-22"],
+      state: calendarProviders.google || calendarProviders.microsoft ? "live" : "simulated",
+      detail:
+        calendarProviders.google || calendarProviders.microsoft
+          ? "Owners connect their own calendar in Settings → Online booking."
+          : "Booking, reminders and the waitlist run on LeadAnchor's own scheduling; a simulated calendar stands in for Google and Outlook until they're set up (free, step 2).",
       mandatedBySpec: true,
     },
     {

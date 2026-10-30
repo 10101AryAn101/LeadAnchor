@@ -5,6 +5,7 @@ import { IconCalendarOff, IconPhone } from "@tabler/icons-react";
 import { differenceInCalendarDays, format, isToday, isTomorrow, startOfDay } from "date-fns";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { WaitlistPanel } from "@/features/booking/waitlist-panel";
 import { formatPhone, telHref } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { StageGlyph, UrgencyChip, isWaiting } from "./lead-meta";
@@ -70,7 +71,7 @@ export function LeadsSchedule({ leads }: { leads: LeadCardData[] }) {
       {visits === 0 ? (
         <div className="flex gap-3 rounded-lg border border-dashed p-4 text-[15px] text-muted-foreground">
           <IconCalendarOff className="mt-0.5 size-5 shrink-0" />
-          <p>No visits booked. Open a job and tap Book a visit; it shows up here by day.</p>
+          <p>No visits booked. Open a job and tap Book a visit, or turn on online booking in Settings; visits show up here by day.</p>
         </div>
       ) : (
         booked.map((group) => (
@@ -91,6 +92,8 @@ export function LeadsSchedule({ leads }: { leads: LeadCardData[] }) {
           </section>
         ))
       )}
+
+      <WaitlistPanel />
 
       {unbooked.length > 0 && (
         <section aria-labelledby="day-unbooked" className="space-y-2">

@@ -1,5 +1,9 @@
 import { z } from "zod";
 import {
+  BOOKING_CANCELERS,
+  BOOKING_SOURCES,
+  BOOKING_STATUSES,
+  CALENDAR_PROVIDERS,
   CALLER_TYPES,
   CALL_OUTCOMES,
   CONSENT_ACTIONS,
@@ -40,7 +44,10 @@ import {
   TRACKS,
   TRADES,
   URGENCY_LEVELS,
+  WAITLIST_STATUSES,
+  WEEKDAY_KEYS,
   type LeadStage,
+  type Track,
 } from "./domain";
 import { toE164 } from "./phone";
 
@@ -195,6 +202,8 @@ export const publicProfile = z.object({
   website: z.string().nullable(),
   services: z.array(z.object({ name: z.string(), description: z.string().nullable() })),
   photos: z.array(z.object({ id, caption: z.string().nullable() })),
+  /** The booking page, when the business takes online bookings (C-18). */
+  bookingUrl: z.string().nullable(),
 });
 export type PublicProfile = z.infer<typeof publicProfile>;
 
@@ -321,6 +330,32 @@ export const leadBalance = z.object({
 });
 export type LeadBalance = z.infer<typeof leadBalance>;
 
+/** A booked visit (module 8): one slot on the business's day. */
+export const bookingItem = z.object({
+  id,
+  leadId: id,
+  service: z.object({ id, name: z.string() }).nullable(),
+  startsAt: isoDate,
+  endsAt: isoDate,
+  status: z.enum(BOOKING_STATUSES),
+  source: z.enum(BOOKING_SOURCES),
+  /** The customer replied YES to the reminder. */
+  confirmedAt: isoDate.nullable(),
+  confirmationSentAt: isoDate.nullable(),
+  reminderSentAt: isoDate.nullable(),
+  canceledAt: isoDate.nullable(),
+  canceledBy: z.enum(BOOKING_CANCELERS).nullable(),
+  cancelReason: z.string().nullable(),
+  /** Something in the owner's calendar clashes with it, in plain words. */
+  calendarConflict: z.string().nullable(),
+  /** The customer's page to change or cancel it. */
+  manageUrl: z.string().nullable(),
+  /** They asked to hear if an earlier time opens up (C-22). */
+  wantsEarlier: z.boolean(),
+  createdAt: isoDate,
+});
+export type BookingItem = z.infer<typeof bookingItem>;
+
 export const leadDetail = leadCard.extend({
   lostReason: z.string().nullable(),
   events: z.array(leadEvent),
@@ -332,6 +367,8 @@ export const leadDetail = leadCard.extend({
   quotes: z.array(quoteSummary),
   payments: z.array(paymentItem),
   balance: leadBalance,
+  /** The upcoming visit, or the latest one when none is coming up. */
+  booking: bookingItem.nullable(),
 });
 export type LeadDetail = z.infer<typeof leadDetail>;
 
@@ -940,6 +977,232 @@ export const publicPayment = z.object({
 export type PublicPayment = z.infer<typeof publicPayment>;
 
 export const paymentReportInput = z.object({ method: z.enum(["zelle", "venmo"]) });
+
+/* ----------------------------------------------------------------------------
+ * Booking (module 8, C-17 … C-22): availability, self-booking, reminders, waitlist
+ * ------------------------------------------------------------------------- */
+
+const hhmm = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Use a time like 09:00");
+const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use a date like 2026-11-02");
+
+export const dayHours = z
+  .object({ open: z.boolean(), start: hhmm, end: hhmm })
+  .refine((hours) => !hours.open || hours.start < hours.end, { message: "Closing time must be after opening time", path: ["end"] });
+
+export const bookingSettings = z.object({
+  /** Customers can book online (the booking link and the website button's Book option). */
+  enabled: z.boolean(),
+  hours: z.object(Object.fromEntries(WEEKDAY_KEYS.map((key) => [key, dayHours])) as Record<(typeof WEEKDAY_KEYS)[number], typeof dayHours>),
+  /** Start times offered every this many minutes. */
+  stepMins: z.union([z.literal(15), z.literal(30), z.literal(60)]),
+  /** Nothing can be booked closer than this to now. */
+  noticeHours: z.number().int().min(0).max(72),
+  /** How far ahead customers can book. */
+  windowDays: z.number().int().min(1).max(60),
+  /** Kept free after each job, e.g. to drive to the next one. */
+  bufferMins: z.number().int().min(0).max(120),
+});
+export type BookingSettings = z.infer<typeof bookingSettings>;
+
+/** Weekdays 8 to 5 to start with; trades get half an hour between jobs for the drive. */
+export function defaultBookingSettings(track: Track): BookingSettings {
+  const weekday = { open: true, start: "08:00", end: "17:00" };
+  const closed = { open: false, start: "09:00", end: "13:00" };
+  return {
+    enabled: false,
+    hours: { sun: closed, mon: weekday, tue: weekday, wed: weekday, thu: weekday, fri: weekday, sat: closed },
+    stepMins: 30,
+    noticeHours: 2,
+    windowDays: 14,
+    bufferMins: track === "A" ? 30 : 0,
+  };
+}
+
+export const calendarStatus = z.object({
+  provider: z.enum(CALENDAR_PROVIDERS).nullable(),
+  connected: z.boolean(),
+  /** The calendar's name or account, as the provider shows it. */
+  account: z.string().nullable(),
+  lastSyncedAt: isoDate.nullable(),
+  error: z.string().nullable(),
+  /** Google and Microsoft aren't set up yet, so the simulator stands in. */
+  simulated: z.boolean(),
+});
+export type CalendarStatus = z.infer<typeof calendarStatus>;
+
+export const bookingSettingsResponse = z.object({
+  settings: bookingSettings,
+  timezone: z.string(),
+  /** The public booking page: share it, or paste it into the Google profile as the booking link. */
+  bookingUrl: z.string(),
+  calendar: calendarStatus,
+  /** Services with no time on the price list use an hour. */
+  servicesWithoutTime: z.number().int(),
+});
+export type BookingSettingsResponse = z.infer<typeof bookingSettingsResponse>;
+
+export const slotsResponse = z.object({
+  serviceId: z.string(),
+  durationMins: z.number().int(),
+  timezone: z.string(),
+  days: z.array(z.object({ date: day, slots: z.array(isoDate) })),
+});
+export type SlotsResponse = z.infer<typeof slotsResponse>;
+
+export const publicBookingContext = z.object({
+  business: publicBusiness,
+  enabled: z.boolean(),
+  timezone: z.string(),
+  services: z.array(
+    z.object({
+      id,
+      name: z.string(),
+      description: z.string().nullable(),
+      durationMins: z.number().int(),
+      priceCents: z.number().int().nullable(),
+    }),
+  ),
+  /** For jobs that need a look first: the request form instead. */
+  requestUrl: z.string(),
+});
+export type PublicBookingContext = z.infer<typeof publicBookingContext>;
+
+export const BOOKING_CONSENT_TEXT =
+  "Text me about this booking: a confirmation, a reminder the day before and any changes. Reply STOP to opt out. Msg & data rates may apply.";
+export const BOOKING_CONSENT_VERSION = "booking-v1";
+
+/** C-22: its own box, separate from the booking texts, so the waitlist opt-in is explicit. */
+export const waitlistConsentText = (businessName: string) =>
+  `If an earlier time opens up, ${businessName} may text me so I can take it. Optional; reply STOP to opt out.`;
+export const WAITLIST_CONSENT_VERSION = "waitlist-v1";
+
+const customerFields = {
+  name: z.string().trim().min(2, "Enter your name").max(80),
+  phone: usPhone,
+  email: z.union([z.literal(""), z.email("Enter a valid email address").max(200)]).optional().default(""),
+  /** Hidden from people; only bots fill it in. */
+  company: z.string().max(200).optional().default(""),
+};
+
+export const bookingInput = z.object({
+  serviceId: z.string(),
+  startsAt: isoDate,
+  ...customerFields,
+  notes: z.string().trim().max(500).optional().default(""),
+  smsConsent: z.boolean().default(false),
+  /** Wants a text if an earlier time opens up (C-22). */
+  earlier: z.boolean().default(false),
+  source: z.enum(REQUEST_SOURCES).catch("link"),
+});
+export type BookingInput = z.input<typeof bookingInput>;
+
+export const publicBooking = z.object({
+  business: publicBusiness,
+  status: z.enum(BOOKING_STATUSES),
+  service: z.object({ name: z.string(), durationMins: z.number().int() }),
+  startsAt: isoDate,
+  endsAt: isoDate,
+  timezone: z.string(),
+  customerName: z.string().nullable(),
+  confirmedAt: isoDate.nullable(),
+  canceledAt: isoDate.nullable(),
+  /** Changes are allowed until the business's notice time before the visit. */
+  canChange: z.boolean(),
+  serviceId: z.string().nullable(),
+  wantsEarlier: z.boolean(),
+  /** Where to book again after a cancellation. */
+  bookingUrl: z.string(),
+});
+export type PublicBooking = z.infer<typeof publicBooking>;
+
+export const bookingCreated = z.object({ manageUrl: z.string(), booking: publicBooking });
+export type BookingCreated = z.infer<typeof bookingCreated>;
+
+export const rescheduleInput = z.object({ startsAt: isoDate });
+export const cancelBookingInput = z.object({ reason: z.string().trim().max(300).optional().default("") });
+
+export const waitlistJoinInput = z.object({
+  serviceId: z.string(),
+  from: day,
+  to: day,
+  ...customerFields,
+  smsConsent: z.boolean().default(false),
+  source: z.enum(REQUEST_SOURCES).catch("link"),
+});
+export type WaitlistJoinInput = z.input<typeof waitlistJoinInput>;
+
+/** A freed slot offered to someone on the waitlist; the first to say yes gets it (C-22). */
+export const publicOffer = z.object({
+  business: publicBusiness,
+  state: z.enum(["open", "yours", "taken", "expired"]),
+  service: z.object({ name: z.string(), durationMins: z.number().int() }),
+  startsAt: isoDate,
+  endsAt: isoDate,
+  timezone: z.string(),
+  customerName: z.string().nullable(),
+  /** After taking it: their booking page. */
+  manageUrl: z.string().nullable(),
+  /** Already booked for later: taking this moves that booking here. */
+  replaces: isoDate.nullable(),
+});
+export type PublicOffer = z.infer<typeof publicOffer>;
+
+/** The owner books or moves a visit. Overlaps are refused unless the owner says to go ahead. */
+export const ownerBookingInput = z.object({
+  startsAt: isoDate,
+  serviceId: z.string().nullable().optional(),
+  durationMins: z.number().int().min(15).max(12 * 60).optional(),
+  allowOverlap: z.boolean().default(false),
+  /** Text the customer a confirmation. */
+  notify: z.boolean().default(true),
+});
+export type OwnerBookingInput = z.input<typeof ownerBookingInput>;
+
+export const ownerCancelInput = z.object({
+  reason: z.string().trim().max(300).optional().default(""),
+  /** Tell the customer it's cancelled. */
+  notify: z.boolean().default(true),
+});
+
+/** Module 8 "non-attendance handling". */
+export const noShowInput = z.object({
+  /** Collect the deposit held on their card (C-15). */
+  keepDeposit: z.boolean().default(false),
+  /** Text them a link to book again. */
+  sendRebookLink: z.boolean().default(false),
+});
+
+export const waitlistItem = z.object({
+  id,
+  customer: z.object({ id, name: z.string().nullable(), phone: z.string().nullable(), email: z.string().nullable() }),
+  service: z.object({ id, name: z.string() }).nullable(),
+  from: isoDate,
+  to: isoDate,
+  /** Already booked; wants an earlier time. */
+  bookedFor: isoDate.nullable(),
+  textsAllowed: z.boolean(),
+  status: z.enum(WAITLIST_STATUSES),
+  lastOfferedAt: isoDate.nullable(),
+  leadId: z.string().nullable(),
+  createdAt: isoDate,
+});
+export type WaitlistItem = z.infer<typeof waitlistItem>;
+
+export const simCalendarEvent = z.object({
+  id,
+  title: z.string(),
+  startsAt: isoDate,
+  endsAt: isoDate,
+  /** Made by LeadAnchor for a booking. */
+  fromLeadAnchor: z.boolean(),
+});
+export type SimCalendarEvent = z.infer<typeof simCalendarEvent>;
+
+export const simCalendarEventInput = z.object({
+  title: z.string().trim().min(1, "Give it a title").max(80),
+  startsAt: isoDate,
+  endsAt: isoDate,
+});
 
 /* ----------------------------------------------------------------------------
  * Simulated Stripe pages (development only): hosted checkout and account setup

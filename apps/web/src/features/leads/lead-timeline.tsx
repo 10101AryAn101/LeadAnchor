@@ -2,9 +2,13 @@
 
 import { type AutoMoveReason, LEAD_STAGE_LABELS, type LeadDetail, type LeadEvent, type LeadStage, type MessageItem } from "@leadanchor/contracts";
 import {
+  IconAlertTriangle,
   IconArrowBackUp,
+  IconBell,
   IconBrandGoogle,
+  IconCalendarCheck,
   IconCalendarEvent,
+  IconCalendarTime,
   IconCalendarX,
   IconCamera,
   IconCircleCheck,
@@ -16,6 +20,7 @@ import {
   IconFileText,
   type Icon,
   IconHeadset,
+  IconHourglass,
   IconLink,
   IconLock,
   IconLockOpen,
@@ -33,6 +38,7 @@ import {
   IconShieldX,
   IconTag,
   IconTrash,
+  IconUserOff,
   IconWorld,
 } from "@tabler/icons-react";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@leadanchor/contracts";
@@ -84,6 +90,7 @@ const AUTO_MOVE_WHY: Record<AutoMoveReason, string> = {
   price_set: "You added a price.",
   quote_sent: "You sent a quote.",
   visit_booked: "You booked a visit.",
+  booked_online: "They booked online.",
 };
 
 /** C-45 "full edit history on the lead card": quotes. */
@@ -208,11 +215,99 @@ function paymentRow(event: LeadEvent, base: { id: string; at: string }): Row | n
   }
 }
 
+/** "Nov 2" or "Nov 2 to Nov 6", from the waitlist's calendar dates. */
+function dateSpan(from: string, to: string) {
+  const day = (date: string) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short", day: "numeric" }).format(new Date(`${date}T12:00:00Z`));
+  return from === to ? `on ${day(from)}` : `${day(from)} to ${day(to)}`;
+}
+
+const CHANNEL: Record<string, { icon: Icon; from: string }> = {
+  google: { icon: IconBrandGoogle, from: "From your Google profile." },
+  website: { icon: IconWorld, from: "From the button on your website." },
+  link: { icon: IconCalendarCheck, from: "Through your booking link." },
+};
+
+/** Module 8: visits booked, moved, confirmed or missed, and the waitlist (C-18 … C-22). */
+function bookingRow(event: LeadEvent, base: { id: string; at: string }): Row | null {
+  const d = event.data;
+  const what = str(d.service);
+  const customer = event.actor === "customer";
+  switch (event.type) {
+    case "booking.created": {
+      const when = fullDate(str(d.startsAt));
+      if (d.source === "customer") {
+        const channel = CHANNEL[str(d.channel)] ?? CHANNEL.link!;
+        return { ...base, kind: "other", icon: channel.icon, tone: "good", title: `Booked online${what ? `: ${what}` : ""}, ${when}`, body: channel.from };
+      }
+      if (d.source === "waitlist") return { ...base, kind: "other", icon: IconHourglass, tone: "good", title: `Took a time from the waitlist: ${when}`, body: what || undefined };
+      return { ...base, kind: "other", icon: IconCalendarEvent, tone: "good", title: `Visit booked for ${when}`, body: what || undefined };
+    }
+    case "booking.moved":
+      return {
+        ...base,
+        kind: "other",
+        icon: IconCalendarTime,
+        tone: "neutral",
+        title: `${customer ? "Moved their visit" : "Visit moved"} to ${fullDate(str(d.to))}`,
+        body: `Was ${fullDate(str(d.from))}.`,
+      };
+    case "booking.canceled":
+      return {
+        ...base,
+        kind: "other",
+        icon: IconCalendarX,
+        tone: d.by === "customer" ? "waiting" : "neutral",
+        title: `${d.by === "customer" ? "Cancelled their visit" : "Visit cancelled"} for ${fullDate(str(d.startsAt))}`,
+        body: str(d.reason) ? <Quote>{str(d.reason)}</Quote> : undefined,
+      };
+    case "booking.confirmed":
+      return { ...base, kind: "other", icon: IconCircleCheck, tone: "good", title: "Confirmed the visit", body: "Replied YES to the reminder." };
+    case "booking.reminded":
+      return { ...base, kind: "other", icon: IconBell, tone: "neutral", title: "Day-before reminder sent" };
+    case "booking.no_show":
+      return {
+        ...base,
+        kind: "other",
+        icon: IconUserOff,
+        tone: "bad",
+        title: `Didn't show for ${fullDate(str(d.startsAt))}`,
+        body: [d.keepDeposit && "Deposit collected.", d.rebookLink && "Sent a link to book a new time."].filter(Boolean).join(" ") || undefined,
+      };
+    case "booking.conflict":
+      return { ...base, kind: "other", icon: IconAlertTriangle, tone: "waiting", title: "Calendar clash", body: str(d.note) };
+    case "waitlist.joined":
+      return {
+        ...base,
+        kind: "other",
+        icon: IconHourglass,
+        tone: "neutral",
+        title: "Joined the waitlist",
+        body: `${what ? `${what}, any time ` : "Any time "}${dateSpan(str(d.from), str(d.to))}.${d.texts ? " Okay to text." : ""}`,
+      };
+    case "waitlist.offered":
+      return {
+        ...base,
+        kind: "other",
+        icon: IconSend,
+        tone: "neutral",
+        title: `Offered a freed-up time: ${fullDate(str(d.startsAt))}`,
+        body: d.texted && d.emailed ? "By text and email." : d.texted ? "By text." : d.emailed ? "By email." : "Couldn't reach them: no text consent or email.",
+      };
+    case "waitlist.took":
+      return { ...base, kind: "other", icon: IconCircleCheck, tone: "good", title: `Took the freed-up time: ${fullDate(str(d.startsAt))}`, body: d.moved ? "Their later visit moved up." : undefined };
+    case "waitlist.removed":
+      return { ...base, kind: "other", icon: IconHourglass, tone: "neutral", title: "Taken off the waitlist" };
+    default:
+      return null;
+  }
+}
+
 function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
   const d = event.data;
   const base = { id: event.id, at: event.createdAt };
   if (event.type.startsWith("quote.")) return quoteRow(event, base);
   if (event.type.startsWith("payment.")) return paymentRow(event, base);
+  if (event.type.startsWith("booking.") || event.type.startsWith("waitlist.")) return bookingRow(event, base);
   switch (event.type) {
     case "call.ghost":
       return { ...base, kind: "calls", icon: IconPhoneX, tone: "waiting", title: "Missed call", body: "Hung up before leaving a message." };
@@ -260,10 +355,14 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
         kind: "messages",
         icon: IconShieldCheck,
         tone: "neutral",
-        title: d.type === "sms_marketing" ? "Agreed to offers by text" : "Agreed to texts",
+        title: d.type === "sms_marketing" ? "Agreed to offers by text" : str(d.textVersion).startsWith("waitlist") ? "Agreed to texts about earlier times" : "Agreed to texts",
         body:
           d.source === "web_form"
-            ? "Ticked the box on the request form."
+            ? str(d.textVersion).startsWith("waitlist")
+              ? "Ticked the box to hear by text if an earlier time opens up."
+              : str(d.textVersion).startsWith("booking")
+                ? "Ticked the box when booking online."
+                : "Ticked the box on the request form."
             : d.source === "ivr_dtmf"
               ? "Pressed 1 on their keypad during the call."
               : `${d.source === "voice_ack" ? "Said" : "Texted"} “${str(d.answer) || "yes"}”`,
@@ -439,7 +538,7 @@ export function LeadTimeline({ lead, onPhoto }: { lead: LeadDetail; onPhoto: (id
                         <p className="font-semibold">{row.title}</p>
                         <span className="tabular shrink-0 text-sm text-muted-foreground">{clockTime(row.at)}</span>
                       </div>
-                      {row.body && <div className="mt-1 text-[15px] leading-6 text-muted-foreground">{row.body}</div>}
+                      {row.body && <div className="mt-1 text-[15px] leading-6 wrap-anywhere text-muted-foreground">{row.body}</div>}
                       {row.aside && <div className="mt-1">{row.aside}</div>}
                     </div>
                   </li>

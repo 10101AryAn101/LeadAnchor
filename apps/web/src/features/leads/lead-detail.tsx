@@ -3,8 +3,6 @@
 import { LEAD_STAGE_LABELS, type LeadDetail as LeadDetailData, type LeadStage, type MediaItem, type MessageItem } from "@leadanchor/contracts";
 import {
   IconAlertTriangle,
-  IconCalendarEvent,
-  IconCalendarPlus,
   IconCheck,
   IconChevronDown,
   IconChevronLeft,
@@ -19,7 +17,6 @@ import {
   IconSend,
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { isPast } from "date-fns";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useState } from "react";
@@ -36,10 +33,11 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { BookingCard } from "@/features/booking/booking-card";
 import { LeadMoney } from "@/features/money/lead-money";
 import { api, isApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
-import { formatPhone, money, smsHref, telHref, timeAgo, toDateTimeLocal, visitTime } from "@/lib/format";
+import { formatPhone, money, smsHref, telHref, timeAgo } from "@/lib/format";
 import { keys, useLead, useSettings } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { SourceLabel, StageGlyph, UrgencyChip, WaitingChip, isWaiting } from "./lead-meta";
@@ -128,7 +126,7 @@ export function LeadDetailView() {
 
         <aside className="space-y-4">
           <CustomerCard lead={lead} />
-          <VisitCard lead={lead} onMarkWon={() => setMoving({ target: moveTarget, stage: "won" })} />
+          <BookingCard lead={lead} onMarkWon={() => setMoving({ target: moveTarget, stage: "won" })} />
           <RequestDetailsCard lead={lead} />
         </aside>
       </div>
@@ -340,86 +338,6 @@ function CustomerCard({ lead }: { lead: LeadDetailData }) {
         </p>
       )}
     </section>
-  );
-}
-
-/** The booked visit. Booking one moves the job to Scheduled by itself; once it has passed, ask if the job was done. */
-function VisitCard({ lead, onMarkWon }: { lead: LeadDetailData; onMarkWon: () => void }) {
-  const [editing, setEditing] = useState(false);
-  const visit = lead.scheduledFor;
-  const closed = lead.stage === "won" || lead.stage === "lost";
-  const visitPassed = visit !== null && lead.stage === "scheduled" && isPast(new Date(visit));
-
-  return (
-    <section className="rounded-lg border bg-card p-4">
-      <h2 className="font-bold">Visit</h2>
-      {visit ? (
-        <p className="mt-1 flex items-center gap-1.5 text-[15px] font-semibold">
-          <IconCalendarEvent className="size-[18px] shrink-0 text-primary" /> {visitTime(visit)}
-        </p>
-      ) : (
-        <p className="mt-1 text-[15px] text-muted-foreground">No visit booked. Booking one moves the job to Scheduled.</p>
-      )}
-      {visitPassed && (
-        <div className="mt-3 rounded-md bg-primary-subtle p-3">
-          <p className="text-[15px] text-primary-subtle-foreground">The visit time has passed. Was the job done?</p>
-          <Button className="mt-2 w-full" onClick={onMarkWon}>
-            <IconCheck /> Mark as won
-          </Button>
-        </div>
-      )}
-      {!closed && (
-        <Button variant="outline" className="mt-3 w-full" onClick={() => setEditing(true)}>
-          <IconCalendarPlus /> {visit ? "Change visit" : "Book a visit"}
-        </Button>
-      )}
-      <VisitSheet key={visit ?? "none"} lead={lead} open={editing} onClose={() => setEditing(false)} />
-    </section>
-  );
-}
-
-function VisitSheet({ lead, open, onClose }: { lead: LeadDetailData; open: boolean; onClose: () => void }) {
-  const update = useUpdateLead();
-  const [value, setValue] = useState(lead.scheduledFor ? toDateTimeLocal(lead.scheduledFor) : "");
-  const valid = value !== "" && !Number.isNaN(new Date(value).getTime());
-
-  const save = (scheduledFor: string | null) => {
-    update.mutate(
-      { id: lead.id, scheduledFor },
-      {
-        onSuccess: (detail) => {
-          if (!scheduledFor) return toast.success("Visit removed.");
-          toast.success(detail.stage !== lead.stage ? `Visit booked. Moved to ${LEAD_STAGE_LABELS[detail.stage]}.` : "Visit booked.");
-        },
-      },
-    );
-    onClose();
-  };
-
-  return (
-    <ResponsiveSheet
-      open={open}
-      onOpenChange={(next) => !next && onClose()}
-      title={lead.scheduledFor ? "Change the visit" : "Book a visit"}
-      footer={
-        <div className="flex w-full flex-col gap-2">
-          <Button size="lg" className="w-full" disabled={!valid} onClick={() => save(new Date(value).toISOString())}>
-            Save visit
-          </Button>
-          {lead.scheduledFor && (
-            <Button size="lg" variant="ghost" className="w-full" onClick={() => save(null)}>
-              Remove visit
-            </Button>
-          )}
-        </div>
-      }
-    >
-      <Field className="pb-2">
-        <FieldLabel htmlFor="visit-at">Date and time</FieldLabel>
-        <Input id="visit-at" type="datetime-local" value={value} onChange={(e) => setValue(e.target.value)} />
-        {lead.stage !== "scheduled" && <FieldDescription>Saving moves the job to Scheduled.</FieldDescription>}
-      </Field>
-    </ResponsiveSheet>
   );
 }
 

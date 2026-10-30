@@ -19,6 +19,8 @@ export interface PolicyFacts {
   whatsappConfigured: boolean;
   /** Recipient's local hour, for quiet hours on marketing. */
   recipientLocalHour: number;
+  /** Counsel has confirmed the waitlist opt-in wording covers texts (C-22). Platform-wide. */
+  waitlistTextsCleared: boolean;
 }
 
 export interface PolicyCheck {
@@ -45,6 +47,16 @@ export function decide(facts: PolicyFacts): PolicyDecision {
     // Email-first strategy: marketing texts stay off until counsel signs off on the TCPA consent stack.
     checks.push({ check: "marketing_channel", passed: false, detail: "Marketing runs on email until SMS marketing is legally cleared." });
     return blocked("Marketing texts are switched off (email-first plan).");
+  }
+
+  if (facts.purpose === "waitlist_offer") {
+    // Spreadsheet rollout for C-22: email and in-app now; texts once counsel confirms the opt-in.
+    checks.push({
+      check: "waitlist_texts",
+      passed: facts.waitlistTextsCleared,
+      detail: facts.waitlistTextsCleared ? "Waitlist texts are cleared." : "Waitlist texts wait for counsel to confirm the opt-in wording.",
+    });
+    if (!facts.waitlistTextsCleared) return blocked("Waitlist texts are off until legal sign-off, so the offer goes by email.");
   }
 
   const quiet = facts.recipientLocalHour >= QUIET_START || facts.recipientLocalHour < QUIET_END;

@@ -26,6 +26,12 @@ export const TENANT_TABLES = [
   "quotes",
   "quote_lines",
   "payment_requests",
+  "bookings",
+  "waitlist_entries",
+  "waitlist_offers",
+  "waitlist_offer_recipients",
+  "calendar_connections",
+  "calendar_events",
 ] as const;
 
 /** Append-only tables: no UPDATE or DELETE for application roles. */

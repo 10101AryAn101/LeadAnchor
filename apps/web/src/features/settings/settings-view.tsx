@@ -20,6 +20,7 @@ import { api } from "@/lib/api";
 import { formatPhone } from "@/lib/format";
 import { showFormError } from "@/lib/forms";
 import { keys, useSettings } from "@/lib/queries";
+import { BookingSection } from "./booking-section";
 import { CaptureLinks } from "./capture-links";
 import { ForwardingCheck } from "./forwarding-check";
 import { ForwardingGuide } from "./forwarding-guide";
@@ -81,6 +82,7 @@ export function SettingsView() {
     <div className="space-y-6 pb-24 lg:pb-0">
       <SettingsForm settings={settings} />
       <ServicesSection />
+      <BookingSection />
       <PaymentsSection />
     </div>
   );

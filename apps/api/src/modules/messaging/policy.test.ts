@@ -9,6 +9,7 @@ const base: PolicyFacts = {
   whatsappWindowOpen: false,
   whatsappConfigured: false,
   recipientLocalHour: 14,
+  waitlistTextsCleared: false,
 };
 
 describe("send policy (governed send path)", () => {
@@ -16,6 +17,14 @@ describe("send policy (governed send path)", () => {
     const decision = decide(base);
     expect(decision.allowed).toBe(true);
     expect(decision.channel).toBe("sms");
+  });
+
+  it("keeps waitlist offers off text until counsel clears the wording, then sends them like job texts (C-22)", () => {
+    const held = decide({ ...base, purpose: "waitlist_offer" });
+    expect(held.allowed).toBe(false);
+    expect(held.reason).toMatch(/legal sign-off/i);
+    expect(decide({ ...base, purpose: "waitlist_offer", waitlistTextsCleared: true }).allowed).toBe(true);
+    expect(decide({ ...base, purpose: "waitlist_offer", waitlistTextsCleared: true, smsConsent: null }).allowed).toBe(false);
   });
 
   it("blocks texts until carriers approve the business (10DLC hard block)", () => {

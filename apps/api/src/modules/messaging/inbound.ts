@@ -5,6 +5,7 @@ import { leads, messages, phoneNumbers, tenants } from "../../db/schema";
 import { tenantWork } from "../../db/unit-of-work";
 import { logger } from "../../lib/logger";
 import { consentLedger } from "../../container";
+import { handleBookingReply } from "../booking/replies";
 import { keywordReplies } from "../compliance/registration-copy";
 import { upsertCustomerByPhone } from "../customers/customer.repo";
 import { addLeadEvent } from "../leads/lead-capture";
@@ -104,6 +105,8 @@ export async function handleInboundMessage(input: { from: string; to: string; te
 
     // Carriers require a reply to STOP, START and HELP, worded as in the business's campaign filing (C-43).
     const keyword = OPT_OUT.test(input.text) ? "optOut" : OPT_IN.test(input.text) ? "optIn" : HELP.test(input.text) ? "help" : null;
+    // Anything else may answer a booking text: YES / NO after a reminder, or a waitlist offer (C-20, C-22).
+    if (!keyword && input.channel !== "email") await handleBookingReply(tx, fx, { tenant, customer, text: input.text });
     if (keyword) {
       await requestMessage(tx, fx, {
         tenant,

@@ -15,6 +15,8 @@ export type RealtimeEvent =
   | { type: "settings.updated" }
   /** The business's payments account or Zelle/Venmo details changed (module 7). */
   | { type: "payments.updated" }
+  /** Someone joined or left the waitlist, or an offer went out (C-22). */
+  | { type: "waitlist.updated" }
   | { type: "quote.updated"; quoteId: string; leadId: string }
   /** Simulated phone alert (C-05): shown by the browsers whose token is listed. */
   | {

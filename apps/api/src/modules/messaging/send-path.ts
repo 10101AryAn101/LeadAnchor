@@ -64,6 +64,7 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
     whatsappWindowOpen: Boolean(recentInboundWhatsApp),
     whatsappConfigured: channels.whatsapp !== null,
     recipientLocalHour: localHour(intent.tenant.timezone),
+    waitlistTextsCleared: env.WAITLIST_TEXTS_CLEARED,
   });
 
   const channel = decision.channel ?? intent.preferredChannels?.[0] ?? "sms";

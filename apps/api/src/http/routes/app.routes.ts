@@ -1,12 +1,17 @@
 import {
   type MeResponse,
+  bookingSettings,
+  CALENDAR_PROVIDERS,
   dashboardRange,
   forwardingCheckInput,
   leadContactInput,
   leadUpdateInput,
   mediaUpdateInput,
   requestDetailsInput,
+  noShowInput,
   noteInput,
+  ownerBookingInput,
+  ownerCancelInput,
   pushDeviceInput,
   onboardingInput,
   paymentRecordInput,
@@ -33,6 +38,9 @@ import { realtime } from "../../lib/realtime";
 import { storage } from "../../container";
 import { listCalls } from "../../modules/calls/call.queries";
 import { createService, listServices, reorderServices, updateService } from "../../modules/catalog/catalog.service";
+import { getBookingSettings, markNoShow, ownerBook, ownerCancel, ownerSlots, updateBookingSettings } from "../../modules/booking/booking.service";
+import { connectCalendar, disconnectCalendar, syncCalendar } from "../../modules/booking/calendar-sync";
+import { listWaitlist, removeFromWaitlist } from "../../modules/booking/waitlist.service";
 import { getCustomer, listCustomers } from "../../modules/customers/customer.queries";
 import { consentLedger } from "../../container";
 import {
@@ -261,6 +269,77 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/payments/settings/refresh", async (req) => {
     const ctx = await tenantContext(req);
     return refreshPaymentAccount(ctx.tenantId);
+  });
+
+  /* ── Booking (module 8, C-17 … C-22) ──────────────────────────────────── */
+
+  app.get("/api/booking/settings", async (req) => {
+    const ctx = await tenantContext(req);
+    return getBookingSettings(ctx.tenantId);
+  });
+
+  app.put("/api/booking/settings", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    return updateBookingSettings(ctx.tenantId, ctx.userId, parseInput(bookingSettings, req.body));
+  });
+
+  /** Free times for this job's visit, from the opening hours, bookings and the owner's calendar. */
+  app.get("/api/leads/:id/slots", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    const query = parseInput(z.object({ serviceId: z.uuid().optional(), durationMins: z.coerce.number().int().min(15).max(720).optional() }), req.query);
+    return ownerSlots(ctx.tenantId, id, query);
+  });
+
+  app.post("/api/leads/:id/booking", async (req, reply) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return reply.status(201).send(await ownerBook(ctx.tenantId, ctx.userId, id, parseInput(ownerBookingInput, req.body)));
+  });
+
+  app.post("/api/leads/:id/booking/cancel", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    await ownerCancel(ctx.tenantId, ctx.userId, id, parseInput(ownerCancelInput, req.body ?? {}));
+    return { ok: true };
+  });
+
+  app.post("/api/bookings/:id/no-show", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    await markNoShow(ctx.tenantId, ctx.userId, id, parseInput(noShowInput, req.body ?? {}));
+    return { ok: true };
+  });
+
+  app.get("/api/waitlist", async (req) => {
+    const ctx = await tenantContext(req);
+    return { entries: await listWaitlist(ctx.tenantId) };
+  });
+
+  app.delete("/api/waitlist/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    await removeFromWaitlist(ctx.tenantId, ctx.userId, id);
+    return { ok: true };
+  });
+
+  /** Two-way calendar sync (module 8). Real providers send the owner to sign in first. */
+  app.post("/api/calendar/connect", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { provider } = parseInput(z.object({ provider: z.enum(CALENDAR_PROVIDERS) }), req.body);
+    return connectCalendar(ctx.tenantId, ctx.userId, provider, `${ownerOrigin(req)}/settings?calendar=back#booking`);
+  });
+
+  app.post("/api/calendar/disconnect", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    await disconnectCalendar(ctx.tenantId, ctx.userId);
+    return getBookingSettings(ctx.tenantId);
+  });
+
+  app.post("/api/calendar/sync", async (req) => {
+    const ctx = await tenantContext(req);
+    await syncCalendar(ctx.tenantId);
+    return getBookingSettings(ctx.tenantId);
   });
 
   /** Tags in use, for the board filter and the tag picker (module 4). */
