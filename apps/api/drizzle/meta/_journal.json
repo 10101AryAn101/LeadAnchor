@@ -113,6 +113,20 @@
       "when": 1793345717121,
       "tag": "0015_listing_chat_link",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1793350045587,
+      "tag": "0016_campaigns",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793350579640,
+      "tag": "0017_campaign_left_out",
+      "breakpoints": true
     }
   ]
 }

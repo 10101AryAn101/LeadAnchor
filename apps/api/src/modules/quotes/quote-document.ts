@@ -1,4 +1,5 @@
 import { formatPhone } from "@leadanchor/contracts";
+import { escapeHtml } from "../../lib/html";
 import { dollars, lineTotal } from "../payments/money";
 
 export interface QuoteDocument {
@@ -35,13 +36,7 @@ export interface QuoteDocument {
   timezone: string;
 }
 
-const escape = (value: string) =>
-  value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+const escape = escapeHtml;
 
 /**
  * The branded quote (C-45): business name, licence and the profile block (C-41), the lines

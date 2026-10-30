@@ -1,4 +1,5 @@
 import {
+  EMAIL_FEEDBACK_TYPES,
   MESSAGE_AUTHORS,
   MESSAGE_CHANNELS,
   MESSAGE_DIRECTIONS,
@@ -34,6 +35,12 @@ export const messages = pgTable(
     /** Email only. */
     subject: text("subject"),
     body: text("body").notNull(),
+    /** Email only: the designed version of a campaign email (the body is its plain-text twin). */
+    html: text("html"),
+    /** Email only: where replies go, e.g. the owner's own inbox for a campaign (module 11). */
+    replyTo: text("reply_to"),
+    /** Email only: the email service reported it bounced, or the person marked it as spam. */
+    feedback: text("feedback", { enum: EMAIL_FEEDBACK_TYPES }),
     blockedReason: text("blocked_reason"),
     provider: text("provider").notNull(),
     providerMessageId: text("provider_message_id"),

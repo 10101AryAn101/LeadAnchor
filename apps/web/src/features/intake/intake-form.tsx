@@ -45,7 +45,8 @@ export function IntakeForm({
   /** Keeps a half-filled form through a reload. */
   draftKey: string;
   /** The public form (C-10): there's no caller ID yet, so it asks for a phone number and notes where it came from. */
-  newRequest?: { source: RequestSource };
+  /** A request from the public form; `campaign` is the campaign email it came from (module 11). */
+  newRequest?: { source: RequestSource; campaign?: string | null };
 }) {
   const storageKey = `leadanchor:intake:${draftKey}`;
   const track = TRACK_BY_TRADE[context.business.trade];
@@ -127,6 +128,7 @@ export function IntakeForm({
       body.set("phone", draft.phone.trim());
       body.set("source", newRequest.source);
       body.set("company", trap);
+      if (newRequest.campaign) body.set("campaign", newRequest.campaign);
     }
     for (const file of photos) body.append("photos", file, file.name);
 

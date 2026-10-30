@@ -41,6 +41,7 @@ import {
   IconSend,
   IconShieldCheck,
   IconShieldX,
+  IconSpeakerphone,
   IconStar,
   IconTag,
   IconTrash,
@@ -480,6 +481,15 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
       return { ...base, kind: "other", icon: IconNote, tone: "neutral", title: "Note", body: <span className="whitespace-pre-wrap text-foreground">{str(d.text)}</span> };
     case "message.received":
       return { ...base, kind: "messages", icon: CHAT_ICON[str(d.channel)] ?? IconMessage, tone: "waiting", title: RECEIVED[str(d.channel)] ?? "Text from customer", body: <Quote>{str(d.text)}</Quote> };
+    case "campaign.responded":
+      return {
+        ...base,
+        kind: "other",
+        icon: IconSpeakerphone,
+        tone: "good",
+        title: `${d.via === "request" ? "Asked for a visit" : "Booked"} from your campaign “${str(d.campaign)}”`,
+        body: str(d.offer) ? `Offer: ${str(d.offer)}${d.ended ? " (it had ended when they booked)" : ". Remember to apply it."}` : undefined,
+      };
     case "chat.started":
       return { ...base, kind: "messages", icon: CHAT_ICON[str(d.channel)] ?? IconMessage, tone: "neutral", title: STARTED[str(d.channel)] ?? "Started a chat", body: str(d.text) ? <Quote>{str(d.text)}</Quote> : undefined };
     default:

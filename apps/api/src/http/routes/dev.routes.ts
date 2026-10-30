@@ -1,4 +1,5 @@
 import {
+  EMAIL_FEEDBACK_TYPES,
   type OutboxEmail,
   type SimCheckout,
   type SimOnboarding,
@@ -11,6 +12,7 @@ import {
   simCheckoutInput,
   simOnboardingInput,
   simulatorScenarioInput,
+  simWeatherInput,
   toE164,
   usPhone,
 } from "@leadanchor/contracts";
@@ -20,7 +22,7 @@ import { z } from "zod";
 import { systemDb, withTenant } from "../../db/client";
 import { conversations, listingConnections, messages, phoneNumbers, tenants } from "../../db/schema";
 import { HttpError, badRequest, notFound, parseInput } from "../../lib/errors";
-import { payments, simulatorListings, simulatorPayments, simulatorTelephony, telephony } from "../../container";
+import { payments, simulatorListings, simulatorPayments, simulatorTelephony, simulatorWeather, telephony, weather } from "../../container";
 import { PaymentRefused } from "../../integrations/payments/types";
 import { getCallTrace } from "../../modules/calls/call.queries";
 import { approveRegistrationForDev, resetRegistrationForDev, simulatedRegistrationCode } from "../../modules/compliance/registration.service";
@@ -32,6 +34,9 @@ import { paymentRequests } from "../../db/schema";
 import { sendValueProof } from "../../modules/value-proof/value-proof";
 import { hoursList, syncListing } from "../../modules/reviews/listing.service";
 import { sendWaitingRequestsNow } from "../../modules/reviews/review-requests";
+import { addSampleCustomers } from "../../modules/campaigns/sample-customers";
+import { checkSignals } from "../../modules/campaigns/signals";
+import { recordEmailFeedback } from "../../modules/messaging/email-feedback";
 import { tenantContext } from "../context";
 
 /** Development-only tools: the call simulator, the simulated customer phone and fake carrier approval. */
@@ -119,11 +124,52 @@ export async function devRoutes(app: FastifyInstance) {
         to: m.toAddress,
         subject: m.subject,
         body: m.body,
+        html: m.html,
+        replyTo: m.replyTo,
         status: m.status,
         blockedReason: m.blockedReason,
+        feedback: m.feedback,
         createdAt: m.createdAt.toISOString(),
       })),
     };
+  });
+
+  /** Plays the email service reporting back: this email bounced, or was marked as spam. */
+  app.post("/api/dev/outbox/:id/feedback", async (req, reply) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(z.object({ id: z.uuid() }), req.params);
+    const { type } = parseInput(z.object({ type: z.enum(EMAIL_FEEDBACK_TYPES) }), req.body);
+    await recordEmailFeedback(ctx.tenantId, id, type);
+    return reply.status(204).send();
+  });
+
+  /* ── Campaigns (module 11): sample customers, the weather, and a check for offer ideas ── */
+
+  app.post("/api/dev/simulator/past-customers", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return addSampleCustomers(ctx.tenantId);
+  });
+
+  app.get("/api/dev/simulator/weather", async (req) => {
+    const ctx = await tenantContext(req);
+    return {
+      scenario: simulatorWeather.scenarioOf(ctx.tenantId),
+      simulated: weather.name === "simulator",
+      forecast: await weather.forecast(ctx.tenantId, { city: null, state: null, postalCode: null }),
+    };
+  });
+
+  app.post("/api/dev/simulator/weather", async (req, reply) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    if (weather.name !== "simulator") throw new HttpError(409, "not_simulated", "Forecasts come from the weather service, so the simulator is off.");
+    simulatorWeather.setScenario(ctx.tenantId, parseInput(simWeatherInput, req.body).kind);
+    return reply.status(204).send();
+  });
+
+  /** Runs the six-hourly check now: a freeze, heat wave or holiday worth an offer (C-30). */
+  app.post("/api/dev/simulator/campaign-ideas", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return { created: await checkSignals(ctx.tenantId) };
   });
 
   /* ── Simulated Stripe (module 7): its hosted pages, and the events its webhook would send ── */

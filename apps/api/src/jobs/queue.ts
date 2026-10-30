@@ -42,6 +42,10 @@ export const QUEUES = {
   reviewRequestsTick: "reviews.requests-tick",
   /** The chat assistant answers a customer's latest message (C-11, C-16). */
   assistantReply: "chat.assistant-reply",
+  /** Sends an approved campaign when its time comes (module 11). */
+  campaignSend: "campaigns.send",
+  /** Every six hours: weather and holidays that are worth an offer (C-30). */
+  campaignSignalsTick: "campaigns.signals-tick",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -66,6 +70,8 @@ export interface JobPayloads {
   [QUEUES.reviewRequestSend]: { tenantId: string; requestId: string };
   [QUEUES.reviewRequestsTick]: Record<string, never>;
   [QUEUES.assistantReply]: { tenantId: string; conversationId: string };
+  [QUEUES.campaignSend]: { tenantId: string; campaignId: string };
+  [QUEUES.campaignSignalsTick]: Record<string, never>;
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });
@@ -91,6 +97,7 @@ export async function startQueue() {
   await boss.schedule(QUEUES.calendarSyncTick, "*/5 * * * *");
   await boss.schedule(QUEUES.listingSyncTick, "*/15 * * * *");
   await boss.schedule(QUEUES.reviewRequestsTick, "*/15 * * * *");
+  await boss.schedule(QUEUES.campaignSignalsTick, "0 */6 * * *");
   started = true;
 }
 

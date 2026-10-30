@@ -16,6 +16,7 @@ import {
   IconPhoneX,
   IconRecordMail,
   IconShieldCheck,
+  IconSpeakerphone,
   IconStar,
   IconTrendingUp,
 } from "@tabler/icons-react";
@@ -45,6 +46,7 @@ const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   review: { icon: IconStar, tone: "bg-signal-subtle text-signal-strong" },
   feedback: { icon: IconMessageCircle, tone: "bg-signal-subtle text-signal-strong" },
   chat: { icon: IconMessages, tone: "bg-info-subtle text-info-strong" },
+  campaign: { icon: IconSpeakerphone, tone: "bg-primary-subtle text-primary-subtle-foreground" },
 };
 
 export function NotificationsButton({ className }: { className?: string }) {

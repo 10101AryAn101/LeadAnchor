@@ -25,6 +25,7 @@ import { HttpError, notFound } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { audit } from "../compliance/audit";
 import { addLeadEvent } from "../leads/lead-capture";
+import { creditUnsubscribe } from "../campaigns/links";
 import { isOptedOut, postalAddress, resolveUnsubscribeToken } from "../messaging/email-opt-out";
 import { requestEmail } from "../messaging/send-path";
 import { notifyOwner } from "../notifications/notify";
@@ -333,6 +334,7 @@ export async function unsubscribe(token: string): Promise<PublicUnsubscribe> {
       .onConflictDoNothing()
       .returning({ id: emailOptOuts.id });
     if (inserted.length > 0) {
+      await creditUnsubscribe(tx, email);
       await audit(tx, {
         tenantId: tenant.id,
         actor: "customer",

@@ -18,6 +18,7 @@ import { keys, useMe, useRegistration } from "@/lib/queries";
 import { type CallTrace, CallTraceView } from "./call-trace";
 import { PhonePreview } from "./phone-preview";
 import { SimulatedCalendar } from "./sim-calendar";
+import { SimulatedCampaigns } from "./sim-campaigns";
 
 type OwnerBehavior = SimulatorScenarioInput["ownerBehavior"];
 type CallerBehavior = SimulatorScenarioInput["callerBehavior"];
@@ -234,6 +235,7 @@ export function SimulatorView() {
       </div>
 
       <SimulatedCalendar />
+      <SimulatedCampaigns />
     </div>
   );
 }

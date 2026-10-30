@@ -244,6 +244,7 @@ export const NOTIFICATION_KINDS = [
   "review",
   "feedback",
   "chat",
+  "campaign",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -400,6 +401,8 @@ export const INTEGRATIONS = [
   "gemini",
   "scheduler",
   "email",
+  "weather",
+  "holidays",
 ] as const;
 export type IntegrationKey = (typeof INTEGRATIONS)[number];
 
@@ -424,3 +427,42 @@ export type ChatState = (typeof CHAT_STATES)[number];
 
 /** WhatsApp lets a business reply freely for this long after the customer's last message (C-11). */
 export const WHATSAPP_WINDOW_HOURS = 24;
+
+/**
+ * Email campaigns (module 11; C-28 win-backs, C-29 promotions, C-30 weather and holiday offers,
+ * C-44 click-to-book). Email-first: marketing texts wait for the TCPA consent work.
+ */
+export const CAMPAIGN_KINDS = ["winback", "promotion", "seasonal"] as const;
+export type CampaignKind = (typeof CAMPAIGN_KINDS)[number];
+export const CAMPAIGN_KIND_LABELS: Record<CampaignKind, string> = {
+  winback: "Win-back",
+  promotion: "Promotion",
+  seasonal: "Seasonal offer",
+};
+
+/** "suggested": a weather or holiday trigger drafted it. Nothing is sent until the owner approves (C-30). */
+export const CAMPAIGN_STATUSES = ["suggested", "draft", "scheduled", "sending", "sent", "canceled"] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+/** Who a campaign goes to. Only people already in LeadAnchor: never an uploaded list (C-44 AC 1). */
+export const CAMPAIGN_SEGMENTS = ["quiet", "customers", "service", "tag", "not_booked"] as const;
+export type CampaignSegment = (typeof CAMPAIGN_SEGMENTS)[number];
+export const CAMPAIGN_SEGMENT_LABELS: Record<CampaignSegment, string> = {
+  quiet: "Past customers who've gone quiet",
+  customers: "All past customers",
+  service: "Customers who had a service done",
+  tag: "Customers with a tag",
+  not_booked: "People who asked but didn't book",
+};
+
+/** One person on a sent campaign: emailed, left out (and why), or the email came back. */
+export const RECIPIENT_STATUSES = ["sent", "skipped", "bounced", "failed"] as const;
+export type RecipientStatus = (typeof RECIPIENT_STATUSES)[number];
+
+/** What prompted a suggested campaign (C-30). */
+export const CAMPAIGN_TRIGGER_KINDS = ["freeze", "heat", "holiday"] as const;
+export type CampaignTriggerKind = (typeof CAMPAIGN_TRIGGER_KINDS)[number];
+
+/** Provider reports about a sent email: it bounced, or the person marked it as spam. */
+export const EMAIL_FEEDBACK_TYPES = ["bounce", "complaint"] as const;
+export type EmailFeedbackType = (typeof EMAIL_FEEDBACK_TYPES)[number];

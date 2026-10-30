@@ -1,7 +1,7 @@
 "use client";
 
-import type { OutboxEmail } from "@leadanchor/contracts";
-import { IconMail, IconSend } from "@tabler/icons-react";
+import type { EmailFeedbackType, OutboxEmail } from "@leadanchor/contracts";
+import { IconMail, IconMailX, IconSend, IconThumbDown } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
@@ -35,7 +35,7 @@ export function OutboxView() {
     <div className="space-y-5">
       <PageHeader
         title="Email outbox"
-        description="No email service is connected yet, so emails the app sends wait here. For development only."
+        description="No email service is connected yet, so emails the app sends wait here. You can also play the email service reporting a bounce or a spam complaint. For development only."
         actions={
           <Button variant="outline" onClick={() => sendSummary.mutate()} disabled={sendSummary.isPending}>
             {sendSummary.isPending ? <Spinner /> : <IconSend />} Send my summary now
@@ -58,7 +58,7 @@ function EmailList() {
             <IconMail />
           </EmptyMedia>
           <EmptyTitle>No emails yet</EmptyTitle>
-          <EmptyDescription>Your daily or weekly summary lands here, along with receipts and requests once those exist.</EmptyDescription>
+          <EmptyDescription>Your daily or weekly summary lands here, along with receipts, review requests and campaign emails.</EmptyDescription>
         </EmptyHeader>
       </Empty>
     );
@@ -72,8 +72,22 @@ function EmailList() {
   );
 }
 
+const FEEDBACK_LABEL: Record<EmailFeedbackType, string> = { bounce: "Bounced", complaint: "Marked as spam" };
+
 function EmailItem({ email }: { email: OutboxEmail }) {
   const [open, setOpen] = useState(false);
+  const [plain, setPlain] = useState(false);
+  const queryClient = useQueryClient();
+  const report = useMutation({
+    mutationFn: (type: EmailFeedbackType) => api(`/dev/outbox/${email.id}/feedback`, { method: "POST", body: { type } }),
+    onSuccess: (_, type) => {
+      void queryClient.invalidateQueries({ queryKey: keys.outbox });
+      void queryClient.invalidateQueries({ queryKey: keys.campaignAll });
+      toast.success(type === "bounce" ? "Bounced. No more email goes to that address." : "Marked as spam. No more offers go to that address.");
+    },
+    onError: (error) => toast.error(isApiError(error) ? error.message : "Couldn't report it."),
+  });
+  const delivered = (email.status === "sent" || email.status === "delivered") && !email.feedback;
   return (
     <li className="rounded-lg border bg-card">
       <button type="button" onClick={() => setOpen((value) => !value)} aria-expanded={open} className="flex w-full items-start gap-3 p-4 text-left">
@@ -88,11 +102,38 @@ function EmailItem({ email }: { email: OutboxEmail }) {
               Not sent
             </Badge>
           )}
+          {email.feedback && (
+            <Badge variant="outline" className="mt-1 text-destructive-strong">
+              {FEEDBACK_LABEL[email.feedback]}
+            </Badge>
+          )}
         </span>
       </button>
-      <div className={cn("border-t px-4 py-3", !open && "hidden")}>
-        {email.blockedReason && <p className="mb-2 text-[15px] text-signal-strong">{email.blockedReason}</p>}
-        <p className="text-[15px] leading-6 whitespace-pre-wrap">{email.body}</p>
+      <div className={cn("space-y-3 border-t px-4 py-3", !open && "hidden")}>
+        {email.blockedReason && <p className="text-[15px] text-signal-strong">{email.blockedReason}</p>}
+        {email.replyTo && <p className="text-sm text-muted-foreground">Replies go to {email.replyTo}</p>}
+        {email.html && !plain ? (
+          <iframe title={email.subject ?? "Email"} srcDoc={email.html} sandbox="" className="block h-[520px] w-full rounded-md border bg-[#f4f2ec]" />
+        ) : (
+          <p className="text-[15px] leading-6 whitespace-pre-wrap">{email.body}</p>
+        )}
+        <div className="flex flex-wrap gap-2">
+          {email.html && (
+            <Button variant="outline" size="sm" onClick={() => setPlain((value) => !value)}>
+              {plain ? "Show the designed version" : "Show the plain text"}
+            </Button>
+          )}
+          {delivered && (
+            <>
+              <Button variant="outline" size="sm" disabled={report.isPending} onClick={() => report.mutate("bounce")}>
+                <IconMailX /> Make it bounce
+              </Button>
+              <Button variant="outline" size="sm" disabled={report.isPending} onClick={() => report.mutate("complaint")}>
+                <IconThumbDown /> Mark it as spam
+              </Button>
+            </>
+          )}
+        </div>
       </div>
     </li>
   );

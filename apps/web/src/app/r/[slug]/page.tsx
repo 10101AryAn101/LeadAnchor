@@ -15,7 +15,13 @@ const API_URL = process.env.API_INTERNAL_URL ?? "http://127.0.0.1:4000";
  * C-10: a business's public request form. Its website button (widget.js), its Google
  * profile link (?src=google) and shared links all land here, and every request becomes a lead.
  */
-export default function RequestPage({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ src?: string }> }) {
+export default function RequestPage({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ src?: string; campaign?: string }>;
+}) {
   return (
     <main className="min-h-dvh bg-background">
       <Suspense fallback={<IntakeSkeleton />}>
@@ -25,9 +31,15 @@ export default function RequestPage({ params, searchParams }: { params: Promise<
   );
 }
 
-async function RequestLoader({ params, searchParams }: { params: Promise<{ slug: string }>; searchParams: Promise<{ src?: string }> }) {
+async function RequestLoader({
+  params,
+  searchParams,
+}: {
+  params: Promise<{ slug: string }>;
+  searchParams: Promise<{ src?: string; campaign?: string }>;
+}) {
   const { slug } = await params;
-  const { src } = await searchParams;
+  const { src, campaign } = await searchParams;
   const source: RequestSource = REQUEST_SOURCES.find((value) => value === src) ?? "link";
 
   let context: IntakeContext | null = null;
@@ -50,5 +62,12 @@ async function RequestLoader({ params, searchParams }: { params: Promise<{ slug:
     );
   }
 
-  return <IntakeForm context={context} submitUrl={`/api/public/request/${encodeURIComponent(slug)}`} draftKey={`r-${slug}`} newRequest={{ source }} />;
+  return (
+    <IntakeForm
+      context={context}
+      submitUrl={`/api/public/request/${encodeURIComponent(slug)}`}
+      draftKey={`r-${slug}`}
+      newRequest={{ source, campaign: campaign && /^[\w-]{20,64}$/.test(campaign) ? campaign : null }}
+    />
+  );
 }

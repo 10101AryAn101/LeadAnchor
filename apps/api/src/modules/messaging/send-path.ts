@@ -7,7 +7,15 @@ import { env } from "../../config/env";
 import { QUEUES } from "../../jobs/queue";
 import { channels, consentLedger } from "../../container";
 import { approvedForTexting } from "../compliance/registration.service";
-import { MARKETING_EMAIL_PURPOSES, isOptedOut, marketingFooter, postalAddress, unsubscribeUrl } from "./email-opt-out";
+import {
+  MARKETING_EMAIL_PURPOSES,
+  SUPPRESSION_REASONS,
+  marketingFooter,
+  marketingFooterHtml,
+  postalAddress,
+  suppressionOf,
+  unsubscribeUrl,
+} from "./email-opt-out";
 import { decide } from "./policy";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -110,28 +118,55 @@ export interface EmailIntent {
   subject: string;
   body: string;
   purpose: MessagePurpose;
+  /** A designed version (campaigns); "<!--footer-->" marks where the unsubscribe footer goes. */
+  html?: string;
+  /** Where replies go, e.g. the owner's own inbox. */
+  replyTo?: string | null;
+  /** Marketing footer: why they're getting it, and whether to say it's an offer. */
+  footer?: { reason?: string; advertisement?: boolean };
+  /** Spreads a campaign out over time (module 11: sends are rate-limited). */
+  sendAfterSecs?: number;
+}
+
+/** The platform's sending address, under the business's own name (CAN-SPAM: say who it's from). */
+function senderFor(business: string) {
+  const address = env.EMAIL_FROM.match(/<([^>]+)>/)?.[1] ?? env.EMAIL_FROM;
+  return `"${business.replaceAll('"', "")} via LeadAnchor" <${address}>`;
 }
 
 /**
  * Email goes through the same governed path as texts: one row per message with the
- * decision attached, delivered by the queue. Job and account emails need no opt-in.
- * Marketing-type email (review requests, later campaigns) skips anyone who unsubscribed
- * and carries the postal address and an unsubscribe link (CAN-SPAM).
+ * decision attached, delivered by the queue. Job and account emails need no opt-in, but
+ * nothing goes to an address that bounced. Marketing-type email (review requests,
+ * campaigns) also skips anyone who unsubscribed or marked one as spam, and carries the
+ * postal address and an unsubscribe link (CAN-SPAM).
  */
 export async function requestEmail(tx: Tx, fx: Effects, intent: EmailIntent) {
   const validAddress = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(intent.to);
   const checks = [{ check: "email_address", passed: validAddress, detail: validAddress ? "Address looks valid." : "Invalid address." }];
   let blockedReason = validAddress ? null : "That email address doesn't look right.";
   let body = intent.body;
+  let html = intent.html ?? null;
+  const marketing = MARKETING_EMAIL_PURPOSES.has(intent.purpose);
 
-  if (validAddress && MARKETING_EMAIL_PURPOSES.has(intent.purpose)) {
-    const optedOut = await isOptedOut(tx, intent.to);
-    checks.push({ check: "email_opt_out", passed: !optedOut, detail: optedOut ? "They unsubscribed from these emails." : "Not on the unsubscribe list." });
-    const address = optedOut ? null : await postalAddress(tx, intent.tenant);
-    if (!optedOut) checks.push({ check: "postal_address", passed: address !== null, detail: address ? "Postal address included." : "No postal address on file." });
-    if (optedOut) blockedReason = "They unsubscribed from these emails.";
+  const suppressed = validAddress ? await suppressionOf(tx, intent.to) : null;
+  if (validAddress && !marketing) {
+    const bounced = suppressed === "bounce";
+    checks.push({ check: "email_bounce", passed: !bounced, detail: bounced ? "Emails to this address bounce." : "Address hasn't bounced." });
+    if (bounced) blockedReason = SUPPRESSION_REASONS.bounce!;
+  }
+  if (validAddress && marketing) {
+    const reason = suppressed ? (SUPPRESSION_REASONS[suppressed] ?? "They asked not to get these emails.") : null;
+    checks.push({ check: "email_opt_out", passed: !reason, detail: reason ?? "Not on the unsubscribe list." });
+    const address = reason ? null : await postalAddress(tx, intent.tenant);
+    if (!reason) checks.push({ check: "postal_address", passed: address !== null, detail: address ? "Postal address included." : "No postal address on file." });
+    if (reason) blockedReason = reason;
     else if (!address) blockedReason = "Add the business's street address and ZIP in Settings first (US anti-spam law).";
-    else body += marketingFooter({ business: intent.tenant.name, address, unsubscribe: unsubscribeUrl(intent.tenant.id, intent.to) });
+    else {
+      const footer = { business: intent.tenant.name, address, unsubscribe: unsubscribeUrl(intent.tenant.id, intent.to), ...intent.footer };
+      body += marketingFooter(footer);
+      html = html?.replace("<!--footer-->", marketingFooterHtml(footer)) ?? null;
+    }
   }
 
   const [message] = await tx
@@ -145,16 +180,24 @@ export async function requestEmail(tx: Tx, fx: Effects, intent: EmailIntent) {
       purpose: intent.purpose,
       status: blockedReason ? "blocked" : "queued",
       toAddress: intent.to,
-      fromAddress: env.EMAIL_FROM,
+      fromAddress: marketing ? senderFor(intent.tenant.name) : env.EMAIL_FROM,
       subject: intent.subject,
       body,
+      html: html?.replace("<!--footer-->", "") ?? null,
+      replyTo: intent.replyTo ?? null,
       blockedReason,
       provider: channels.email.provider,
       policy: { checks },
     })
     .returning();
 
-  if (!blockedReason) fx.enqueue(QUEUES.dispatchMessage, { tenantId: intent.tenant.id, messageId: message!.id });
+  if (!blockedReason) {
+    fx.enqueue(
+      QUEUES.dispatchMessage,
+      { tenantId: intent.tenant.id, messageId: message!.id },
+      intent.sendAfterSecs ? { startAfterSecs: intent.sendAfterSecs } : undefined,
+    );
+  }
   fx.publish({ type: "message.created", messageId: message!.id, leadId: intent.leadId });
   return message!;
 }

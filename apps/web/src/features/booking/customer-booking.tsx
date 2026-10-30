@@ -4,6 +4,7 @@ import {
   BOOKING_CONSENT_TEXT,
   type BookingCreated,
   type PublicBookingContext,
+  type PublicCampaignOffer,
   type RequestSource,
   type SlotsResponse,
   waitlistConsentText,
@@ -40,12 +41,15 @@ export function CustomerBooking({
   context,
   source,
   initialServiceId,
+  campaign = null,
 }: {
   slug: string;
   context: PublicBookingContext;
   source: RequestSource;
   /** Opened from a link for one service (the chat assistant's): start at its free times. */
   initialServiceId?: string | null;
+  /** Came from a campaign email (C-44): its offer shows here, and the booking is credited to it. */
+  campaign?: string | null;
 }) {
   const preset = context.services.find((item) => item.id === initialServiceId) ?? null;
   const [step, setStep] = useState<Step>(preset ? "time" : "service");
@@ -80,9 +84,11 @@ export function CustomerBooking({
   }
 
   const noTimes = slots.data && slots.data.days.every((day) => day.slots.length === 0);
+  const requestUrl = campaign ? `${context.requestUrl}${context.requestUrl.includes("?") ? "&" : "?"}campaign=${campaign}` : context.requestUrl;
 
   return (
     <Shell context={context}>
+      {campaign && step !== "done" && <CampaignOffer token={campaign} />}
       {step === "service" && (
         <section className="space-y-3">
           <h2 className="text-[19px] font-bold">What do you need?</h2>
@@ -124,7 +130,7 @@ export function CustomerBooking({
           )}
           <p className="text-[15px] text-muted-foreground">
             Not sure what you need?{" "}
-            <a href={context.requestUrl} className="font-semibold text-primary">
+            <a href={requestUrl} className="font-semibold text-primary">
               Describe the job instead
             </a>
           </p>
@@ -179,6 +185,7 @@ export function CustomerBooking({
           service={service}
           slot={slot}
           source={source}
+          campaign={campaign}
           onBack={() => setStep("time")}
           onTaken={() => {
             setSlot(null);
@@ -383,6 +390,7 @@ function Details({
   service,
   slot,
   source,
+  campaign,
   onBack,
   onTaken,
   onBooked,
@@ -392,6 +400,7 @@ function Details({
   service: Service;
   slot: string;
   source: RequestSource;
+  campaign: string | null;
   onBack: () => void;
   onTaken: () => void;
   onBooked: (result: BookingCreated) => void;
@@ -417,6 +426,7 @@ function Details({
           smsConsent,
           earlier,
           source,
+          ...(campaign && { campaign }),
         },
       }),
     onSuccess: onBooked,
@@ -618,5 +628,26 @@ function JoinWaitlist({
         </Button>
       </form>
     </section>
+  );
+}
+
+/** The offer from the campaign email they tapped (C-44), so they know it's been noted. */
+function CampaignOffer({ token }: { token: string }) {
+  const { data } = useQuery({
+    queryKey: ["campaign-offer", token],
+    queryFn: () => api<PublicCampaignOffer>(`/public/campaign-links/${encodeURIComponent(token)}`),
+    retry: false,
+  });
+  if (!data?.offer) return null;
+  return (
+    <div className="mb-5 rounded-lg border border-primary/30 bg-primary-subtle p-4 text-primary-subtle-foreground">
+      <p className="text-[12px] font-bold tracking-wide uppercase">Your offer</p>
+      <p className="mt-0.5 text-[17px] font-semibold">{data.offer}</p>
+      <p className="mt-0.5 text-sm">
+        {data.ended
+          ? `This offer ended ${data.endsOn}, but you can still book.`
+          : `${data.endsOn ? `Until ${data.endsOn}. ` : ""}It's noted on your booking, so there's nothing to mention.`}
+      </p>
+    </div>
   );
 }

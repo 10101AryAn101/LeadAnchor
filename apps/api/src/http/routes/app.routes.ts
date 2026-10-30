@@ -4,6 +4,10 @@ import {
   CALENDAR_PROVIDERS,
   LISTING_PROVIDERS,
   assistantSettingsInput,
+  campaignAudience,
+  campaignCreateInput,
+  campaignSendInput,
+  campaignUpdateInput,
   chatHandlerInput,
   chatReplyInput,
   dashboardRange,
@@ -49,6 +53,20 @@ import { createService, listServices, reorderServices, updateService } from "../
 import { getBookingSettings, markNoShow, ownerBook, ownerCancel, ownerSlots, updateBookingSettings } from "../../modules/booking/booking.service";
 import { connectCalendar, disconnectCalendar, syncCalendar } from "../../modules/booking/calendar-sync";
 import { listWaitlist, removeFromWaitlist } from "../../modules/booking/waitlist.service";
+import {
+  approveCampaign,
+  campaignOptions,
+  createCampaign,
+  deleteCampaign,
+  draftCampaignCopy,
+  getCampaign,
+  listCampaigns,
+  previewAudience,
+  previewCampaign,
+  sendTestEmail,
+  unscheduleCampaign,
+  updateCampaign,
+} from "../../modules/campaigns/campaign.service";
 import { getAssistantSettings, getChat, listChats, ownerReply, setHandler, updateAssistantSettings } from "../../modules/chat/chat.service";
 import {
   connectListing,
@@ -395,6 +413,81 @@ export async function appRoutes(app: FastifyInstance) {
   app.put("/api/assistant", async (req) => {
     const ctx = await tenantContext(req, ["owner", "manager"]);
     return updateAssistantSettings(ctx.tenantId, ctx.userId, parseInput(assistantSettingsInput, req.body));
+  });
+
+  /* ── Email campaigns (module 11; C-28, C-29, C-30, C-44) ───────────────── */
+
+  app.get("/api/campaigns", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    return listCampaigns(ctx.tenantId);
+  });
+
+  app.get("/api/campaigns/options", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    return campaignOptions(ctx.tenantId);
+  });
+
+  /** Who an audience reaches right now, and who it leaves out and why. */
+  app.post("/api/campaigns/audience", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    return previewAudience(ctx.tenantId, parseInput(campaignAudience, req.body));
+  });
+
+  app.post("/api/campaigns", async (req, reply) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const created = await createCampaign(ctx.tenantId, parseInput(campaignCreateInput, req.body).kind);
+    return reply.status(201).send(created);
+  });
+
+  app.get("/api/campaigns/:id", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return getCampaign(ctx.tenantId, id);
+  });
+
+  app.patch("/api/campaigns/:id", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return updateCampaign(ctx.tenantId, id, parseInput(campaignUpdateInput, req.body));
+  });
+
+  app.delete("/api/campaigns/:id", async (req, reply) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    await deleteCampaign(ctx.tenantId, id);
+    return reply.status(204).send();
+  });
+
+  /** The AI's subject and message; not saved until the owner keeps them. */
+  app.post("/api/campaigns/:id/draft", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return draftCampaignCopy(ctx.tenantId, id);
+  });
+
+  app.get("/api/campaigns/:id/preview", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return previewCampaign(ctx.tenantId, id);
+  });
+
+  app.post("/api/campaigns/:id/test", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return sendTestEmail(ctx.tenantId, id, { name: ctx.name, email: ctx.email });
+  });
+
+  /** The owner's approval: send now or at a set time (C-30: nothing goes out without it). */
+  app.post("/api/campaigns/:id/send", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(idParam, req.params);
+    return approveCampaign(ctx.tenantId, id, parseInput(campaignSendInput, req.body), ctx);
+  });
+
+  app.post("/api/campaigns/:id/unschedule", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(idParam, req.params);
+    return unscheduleCampaign(ctx.tenantId, id, ctx);
   });
 
   /* ── Reviews and the Google listing (module 9, C-21, C-23, C-46, C-47) ─── */

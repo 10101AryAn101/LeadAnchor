@@ -38,6 +38,7 @@ import { audit } from "../compliance/audit";
 import { requestUrl } from "../intake/intake.service";
 import { addLeadEvent } from "../leads/lead-capture";
 import { toMessageItem } from "../messaging/message-item";
+import { creditCampaign } from "../campaigns/links";
 import { notifyOwner } from "../notifications/notify";
 import { capturePayment, publicBusinessOf } from "../payments/payment.service";
 import { availableSlots, isBookable } from "./availability";
@@ -315,6 +316,8 @@ export async function bookOnline(
         },
       });
     }
+    // C-44: booked from a campaign email; the job shows which offer it came with.
+    if (input.campaign) await creditCampaign(tx, { tenant, token: input.campaign, leadId: lead.id, via: "booking" });
     if (input.earlier) {
       // C-22: hoping for an earlier time; offers come by email, and by text with this separate opt-in.
       await tx.insert(waitlistEntries).values({

@@ -202,7 +202,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         </FieldGroup>
       </Section>
 
-      <Section title="Business profile" description="Shown on the request form customers open. Licence and insurance are your own statements — we show them as “Licensed & Insured”, never “Verified”.">
+      <Section id="profile" title="Business profile" description="Shown on the request form customers open. Licence and insurance are your own statements — we show them as “Licensed & Insured”, never “Verified”.">
         <FieldGroup>
           <div className="grid gap-4 sm:grid-cols-2">
             <TextField form={form} name="businessName" label="Business name" />

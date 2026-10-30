@@ -3,6 +3,9 @@
 import type {
   AssistantSettings,
   BookingSettingsResponse,
+  CampaignDetail,
+  CampaignOptions,
+  CampaignsResponse,
   ChatDetail,
   ChatsResponse,
   CallItem,
@@ -65,6 +68,10 @@ export const keys = {
   chat: (id: string) => ["chat", id] as const,
   chatAll: ["chat"] as const,
   assistant: ["assistant"] as const,
+  campaigns: ["campaigns"] as const,
+  campaign: (id: string) => ["campaign", id] as const,
+  campaignAll: ["campaign"] as const,
+  campaignOptions: ["campaign-options"] as const,
   simCalendar: ["sim-calendar"] as const,
   simCall: (sessionId: string) => ["sim-call", sessionId] as const,
   simInbox: (phone: string) => ["sim-inbox", phone] as const,
@@ -123,6 +130,19 @@ export const useReviews = () => useQuery({ queryKey: keys.reviews, queryFn: () =
 export const useReviewsSummary = () => useQuery({ queryKey: keys.reviewsSummary, queryFn: () => api<ReviewsSummary>("/reviews/summary") });
 
 export const useChats = () => useQuery({ queryKey: keys.chats, queryFn: () => api<ChatsResponse>("/chats") });
+
+export const useCampaigns = () => useQuery({ queryKey: keys.campaigns, queryFn: () => api<CampaignsResponse>("/campaigns") });
+
+/** While a campaign is scheduled or going out, it checks back for the send and its first taps. */
+export const useCampaign = (id: string) =>
+  useQuery({
+    queryKey: keys.campaign(id),
+    queryFn: () => api<CampaignDetail>(`/campaigns/${id}`),
+    refetchInterval: (query) => (query.state.data?.status === "scheduled" || query.state.data?.status === "sending" ? 5000 : false),
+  });
+
+export const useCampaignOptions = () =>
+  useQuery({ queryKey: keys.campaignOptions, queryFn: () => api<CampaignOptions>("/campaigns/options"), staleTime: 60_000 });
 
 export const useChat = (id: string | null) =>
   useQuery({ queryKey: keys.chat(id ?? "none"), queryFn: () => api<ChatDetail>(`/chats/${id}`), enabled: Boolean(id) });

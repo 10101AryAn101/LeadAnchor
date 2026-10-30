@@ -7,6 +7,10 @@ export interface OutboundMessage {
   /** Email only. */
   subject?: string | null;
   body: string;
+  /** Email only: the designed version, sent alongside the plain text. */
+  html?: string | null;
+  /** Email only. */
+  replyTo?: string | null;
 }
 
 export interface SendResult {

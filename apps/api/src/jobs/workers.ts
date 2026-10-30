@@ -2,6 +2,8 @@ import { logger } from "../lib/logger";
 import { extractCallerNeedJob, triagePhotoJob } from "../modules/ai/ai-jobs";
 import { advanceRegistrationJob, registrationTickJob } from "../modules/compliance/registration.service";
 import { bookingsTickJob } from "../modules/booking/booking.service";
+import { campaignSendJob } from "../modules/campaigns/send";
+import { campaignSignalsTickJob } from "../modules/campaigns/signals";
 import { assistantReplyJob } from "../modules/chat/assistant";
 import { calendarSyncTickJob, pushBookingJob } from "../modules/booking/calendar-sync";
 import { dispatchMessage } from "../modules/messaging/dispatch";
@@ -45,4 +47,6 @@ export async function startWorkers() {
   await work(QUEUES.reviewRequestSend, sendReviewRequestJob);
   await work(QUEUES.reviewRequestsTick, reviewRequestsTickJob);
   await work(QUEUES.assistantReply, assistantReplyJob);
+  await work(QUEUES.campaignSend, campaignSendJob);
+  await work(QUEUES.campaignSignalsTick, campaignSignalsTickJob);
 }

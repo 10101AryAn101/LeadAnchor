@@ -1,6 +1,6 @@
 import type { IntegrationStatus, RegistrationStatus } from "@leadanchor/contracts";
 import { env } from "../../config/env";
-import { ai, calendarProviders, channels, consentLedger, listingProviders, payments, pdf, registry } from "../../container";
+import { ai, calendarProviders, channels, consentLedger, holidays, listingProviders, payments, pdf, registry, weather } from "../../container";
 
 /**
  * Honest status of every third-party service the spec names: live, simulated
@@ -107,10 +107,37 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
     {
       key: "email",
       name: "Transactional email",
-      purpose: "Your weekly summary, receipts, review requests and email-first marketing.",
-      capabilities: ["C-40", "C-28", "C-46"],
-      state: "simulated",
-      detail: "No email service is connected yet. Emails are kept in the Email outbox (under Business) so you can read what would have been sent.",
+      purpose: "Your weekly summary, receipts, review requests and email campaigns, with bounce and spam-report handling.",
+      capabilities: ["C-40", "C-28", "C-29", "C-30", "C-44", "C-46"],
+      state: channels.email.provider === "outbox" ? "simulated" : "live",
+      detail:
+        channels.email.provider === "outbox"
+          ? "No email service is connected yet. Emails are kept in the Email outbox (under Business), where you can also make one bounce or be marked as spam to see how LeadAnchor reacts."
+          : "Emails go out through the connected email service; bounces and spam reports come back to LeadAnchor.",
+      mandatedBySpec: true,
+    },
+    {
+      key: "weather",
+      name: "Weather forecasts",
+      purpose: "Spots a freeze or heat wave coming to your town and drafts a timely offer for you to approve.",
+      capabilities: ["C-30"],
+      state: weather.name === "simulator" ? "simulated" : "live",
+      detail:
+        weather.name === "simulator"
+          ? "A simulated forecast stands in until the US National Weather Service is connected (free, no key, step 2). Dev tools can bring on a cold snap or heat wave."
+          : "Forecasts come from the US National Weather Service.",
+      mandatedBySpec: true,
+    },
+    {
+      key: "holidays",
+      name: "Holiday calendar",
+      purpose: "Drafts an offer a couple of weeks before holidays that matter to your trade.",
+      capabilities: ["C-30"],
+      state: holidays.name === "simulator" ? "simulated" : "live",
+      detail:
+        holidays.name === "simulator"
+          ? "A built-in US holiday calendar stands in until a holiday API is connected (free, step 2)."
+          : "Holidays come from the connected holiday API.",
       mandatedBySpec: true,
     },
   ];

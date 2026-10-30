@@ -1,4 +1,4 @@
-import type { ChatChannel, ReplyTone, Trade, Urgency } from "@leadanchor/contracts";
+import type { CampaignKind, ChatChannel, ReplyTone, Trade, Urgency } from "@leadanchor/contracts";
 
 /** What the AI pulls out of a voicemail, an AI Dispatcher answer or a web form (C-13, C-39). */
 export interface CallerNeed {
@@ -132,6 +132,25 @@ export interface ListingPostInput {
   timeoutMs: number;
 }
 
+/** Module 11: a campaign email to the business's own past customers. */
+export interface CampaignDraftInput {
+  businessName: string;
+  ownerFirstName: string | null;
+  trade: Trade;
+  area: string | null;
+  kind: CampaignKind;
+  /** "Past customers with no work in 6+ months" */
+  audience: string;
+  /** "$20 off a drain cleaning", exactly as the owner wrote it. */
+  offer: string | null;
+  /** "Sunday, November 30" */
+  offerEnds: string | null;
+  service: string | null;
+  /** What prompted it (C-30): "A low of 27°F forecast for Tue, Nov 3." */
+  occasion: string | null;
+  timeoutMs: number;
+}
+
 /**
  * AI provider port. Business code depends on this interface only, so the model
  * vendor can change without touching it (spec: "provider abstraction is a requirement").
@@ -150,4 +169,6 @@ export interface AiProvider {
   draftListingPost(input: ListingPostInput): Promise<{ text: string }>;
   /** C-16: the assistant's next message in a chat, and what to do with the conversation. */
   chatTurn(input: ChatTurnInput): Promise<ChatTurn>;
+  /** Module 11: a campaign's subject and message; nothing is sent until the owner approves. */
+  draftCampaign(input: CampaignDraftInput): Promise<{ subject: string; body: string }>;
 }

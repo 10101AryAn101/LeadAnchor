@@ -20,6 +20,7 @@ import { randomToken, sha256 } from "../../lib/crypto";
 import { HttpError, notFound } from "../../lib/errors";
 import { addDays } from "../../lib/time";
 import { consentLedger, storage } from "../../container";
+import { creditCampaign } from "../campaigns/links";
 import { addLeadEvent, captureLead } from "../leads/lead-capture";
 import { notifyOwner } from "../notifications/notify";
 import { type ProcessedPhoto, processPhoto } from "./photo";
@@ -216,6 +217,7 @@ export async function submitPublicRequest(
       meta,
       `New request from ${SOURCE_PHRASE[fields.source]}: ${fields.contactName}`,
     );
+    if (fields.campaign) await creditCampaign(tx, { tenant, token: fields.campaign, leadId: lead.id, via: "request" });
   });
   return { ok: true as const, photos: stored.length };
 }

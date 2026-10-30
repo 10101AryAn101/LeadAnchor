@@ -4,6 +4,8 @@ import { GeminiProvider } from "./integrations/ai/gemini";
 import type { AiProvider } from "./integrations/ai/types";
 import { SimulatorCalendar } from "./integrations/calendar/simulator";
 import type { CalendarProvider } from "./integrations/calendar/types";
+import { SimulatorHolidays } from "./integrations/holidays/simulator";
+import type { HolidayProvider } from "./integrations/holidays/types";
 import { SimulatorListings } from "./integrations/listings/simulator";
 import type { ListingProvider } from "./integrations/listings/types";
 import { ChromiumPdf, type PdfRenderer, findBrowser } from "./integrations/documents/pdf";
@@ -18,6 +20,8 @@ import type { PaymentsProvider } from "./integrations/payments/types";
 import { FcmPush } from "./integrations/push/fcm";
 import { SimulatedPush } from "./integrations/push/simulator";
 import type { PushProvider } from "./integrations/push/types";
+import { SimulatorWeather } from "./integrations/weather/simulator";
+import type { WeatherProvider } from "./integrations/weather/types";
 import { SimulatorRegistry } from "./integrations/registry/simulator";
 import { TelnyxRegistry } from "./integrations/registry/telnyx";
 import type { CarrierRegistry } from "./integrations/registry/types";
@@ -89,6 +93,15 @@ export const simulatorListings = new SimulatorListings(
  * must approve API access and each business signs in); until then the simulator stands in.
  */
 export const listingProviders: Partial<Record<ListingProvider["name"], ListingProvider>> = { simulator: simulatorListings };
+
+export const simulatorWeather = new SimulatorWeather(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "weather.json"));
+
+/**
+ * Seasonal offers (C-30) watch the forecast and the holiday calendar. The National Weather
+ * Service and a holiday API (both free, no key) join in step 2; until then simulators stand in.
+ */
+export const weather: WeatherProvider = simulatorWeather;
+export const holidays: HolidayProvider = new SimulatorHolidays();
 
 /**
  * Message channels (module 5). WhatsApp is Meta's Cloud API once its keys are set; until then a

@@ -1,0 +1,1 @@
+ALTER TABLE "campaign_recipients" ALTER COLUMN "email" DROP NOT NULL;

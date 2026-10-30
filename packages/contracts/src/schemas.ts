@@ -5,6 +5,10 @@ import {
   BOOKING_STATUSES,
   CALENDAR_PROVIDERS,
   CALLER_TYPES,
+  CAMPAIGN_KINDS,
+  CAMPAIGN_SEGMENTS,
+  CAMPAIGN_STATUSES,
+  CAMPAIGN_TRIGGER_KINDS,
   CHAT_CHANNELS,
   CHAT_STATES,
   CALL_OUTCOMES,
@@ -12,6 +16,7 @@ import {
   CONSENT_SOURCES,
   CONSENT_TYPES,
   CONTACT_CHANNELS,
+  EMAIL_FEEDBACK_TYPES,
   FORWARDING_STATUSES,
   INTAKE_STATUSES,
   INTEGRATIONS,
@@ -39,6 +44,7 @@ import {
   QUOTE_DRAFT_SOURCES,
   QUOTE_LINE_ORIGINS,
   QUOTE_STATUSES,
+  RECIPIENT_STATUSES,
   REGISTRATION_PATHS,
   REGISTRATION_STAGES,
   REGISTRATION_STATUSES,
@@ -243,8 +249,13 @@ export interface OutboxEmail {
   to: string;
   subject: string | null;
   body: string;
+  /** Campaign emails also have a designed version. */
+  html: string | null;
+  replyTo: string | null;
   status: z.infer<typeof messageItem>["status"];
   blockedReason: string | null;
+  /** What the email service reported back: it bounced, or was marked as spam. */
+  feedback: (typeof EMAIL_FEEDBACK_TYPES)[number] | null;
   createdAt: string;
 }
 
@@ -604,6 +615,8 @@ export const publicRequestFields = intakeSubmitFields.extend({
   source: z.enum(REQUEST_SOURCES).catch("link"),
   /** Spam trap: hidden from people, filled in by bots. */
   company: z.string().max(200).optional().default(""),
+  /** The campaign link they came from, if any (module 11). */
+  campaign: z.string().trim().max(64).optional(),
 });
 
 /** Exact wording shown next to the checkbox — versioned so the ledger proves what was agreed to. */
@@ -1118,6 +1131,8 @@ export const bookingInput = z.object({
   /** Wants a text if an earlier time opens up (C-22). */
   earlier: z.boolean().default(false),
   source: z.enum(REQUEST_SOURCES).catch("link"),
+  /** The campaign link they came from, if any (C-44: click-to-book). */
+  campaign: z.string().trim().max(64).optional(),
 });
 export type BookingInput = z.input<typeof bookingInput>;
 
@@ -1602,6 +1617,188 @@ export const simulatorPhoneMessage = z.object({
   createdAt: isoDate,
 });
 export type SimulatorPhoneMessage = z.infer<typeof simulatorPhoneMessage>;
+
+/* ----------------------------------------------------------------------------
+ * Email campaigns (module 11; C-28 win-backs, C-29 promotions, C-30 weather and
+ * holiday offers, C-44 click-to-book)
+ * ------------------------------------------------------------------------- */
+
+const dayOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Pick a date");
+
+export const campaignAudience = z
+  .object({
+    segment: z.enum(CAMPAIGN_SEGMENTS),
+    /** quiet: no work for this long; not_booked: asked within this long. */
+    months: z.number().int().min(1).max(36).default(6),
+    /** service: as it appears on finished jobs. */
+    service: z.string().trim().max(120).nullable().default(null),
+    tag: z.string().trim().max(40).nullable().default(null),
+  })
+  .superRefine((value, ctx) => {
+    if (value.segment === "service" && !value.service) ctx.addIssue({ code: "custom", path: ["service"], message: "Pick a service" });
+    if (value.segment === "tag" && !value.tag) ctx.addIssue({ code: "custom", path: ["tag"], message: "Pick a tag" });
+  });
+export type CampaignAudience = z.output<typeof campaignAudience>;
+
+/** Why a campaign was suggested (C-30): a freeze or heat wave in the forecast, or a holiday ahead. */
+export const campaignTrigger = z.object({
+  kind: z.enum(CAMPAIGN_TRIGGER_KINDS),
+  /** "Freeze forecast for Tue, Nov 3" */
+  title: z.string(),
+  /** "A low of 27°F in Austin, TX." */
+  detail: z.string(),
+  /** The day it's about. */
+  date: dayOnly,
+});
+export type CampaignTrigger = z.infer<typeof campaignTrigger>;
+
+export const campaignCreateInput = z.object({ kind: z.enum(CAMPAIGN_KINDS) });
+
+export const campaignUpdateInput = z
+  .object({
+    name: z.string().trim().min(1, "Name it").max(80),
+    audience: campaignAudience,
+    subject: z.string().trim().max(150),
+    body: z.string().trim().max(4000),
+    offer: z.string().trim().max(120).nullable(),
+    offerEndsOn: dayOnly.nullable(),
+    serviceId: z.string().nullable(),
+  })
+  .partial();
+export type CampaignUpdateInput = z.input<typeof campaignUpdateInput>;
+
+/** The owner's approval: send now, or at a time in the business's time zone. */
+export const campaignSendInput = z.discriminatedUnion("when", [
+  z.object({ when: z.literal("now") }),
+  z.object({ when: z.literal("later"), date: dayOnly, time: z.string().regex(/^\d{2}:\d{2}$/, "Pick a time") }),
+]);
+export type CampaignSendInput = z.input<typeof campaignSendInput>;
+
+export const audiencePreview = z.object({
+  /** People the segment matched. */
+  matching: z.number().int(),
+  /** Who will get it. */
+  reachable: z.number().int(),
+  /** Who's left out, and why: no email, unsubscribed, bounced. */
+  skipped: z.array(z.object({ reason: z.string(), count: z.number().int() })),
+  /** A few of them, so the owner can check they're the right people. */
+  sample: z.array(z.object({ name: z.string(), email: z.string() })),
+});
+export type AudiencePreview = z.infer<typeof audiencePreview>;
+
+export const campaignStats = z.object({
+  sent: z.number().int(),
+  skipped: z.number().int(),
+  clicked: z.number().int(),
+  booked: z.number().int(),
+  /** Won jobs that came from it. */
+  wonCents: z.number().int(),
+  unsubscribed: z.number().int(),
+  bounced: z.number().int(),
+  complained: z.number().int(),
+});
+export type CampaignStats = z.infer<typeof campaignStats>;
+
+export const campaignSummary = z.object({
+  id,
+  kind: z.enum(CAMPAIGN_KINDS),
+  status: z.enum(CAMPAIGN_STATUSES),
+  name: z.string(),
+  audience: campaignAudience,
+  /** "Past customers who've gone quiet (6+ months)" */
+  audienceLabel: z.string(),
+  offer: z.string().nullable(),
+  trigger: campaignTrigger.nullable(),
+  /** A suggestion lapses after the day it's about. */
+  suggestedUntil: isoDate.nullable(),
+  scheduledFor: isoDate.nullable(),
+  sentAt: isoDate.nullable(),
+  createdAt: isoDate,
+  updatedAt: isoDate,
+  /** Once it's going out. */
+  stats: campaignStats.nullable(),
+});
+export type CampaignSummary = z.infer<typeof campaignSummary>;
+
+export const campaignsResponse = z.object({
+  campaigns: z.array(campaignSummary),
+  setup: z.object({
+    /** No postal address, no marketing email (CAN-SPAM). */
+    postalAddress: z.boolean(),
+    customersWithEmail: z.number().int(),
+  }),
+});
+export type CampaignsResponse = z.infer<typeof campaignsResponse>;
+
+export const campaignRecipient = z.object({
+  id,
+  name: z.string(),
+  email: z.string().nullable(),
+  status: z.enum(RECIPIENT_STATUSES),
+  skipReason: z.string().nullable(),
+  sentAt: isoDate.nullable(),
+  clickedAt: isoDate.nullable(),
+  bookedAt: isoDate.nullable(),
+  leadId: z.string().nullable(),
+  unsubscribedAt: isoDate.nullable(),
+  complainedAt: isoDate.nullable(),
+});
+export type CampaignRecipient = z.infer<typeof campaignRecipient>;
+
+export const campaignDetail = campaignSummary.extend({
+  subject: z.string(),
+  body: z.string(),
+  offerEndsOn: z.string().nullable(),
+  /** The service the booking button opens with (C-44). */
+  serviceId: z.string().nullable(),
+  approvedAt: isoDate.nullable(),
+  approvedBy: z.string().nullable(),
+  /** What stops it going out: the copy checks and the missing postal address. */
+  problems: z.array(z.string()),
+  recipients: z.array(campaignRecipient),
+  timezone: z.string(),
+  /** Off: the button opens the request form instead of the booking page. */
+  bookingOn: z.boolean(),
+});
+export type CampaignDetail = z.infer<typeof campaignDetail>;
+
+/** What the audience picker offers: services done on finished jobs, and tags in use. */
+export const campaignOptions = z.object({
+  services: z.array(z.string()),
+  tags: z.array(z.string()),
+});
+export type CampaignOptions = z.infer<typeof campaignOptions>;
+
+/** The email as one customer would get it. */
+export const campaignPreview = z.object({
+  subject: z.string(),
+  html: z.string(),
+  text: z.string(),
+  sampleName: z.string().nullable(),
+});
+export type CampaignPreview = z.infer<typeof campaignPreview>;
+
+export const campaignDraft = z.object({
+  subject: z.string(),
+  body: z.string(),
+  /** "template" when the AI was busy. */
+  source: z.enum(["ai", "template"]),
+});
+export type CampaignDraft = z.infer<typeof campaignDraft>;
+
+/** The offer behind a campaign link, shown on the booking page (C-44). */
+export const publicCampaignOffer = z.object({
+  business: publicBusiness,
+  offer: z.string().nullable(),
+  /** "Sunday, November 30" */
+  endsOn: z.string().nullable(),
+  ended: z.boolean(),
+  serviceId: z.string().nullable(),
+});
+export type PublicCampaignOffer = z.infer<typeof publicCampaignOffer>;
+
+/** Development: what the simulated weather service forecasts for the business's town. */
+export const simWeatherInput = z.object({ kind: z.enum(["freeze", "heat", "mild"]) });
 
 /* ----------------------------------------------------------------------------
  * Errors

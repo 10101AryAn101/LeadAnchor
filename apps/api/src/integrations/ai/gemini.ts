@@ -1,4 +1,11 @@
-import { CHAT_CHANNEL_LABELS, LOW_RATING_MAX, type ReplyTone, TRADE_LABELS, URGENCY_LEVELS } from "@leadanchor/contracts";
+import {
+  CAMPAIGN_KIND_LABELS,
+  CHAT_CHANNEL_LABELS,
+  LOW_RATING_MAX,
+  type ReplyTone,
+  TRADE_LABELS,
+  URGENCY_LEVELS,
+} from "@leadanchor/contracts";
 import { ApiError, GoogleGenAI, type Schema, ThinkingLevel, Type } from "@google/genai";
 import { z } from "zod";
 import { logger } from "../../lib/logger";
@@ -6,6 +13,7 @@ import { sleep } from "../../lib/time";
 import type {
   AiProvider,
   CallerNeed,
+  CampaignDraftInput,
   CallerNeedInput,
   ChatTurn,
   ChatTurnInput,
@@ -72,6 +80,16 @@ const listingPostResponseSchema: Schema = {
   type: Type.OBJECT,
   properties: { text: { type: Type.STRING, description: "The update to post on the Google listing" } },
   required: ["text"],
+};
+
+const campaignSchema = z.object({ subject: z.string().min(1).max(150), body: z.string().min(1).max(3000) });
+const campaignResponseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    subject: { type: Type.STRING, description: "The email's subject line" },
+    body: { type: Type.STRING, description: "The email's message, starting with 'Hi {first_name},' and signed off" },
+  },
+  required: ["subject", "body"],
 };
 
 const CHAT_ACTIONS = ["answer", "ask", "book", "handoff"] as const;
@@ -412,6 +430,31 @@ export class GeminiProvider implements AiProvider {
       phone: result.phone ?? null,
       handoffReason: result.handoffReason ?? null,
     };
+  }
+
+  async draftCampaign(input: CampaignDraftInput): Promise<{ subject: string; body: string }> {
+    const result = await this.generateJson(
+      campaignSchema,
+      campaignResponseSchema,
+      [
+        `Business: ${input.businessName} (${TRADE_LABELS[input.trade]})${input.area ? `, serving ${input.area}` : ""}.`,
+        `Sign off as: ${input.ownerFirstName ? `${input.ownerFirstName}, ${input.businessName}` : `the team at ${input.businessName}`}.`,
+        `Kind of email: ${CAMPAIGN_KIND_LABELS[input.kind]}. Going to: ${input.audience}.`,
+        input.service ? `Service to promote: ${input.service}.` : "",
+        input.offer ? `The offer, word for word: ${input.offer}.` : "There is no offer or discount.",
+        input.offerEnds ? `The offer ends ${input.offerEnds}.` : "",
+        input.occasion ? `Why now: ${input.occasion}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+      "You write short marketing emails for a small US service business to its own past customers. Use only the facts given. " +
+        "Never invent discounts, prices, deadlines, guarantees, reviews, awards or claims; mention the offer exactly as written, and only if there is one. " +
+        "Don't create urgency unless an end date is given. Subject: under 60 characters, honest, sentence case, no 'Re:' or 'Fwd:', no emoji. " +
+        "Message: begin with 'Hi {first_name},' exactly (the system fills in the name), then 40 to 110 words of friendly plain language in short paragraphs, " +
+        "then the sign-off on its own lines. No links, phone numbers or prices besides the offer: the email adds a booking button and the phone number below your text.",
+      { attempts: 2, deadline: Date.now() + input.timeoutMs },
+    );
+    return { subject: result.subject.trim(), body: result.body.trim() };
   }
 
   private async generateJson<T extends z.ZodType>(

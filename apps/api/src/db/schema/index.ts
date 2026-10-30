@@ -9,4 +9,5 @@ export * from "./compliance";
 export * from "./money";
 export * from "./booking";
 export * from "./reviews";
+export * from "./campaigns";
 export * from "./system";

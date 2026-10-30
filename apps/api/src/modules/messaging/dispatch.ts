@@ -27,7 +27,15 @@ export async function dispatchMessage({ tenantId, messageId }: { tenantId: strin
   }
 
   try {
-    const result = await adapter.send({ id: message.id, from: message.fromAddress, to: message.toAddress, subject: message.subject, body: message.body });
+    const result = await adapter.send({
+      id: message.id,
+      from: message.fromAddress,
+      to: message.toAddress,
+      subject: message.subject,
+      body: message.body,
+      html: message.html,
+      replyTo: message.replyTo,
+    });
     await tenantWork(tenantId, async (tx, fx) => {
       const now = new Date();
       await tx

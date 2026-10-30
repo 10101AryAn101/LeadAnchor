@@ -31,6 +31,7 @@ import { findShowcasePhoto, getPublicProfile } from "../../modules/profile/profi
 import { acceptQuote, declineQuote, getPublicQuote, publicQuotePdf } from "../../modules/quotes/quote.service";
 import { getFeedbackContext, getUnsubscribe, submitFeedback, unsubscribe } from "../../modules/reviews/review-requests";
 import { getChatContext, getChatThread, postChatMessage } from "../../modules/chat/web-chat";
+import { getCampaignOffer, openCampaignLink } from "../../modules/campaigns/links";
 
 const tokenParam = z.object({ token: z.string().min(20).max(64) });
 const slugParam = z.object({ slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$/) });
@@ -81,6 +82,21 @@ export async function publicRoutes(app: FastifyInstance) {
     const { fields, photos } = await readForm(req);
     const result = await submitPublicRequest(slug, parseInput(publicRequestFields, fields), photos, { ipAddress: req.ip ?? null });
     return reply.status(201).send(result);
+  });
+
+  /* ── Campaign links (module 11, C-44): count the tap, then off to book ─── */
+
+  app.post("/api/public/campaign-links/:token/open", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return openCampaignLink(token);
+  });
+
+  /** The offer it carries, for the booking page. */
+  app.get("/api/public/campaign-links/:token", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return getCampaignOffer(token);
   });
 
   /* ── Quotes (C-45): read, download, accept or decline ─────────────────── */

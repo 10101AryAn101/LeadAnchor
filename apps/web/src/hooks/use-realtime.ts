@@ -60,6 +60,8 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
             break;
           case "notification.created":
             void queryClient.invalidateQueries({ queryKey: keys.notifications });
+            // Campaign news (a suggestion, a send) arrives as an alert.
+            void queryClient.invalidateQueries({ queryKey: keys.campaigns });
             notify(event);
             break;
           case "message.created":
@@ -67,6 +69,7 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
             void queryClient.invalidateQueries({ queryKey: ["sim-inbox"] });
             void queryClient.invalidateQueries({ queryKey: keys.outbox });
             void queryClient.invalidateQueries({ queryKey: ["consent"] });
+            void queryClient.invalidateQueries({ queryKey: keys.campaignAll });
             break;
           case "settings.updated":
             void queryClient.invalidateQueries({ queryKey: keys.settings });
