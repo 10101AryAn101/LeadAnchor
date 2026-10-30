@@ -11,6 +11,7 @@ import type { ListingProvider } from "./integrations/listings/types";
 import { ChromiumPdf, type PdfRenderer, findBrowser } from "./integrations/documents/pdf";
 import { FirestoreConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
 import { OutboxEmail } from "./integrations/messaging/email";
+import { ResendEmail } from "./integrations/messaging/resend";
 import { SimulatorSms, TelnyxSms } from "./integrations/messaging/sms";
 import type { ChannelAdapter, WhatsAppAdapter } from "./integrations/messaging/types";
 import { MetaWhatsApp, SimulatorWhatsApp } from "./integrations/messaging/whatsapp";
@@ -44,8 +45,8 @@ export const simulatorTelephony = new SimulatorTelephony();
 export const telephony: TelephonyProvider =
   env.TELEPHONY_PROVIDER === "telnyx"
     ? new TelnyxTelephony({
-        apiKey: requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY),
-        connectionId: requireSetting("TELNYX_CONNECTION_ID", env.TELNYX_CONNECTION_ID),
+        apiKey: requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx"),
+        connectionId: requireSetting("TELNYX_CONNECTION_ID", env.TELNYX_CONNECTION_ID, "Telnyx"),
         messagingProfileId: env.TELNYX_MESSAGING_PROFILE_ID,
         ringbackUrl: `${env.PUBLIC_API_URL}/static/ringback.wav`,
       })
@@ -55,7 +56,7 @@ export const simulatorRegistry = new SimulatorRegistry();
 
 /** Carrier registration (C-43) follows the texting provider: Telnyx texts need a Telnyx-filed registration. */
 export const registry: CarrierRegistry =
-  env.SMS_PROVIDER === "telnyx" ? new TelnyxRegistry(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY)) : simulatorRegistry;
+  env.SMS_PROVIDER === "telnyx" ? new TelnyxRegistry(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx")) : simulatorRegistry;
 
 export const consentLedger: ConsentLedger =
   env.CONSENT_LEDGER === "firestore" ? new FirestoreConsentLedger() : new LocalConsentLedger();
@@ -111,10 +112,13 @@ export const holidays: HolidayProvider = new SimulatorHolidays();
  * simulator stands in during development (C-11). The website chat is LeadAnchor's own (C-16).
  */
 export const channels: { sms: ChannelAdapter; whatsapp: WhatsAppAdapter | null; email: ChannelAdapter; web: ChannelAdapter } = {
-  email: new OutboxEmail(),
+  email:
+    env.EMAIL_TRANSPORT === "resend"
+      ? new ResendEmail(requireSetting("RESEND_API_KEY", env.RESEND_API_KEY, "Resend"), env.EMAIL_TEST_RECIPIENT)
+      : new OutboxEmail(),
   sms:
     env.SMS_PROVIDER === "telnyx"
-      ? new TelnyxSms(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY), env.TELNYX_MESSAGING_PROFILE_ID)
+      ? new TelnyxSms(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx"), env.TELNYX_MESSAGING_PROFILE_ID)
       : new SimulatorSms(),
   whatsapp:
     env.WHATSAPP_ACCESS_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID
@@ -125,7 +129,7 @@ export const channels: { sms: ChannelAdapter; whatsapp: WhatsAppAdapter | null; 
   web: new WebChat(),
 };
 
-function requireSetting(name: string, value: string | undefined): string {
-  if (!value) throw new Error(`${name} must be set when the Telnyx provider is selected.`);
+function requireSetting(name: string, value: string | undefined, provider: string): string {
+  if (!value) throw new Error(`${name} must be set when the ${provider} provider is selected.`);
   return value;
 }

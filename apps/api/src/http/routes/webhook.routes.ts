@@ -8,9 +8,11 @@ import { HttpError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { serial } from "../../lib/serial";
 import { payments, telephony } from "../../container";
+import { verifyResendSignature } from "../../integrations/messaging/resend";
 import { StripePayments } from "../../integrations/payments/stripe";
 import { TelnyxTelephony, type TelnyxWebhook, verifyTelnyxSignature } from "../../integrations/telephony/telnyx";
 import { callEngine } from "../../modules/calls";
+import { applyEmailReport } from "../../modules/messaging/email-feedback";
 import { handleInboundMessage } from "../../modules/messaging/inbound";
 import { receivePaymentEvent } from "../../modules/payments/payment.service";
 
@@ -70,6 +72,30 @@ export async function webhookRoutes(app: FastifyInstance) {
         logger.error({ err: error, eventId: event.id }, "stripe event failed"),
       );
     }
+    return reply.status(200).send({ received: true });
+  });
+
+  /** Resend: delivered, bounced and spam-complaint reports on the emails we sent (module 5). */
+  app.post("/api/webhooks/resend", async (req, reply) => {
+    if (!env.RESEND_WEBHOOK_SECRET) throw new HttpError(503, "not_configured", "Resend webhooks aren't set up.");
+    const valid = verifyResendSignature({
+      rawBody: req.rawBody ?? "",
+      id: header(req.headers["svix-id"]),
+      timestamp: header(req.headers["svix-timestamp"]),
+      signature: header(req.headers["svix-signature"]),
+      secret: env.RESEND_WEBHOOK_SECRET,
+    });
+    if (!valid) throw new HttpError(401, "invalid_signature", "Webhook signature check failed.");
+    const event = req.body as { type?: string; data?: { email_id?: string } };
+    const report =
+      event.type === "email.delivered"
+        ? "delivered"
+        : event.type === "email.bounced"
+          ? "bounce"
+          : event.type === "email.complained"
+            ? "complaint"
+            : null;
+    if (report && event.data?.email_id) await applyEmailReport(event.data.email_id, report);
     return reply.status(200).send({ received: true });
   });
 

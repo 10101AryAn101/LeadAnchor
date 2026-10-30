@@ -1,5 +1,6 @@
 import type { EmailFeedbackType } from "@leadanchor/contracts";
 import { and, eq } from "drizzle-orm";
+import { systemDb } from "../../db/client";
 import { campaignRecipients, emailOptOuts, messages } from "../../db/schema";
 import { tenantWork } from "../../db/unit-of-work";
 import { HttpError, notFound } from "../../lib/errors";
@@ -73,5 +74,41 @@ export async function recordEmailFeedback(
       entityId: message.id,
     });
     fx.publish({ type: "message.created", messageId: message.id, leadId: message.leadId });
+  });
+}
+
+/**
+ * The email service's report on one of our emails (Resend's webhook), found by the service's own
+ * id for it: delivered, bounced or marked as spam. Reports can repeat or arrive late; each lands once.
+ */
+export async function applyEmailReport(
+  providerMessageId: string,
+  report: "delivered" | EmailFeedbackType,
+) {
+  const [message] = await systemDb
+    .select({
+      id: messages.id,
+      tenantId: messages.tenantId,
+      leadId: messages.leadId,
+      status: messages.status,
+    })
+    .from(messages)
+    .where(and(eq(messages.channel, "email"), eq(messages.providerMessageId, providerMessageId)))
+    .limit(1);
+  if (!message) return;
+  if (report === "delivered") {
+    if (message.status !== "sent") return;
+    await tenantWork(message.tenantId, async (tx, fx) => {
+      await tx
+        .update(messages)
+        .set({ status: "delivered", deliveredAt: new Date() })
+        .where(and(eq(messages.id, message.id), eq(messages.status, "sent")));
+      fx.publish({ type: "message.created", messageId: message.id, leadId: message.leadId });
+    });
+    return;
+  }
+  // Already recorded, or nothing to record (the email never went out): nothing more to do.
+  await recordEmailFeedback(message.tenantId, message.id, report).catch((error: unknown) => {
+    if (!(error instanceof HttpError)) throw error;
   });
 }

@@ -113,7 +113,9 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
       detail:
         channels.email.provider === "outbox"
           ? "No email service is connected yet. Emails are kept in the Email outbox (under Business), where you can also make one bounce or be marked as spam to see how LeadAnchor reacts."
-          : "Emails go out through the connected email service; bounces and spam reports come back to LeadAnchor.",
+          : env.EMAIL_TEST_RECIPIENT
+            ? `Test mode: emails go out through Resend, all of them to ${env.EMAIL_TEST_RECIPIENT}. Bounces and spam reports come back to LeadAnchor.`
+            : "Emails go out through the connected email service; bounces and spam reports come back to LeadAnchor.",
       mandatedBySpec: true,
     },
     {

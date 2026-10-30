@@ -58,9 +58,14 @@ const schema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: optional,
   WHATSAPP_APP_SECRET: optional,
   WHATSAPP_VERIFY_TOKEN: optional,
-  EMAIL_TRANSPORT: z.enum(["dev", "smtp"]).default("dev"),
+  // "dev" keeps emails in the local outbox; "resend" sends them through Resend.
+  EMAIL_TRANSPORT: z.enum(["dev", "smtp", "resend"]).default("dev"),
   SMTP_URL: optional,
   EMAIL_FROM: z.string().default("LeadAnchor <no-reply@leadanchor.local>"),
+  RESEND_API_KEY: optional,
+  RESEND_WEBHOOK_SECRET: optional,
+  // Test mode: every email goes to this address instead (Resend's own test addresses excepted).
+  EMAIL_TEST_RECIPIENT: optional,
 
   // Consent ledger (C-27). The spec names a Firebase ledger; "local" is an
   // append-only, hash-chained Postgres ledger used until Firebase is set up.
