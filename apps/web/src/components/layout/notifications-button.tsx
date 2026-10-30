@@ -11,9 +11,11 @@ import {
   IconFileDollar,
   IconFileText,
   IconHeadset,
+  IconMessageCircle,
   IconPhoneX,
   IconRecordMail,
   IconShieldCheck,
+  IconStar,
   IconTrendingUp,
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -39,6 +41,8 @@ const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   quote: { icon: IconFileDollar, tone: "bg-primary-subtle text-primary-subtle-foreground" },
   payment: { icon: IconCurrencyDollar, tone: "bg-primary-subtle text-primary-subtle-foreground" },
   booking: { icon: IconCalendarEvent, tone: "bg-info-subtle text-info-strong" },
+  review: { icon: IconStar, tone: "bg-signal-subtle text-signal-strong" },
+  feedback: { icon: IconMessageCircle, tone: "bg-signal-subtle text-signal-strong" },
 };
 
 export function NotificationsButton({ className }: { className?: string }) {
@@ -57,6 +61,7 @@ export function NotificationsButton({ className }: { className?: string }) {
     if (!item.readAt) markRead.mutate([item.id]);
     setOpen(false);
     if (item.leadId) router.push(`/leads/${item.leadId}`);
+    else if (item.kind === "review") router.push("/reviews");
   };
 
   return (

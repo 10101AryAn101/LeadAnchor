@@ -2,8 +2,10 @@ import {
   type OutboxEmail,
   type SimCheckout,
   type SimOnboarding,
+  type SimGoogleListing,
   type SimRedirect,
   simCalendarEventInput,
+  simGoogleReviewInput,
   simCheckoutInput,
   simOnboardingInput,
   simulatorScenarioInput,
@@ -13,10 +15,10 @@ import {
 import { and, desc, eq, inArray } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { withTenant } from "../../db/client";
-import { messages, phoneNumbers } from "../../db/schema";
+import { systemDb, withTenant } from "../../db/client";
+import { listingConnections, messages, phoneNumbers } from "../../db/schema";
 import { HttpError, badRequest, notFound, parseInput } from "../../lib/errors";
-import { payments, simulatorPayments, simulatorTelephony, telephony } from "../../container";
+import { payments, simulatorListings, simulatorPayments, simulatorTelephony, telephony } from "../../container";
 import { PaymentRefused } from "../../integrations/payments/types";
 import { getCallTrace } from "../../modules/calls/call.queries";
 import { approveRegistrationForDev, resetRegistrationForDev, simulatedRegistrationCode } from "../../modules/compliance/registration.service";
@@ -26,6 +28,8 @@ import { bookingsTickJob, sendReminder } from "../../modules/booking/booking.ser
 import { addSimulatedEvent, moveSimulatedEvent, removeSimulatedEvent, simulatedCalendarEvents } from "../../modules/booking/calendar-sync";
 import { paymentRequests } from "../../db/schema";
 import { sendValueProof } from "../../modules/value-proof/value-proof";
+import { hoursList, syncListing } from "../../modules/reviews/listing.service";
+import { sendWaitingRequestsNow } from "../../modules/reviews/review-requests";
 import { tenantContext } from "../context";
 
 /** Development-only tools: the call simulator, the simulated customer phone and fake carrier approval. */
@@ -216,6 +220,66 @@ export async function devRoutes(app: FastifyInstance) {
     const { id } = parseInput(z.object({ id: z.string().regex(/^evt_sim_[a-f0-9]+$/) }), req.params);
     await removeSimulatedEvent(ctx.tenantId, id);
     return { events: await simulatedCalendarEvents(ctx.tenantId) };
+  });
+
+  /* ── Simulated Google listing: the business's page, where customers leave reviews (C-21) ── */
+
+  const googleAccount = z.object({ account: z.string().regex(/^sim-[0-9a-f-]{36}$/) });
+
+  const simGoogle = (account: string): SimGoogleListing => {
+    const listing = simulatorListings.view(account);
+    if (!listing) throw notFound("Listing");
+    const reviews = Object.values(listing.reviews).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+    const ratings = reviews.map((review) => review.rating);
+    return {
+      account,
+      name: listing.name,
+      rating: ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null,
+      reviewCount: ratings.length,
+      phone: listing.details.phone,
+      website: listing.details.website,
+      bookingLink: listing.details.bookingLink,
+      hours: listing.details.hours ? hoursList(listing.details.hours) : [],
+      reviews,
+      posts: listing.posts,
+      failNextReply: listing.failNextReply,
+    };
+  };
+
+  /** The business whose listing this is, so a new review is read in straight away. */
+  const syncOwner = async (account: string) => {
+    const [connection] = await systemDb.select({ tenantId: listingConnections.tenantId }).from(listingConnections).where(eq(listingConnections.account, account)).limit(1);
+    if (connection) await syncListing(connection.tenantId);
+  };
+
+  // Public on purpose: it plays Google's own page, opened from the link in a review request.
+  app.get("/api/dev/simulator/google/:account", async (req) => {
+    const { account } = parseInput(googleAccount, req.params);
+    return simGoogle(account);
+  });
+
+  app.post("/api/dev/simulator/google/:account/reviews", async (req, reply) => {
+    const { account } = parseInput(googleAccount, req.params);
+    const input = parseInput(simGoogleReviewInput, req.body);
+    if (!simulatorListings.view(account)) throw notFound("Listing");
+    simulatorListings.addReview(account, { reviewer: input.reviewer, rating: input.rating, text: input.text || null });
+    await syncOwner(account);
+    return reply.status(201).send(simGoogle(account));
+  });
+
+  /** Makes Google refuse the next reply, to try the retry and the error the owner sees (C-47 AC 6). */
+  app.post("/api/dev/simulator/google/:account/fail-next-reply", async (req) => {
+    const { account } = parseInput(googleAccount, req.params);
+    const { fail } = parseInput(z.object({ fail: z.boolean() }), req.body);
+    if (!simulatorListings.view(account)) throw notFound("Listing");
+    simulatorListings.setFailNextReply(account, fail);
+    return simGoogle(account);
+  });
+
+  /** Sends this business's waiting review requests now instead of after the wait (C-46). */
+  app.post("/api/dev/simulator/review-requests/send-now", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return sendWaitingRequestsNow(ctx.tenantId);
   });
 
   /** Sends a booking's day-before reminder now, to try YES / NO replies without waiting (C-20). */

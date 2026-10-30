@@ -22,6 +22,7 @@ import { requestMessage } from "../messaging/send-path";
 import { balanceOf } from "../payments/money";
 import { paymentsFor } from "../payments/payment.service";
 import { quotesFor } from "../quotes/quote.service";
+import { cancelReviewRequest, scheduleReviewRequest } from "../reviews/review-requests";
 import { profileLine } from "../profile/profile";
 import { addLeadEvent, topPosition } from "./lead-capture";
 import { advanceLead } from "./pipeline";
@@ -176,6 +177,9 @@ export async function updateLead(tenantId: string, userId: string, leadId: strin
         const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, tenantId));
         await closeBookingsForLead(tx, fx, { tenant: tenant!, leadId, outcome: input.stage, actor });
       }
+      // Every completed job gets a review request (C-46); one moved back out of Won before it went keeps it waiting.
+      if (input.stage === "won") await scheduleReviewRequest(tx, fx, { tenantId, leadId, customerId: lead.customerId });
+      else if (lead.stage === "won") await cancelReviewRequest(tx, leadId);
     } else if (input.position !== undefined) {
       patch.position = input.position;
     }

@@ -11,6 +11,7 @@ import type {
   IntegrationStatus,
   LeadCard,
   LeadDetail,
+  ListingResponse,
   MeResponse,
   NotificationItem,
   OutboxEmail,
@@ -18,6 +19,8 @@ import type {
   PushDevicesResponse,
   QuoteDetail,
   RegistrationResponse,
+  ReviewsResponse,
+  ReviewsSummary,
   ServiceItem,
   SettingsResponse,
   SimCalendarEvent,
@@ -52,6 +55,9 @@ export const keys = {
   paymentSettings: ["payment-settings"] as const,
   bookingSettings: ["booking-settings"] as const,
   waitlist: ["waitlist"] as const,
+  reviews: ["reviews"] as const,
+  reviewsSummary: ["reviews-summary"] as const,
+  listing: ["listing"] as const,
   simCalendar: ["sim-calendar"] as const,
   simCall: (sessionId: string) => ["sim-call", sessionId] as const,
   simInbox: (phone: string) => ["sim-inbox", phone] as const,
@@ -104,6 +110,12 @@ export const useQuote = (id: string) => useQuery({ queryKey: keys.quote(id), que
 export const usePaymentSettings = () => useQuery({ queryKey: keys.paymentSettings, queryFn: () => api<PaymentSettings>("/payments/settings") });
 
 export const useBookingSettings = () => useQuery({ queryKey: keys.bookingSettings, queryFn: () => api<BookingSettingsResponse>("/booking/settings") });
+
+export const useReviews = () => useQuery({ queryKey: keys.reviews, queryFn: () => api<ReviewsResponse>("/reviews") });
+
+export const useReviewsSummary = () => useQuery({ queryKey: keys.reviewsSummary, queryFn: () => api<ReviewsSummary>("/reviews/summary") });
+
+export const useListing = () => useQuery({ queryKey: keys.listing, queryFn: () => api<ListingResponse>("/listing") });
 
 export const useWaitlist = () =>
   useQuery({ queryKey: keys.waitlist, queryFn: async () => (await api<{ entries: WaitlistItem[] }>("/waitlist")).entries });

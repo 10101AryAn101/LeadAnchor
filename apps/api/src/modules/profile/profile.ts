@@ -4,6 +4,7 @@ import { linkBaseUrl } from "../../config/env";
 import { systemDb } from "../../db/client";
 import { mediaAssets, phoneNumbers, services, tenants } from "../../db/schema";
 import { bookingUrl, settingsOf } from "../booking/core";
+import { profileReviews } from "../reviews/reviews.service";
 
 type Tenant = typeof tenants.$inferSelect;
 
@@ -27,7 +28,7 @@ export async function getPublicProfile(slug: string): Promise<PublicProfile | nu
   const [tenant] = await systemDb.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
   if (!tenant || tenant.status === "cancelled" || tenant.status === "suspended") return null;
 
-  const [serviceRows, photoRows, [number]] = await Promise.all([
+  const [serviceRows, photoRows, [number], google] = await Promise.all([
     systemDb
       .select({ name: services.name, description: services.description })
       .from(services)
@@ -44,6 +45,7 @@ export async function getPublicProfile(slug: string): Promise<PublicProfile | nu
       .from(phoneNumbers)
       .where(and(eq(phoneNumbers.tenantId, tenant.id), eq(phoneNumbers.status, "active")))
       .limit(1),
+    profileReviews(tenant),
   ]);
 
   return {
@@ -63,6 +65,9 @@ export async function getPublicProfile(slug: string): Promise<PublicProfile | nu
       const tags = (photo.aiTags ?? {}) as { itemType?: string; issue?: string };
       return { id: photo.id, caption: tags.itemType ?? tags.issue ?? null };
     }),
+    // C-41 AC 2 and C-23: the live Google rating, and the reviews the owner chose to show.
+    rating: google.rating,
+    reviews: google.reviews,
   };
 }
 

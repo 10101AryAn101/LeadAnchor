@@ -25,6 +25,8 @@ export async function buildServer() {
     trustProxy: true,
     bodyLimit: 2 * 1024 * 1024,
     disableRequestLogging: true,
+    // Sealed links (the email unsubscribe token) run past the default 100 characters.
+    routerOptions: { maxParamLength: 400 },
   });
 
   // Keep the raw JSON body alongside the parsed one (webhook signatures are computed over raw bytes).

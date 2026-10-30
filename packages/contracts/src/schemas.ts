@@ -16,6 +16,7 @@ import {
   INTEGRATION_STATES,
   LEAD_SOURCES,
   LEAD_STAGES,
+  LISTING_PROVIDERS,
   MANUAL_PAYMENT_METHODS,
   MAX_PAYMENT_CENTS,
   MAX_QUOTE_LINES,
@@ -39,7 +40,10 @@ import {
   REGISTRATION_STAGES,
   REGISTRATION_STATUSES,
   REGISTRY_TEST_OUTCOMES,
+  REPLY_TONES,
   REQUEST_SOURCES,
+  REVIEW_REPLY_STATUSES,
+  REVIEW_REQUEST_OUTCOMES,
   ROLES,
   TRACKS,
   TRADES,
@@ -204,6 +208,10 @@ export const publicProfile = z.object({
   photos: z.array(z.object({ id, caption: z.string().nullable() })),
   /** The booking page, when the business takes online bookings (C-18). */
   bookingUrl: z.string().nullable(),
+  /** The Google rating, from the connected listing (C-41 AC 2, C-21). */
+  rating: z.object({ average: z.number(), count: z.number().int(), url: z.string().nullable() }).nullable(),
+  /** Google reviews the owner chose to show; only ones already public on Google (C-23). */
+  reviews: z.array(z.object({ reviewer: z.string(), rating: z.number().int(), text: z.string(), publishedAt: isoDate })),
 });
 export type PublicProfile = z.infer<typeof publicProfile>;
 
@@ -608,8 +616,11 @@ export const settingsResponse = z.object({
   trade: z.enum(TRADES),
   ownerName: z.string().nullable(),
   ownerCell: z.string().nullable(),
+  /** Mailing address: printed in review emails (US anti-spam law) and kept on the Google listing. */
+  streetAddress: z.string().nullable(),
   city: z.string().nullable(),
   state: z.string().nullable(),
+  postalCode: z.string().nullable(),
   timezone: z.string(),
   licenseNumber: z.string().nullable(),
   insuranceCarrier: z.string().nullable(),
@@ -640,8 +651,13 @@ export const settingsUpdateInput = z.object({
   businessName: z.string().trim().min(2).max(80).optional(),
   ownerName: z.string().trim().min(2).max(80).optional(),
   ownerCell: usPhone.optional(),
+  streetAddress: z.string().trim().max(120).nullable().optional(),
   city: z.string().trim().max(80).optional(),
   state: z.string().trim().max(2).optional(),
+  postalCode: z
+    .union([z.literal(""), z.string().trim().regex(/^\d{5}(-\d{4})?$/, "Enter a valid ZIP code")])
+    .nullable()
+    .optional(),
   timezone: z.string().trim().min(3).optional(),
   licenseNumber: z.string().trim().max(40).nullable().optional(),
   insuranceCarrier: z.string().trim().max(80).nullable().optional(),
@@ -1202,6 +1218,198 @@ export const simCalendarEventInput = z.object({
   title: z.string().trim().min(1, "Give it a title").max(80),
   startsAt: isoDate,
   endsAt: isoDate,
+});
+
+/* ----------------------------------------------------------------------------
+ * Reviews and the Google listing (module 9, C-21, C-23, C-46, C-47)
+ * ------------------------------------------------------------------------- */
+
+export const listingStatus = z.object({
+  provider: z.enum(LISTING_PROVIDERS).nullable(),
+  connected: z.boolean(),
+  /** The listing's name as Google shows it. */
+  locationName: z.string().nullable(),
+  rating: z.number().nullable(),
+  reviewCount: z.number().int(),
+  /** Where customers write a review: the link in every review request. */
+  reviewUrl: z.string().nullable(),
+  listingUrl: z.string().nullable(),
+  lastSyncedAt: isoDate.nullable(),
+  lastPushedAt: isoDate.nullable(),
+  error: z.string().nullable(),
+  /** Google isn't set up yet, so a simulator stands in. */
+  simulated: z.boolean(),
+});
+export type ListingStatus = z.infer<typeof listingStatus>;
+
+/** A Google post: an update published to the listing (module 9 "content publication"). */
+export const listingPost = z.object({
+  id,
+  text: z.string(),
+  status: z.enum(["posted", "failed"]),
+  error: z.string().nullable(),
+  createdAt: isoDate,
+});
+export type ListingPost = z.infer<typeof listingPost>;
+
+const syncFields = z.object({
+  hours: z.boolean(),
+  phone: z.boolean(),
+  website: z.boolean(),
+  bookingLink: z.boolean(),
+  address: z.boolean(),
+});
+
+export const listingResponse = z.object({
+  listing: listingStatus,
+  replyTone: z.enum(REPLY_TONES),
+  /** Which fields LeadAnchor keeps up to date on Google; the owner can turn each off. */
+  syncFields,
+  /** What those fields will be set to, from the business's own settings (C-21). */
+  pushes: z.object({
+    hours: z.array(z.object({ day: z.string(), hours: z.string() })),
+    phone: z.string().nullable(),
+    website: z.string(),
+    bookingLink: z.string(),
+    bookingLinkIs: z.enum(["booking", "request"]),
+    /** Null until the street address and ZIP are filled in. */
+    address: z.string().nullable(),
+  }),
+  posts: z.array(listingPost),
+});
+export type ListingResponse = z.infer<typeof listingResponse>;
+
+export const listingSettingsInput = z.object({
+  replyTone: z.enum(REPLY_TONES).optional(),
+  syncFields: syncFields.partial().optional(),
+});
+export const listingPostInput = z.object({
+  text: z.string().trim().min(1, "Write something").max(1500, "Google allows up to 1,500 characters"),
+});
+
+export const reviewItem = z.object({
+  id,
+  reviewer: z.string(),
+  rating: z.number().int().min(1).max(5),
+  text: z.string().nullable(),
+  publishedAt: isoDate,
+  reply: z.object({ text: z.string(), postedAt: isoDate }).nullable(),
+  /** The AI's draft (C-47), waiting for the owner. */
+  draft: z.string().nullable(),
+  replyStatus: z.enum(REVIEW_REPLY_STATUSES),
+  replyError: z.string().nullable(),
+  showOnProfile: z.boolean(),
+  /** The job it's about, when the reviewer matches a customer of a completed job. */
+  job: z.object({ leadId: id, title: z.string() }).nullable(),
+});
+export type ReviewItem = z.infer<typeof reviewItem>;
+
+export const reviewRequestItem = z.object({
+  id,
+  leadId: id,
+  customerName: z.string().nullable(),
+  jobTitle: z.string(),
+  outcome: z.enum(REVIEW_REQUEST_OUTCOMES),
+  /** Why it couldn't go, in plain words. */
+  detail: z.string().nullable(),
+  sendAt: isoDate,
+  /** The customer used the private link. */
+  feedbackAt: isoDate.nullable(),
+});
+export type ReviewRequestItem = z.infer<typeof reviewRequestItem>;
+
+export const reviewsResponse = z.object({
+  listing: listingStatus,
+  reviews: z.array(reviewItem),
+  stats: z.object({
+    average: z.number().nullable(),
+    count: z.number().int(),
+    needReply: z.number().int(),
+    newThisWeek: z.number().int(),
+  }),
+  requests: z.object({
+    /** Jobs marked Won in the last 90 days, and how many got a request: these always match (C-46 AC 7). */
+    completedJobs: z.number().int(),
+    requested: z.number().int(),
+    sent: z.number().int(),
+    recent: z.array(reviewRequestItem),
+  }),
+  /** The Google link review requests use right now; null when there's none. */
+  reviewLink: z.string().nullable(),
+  /** The postal address printed in review emails (US anti-spam law); null when it's missing. */
+  postalAddress: z.string().nullable(),
+});
+export type ReviewsResponse = z.infer<typeof reviewsResponse>;
+
+export const reviewsSummary = z.object({
+  connected: z.boolean(),
+  rating: z.number().nullable(),
+  count: z.number().int(),
+  needReply: z.number().int(),
+  newThisWeek: z.number().int(),
+});
+export type ReviewsSummary = z.infer<typeof reviewsSummary>;
+
+export const reviewReplyInput = z.object({ text: z.string().trim().min(1, "Write a reply").max(4000) });
+export const reviewPatchInput = z.object({ showOnProfile: z.boolean() });
+
+/** The private line in the review request (C-46): the customer tells the owner directly. */
+export const publicFeedbackContext = z.object({
+  business: publicBusiness,
+  firstName: z.string().nullable(),
+  /** They already sent something; they can send more. */
+  sent: z.boolean(),
+});
+export type PublicFeedbackContext = z.infer<typeof publicFeedbackContext>;
+
+export const privateFeedbackInput = z.object({
+  message: z.string().trim().min(2, "Tell them what happened").max(2000),
+  /** Hidden from people; only bots fill it in. */
+  company: z.string().max(200).optional().default(""),
+});
+
+/** The unsubscribe page for marketing-type emails such as review requests (CAN-SPAM). */
+export const publicUnsubscribe = z.object({
+  businessName: z.string(),
+  /** Masked: j***@example.com. */
+  email: z.string(),
+  unsubscribed: z.boolean(),
+});
+export type PublicUnsubscribe = z.infer<typeof publicUnsubscribe>;
+
+/* ----------------------------------------------------------------------------
+ * Simulated Google listing (development only): the business's page and "write a review"
+ * ------------------------------------------------------------------------- */
+
+export const simGoogleListing = z.object({
+  account: z.string(),
+  name: z.string(),
+  rating: z.number().nullable(),
+  reviewCount: z.number().int(),
+  phone: z.string().nullable(),
+  website: z.string().nullable(),
+  bookingLink: z.string().nullable(),
+  hours: z.array(z.object({ day: z.string(), hours: z.string() })),
+  reviews: z.array(
+    z.object({
+      id: z.string(),
+      reviewer: z.string(),
+      rating: z.number().int(),
+      text: z.string().nullable(),
+      publishedAt: isoDate,
+      reply: z.object({ text: z.string(), updatedAt: isoDate }).nullable(),
+    }),
+  ),
+  posts: z.array(z.object({ id: z.string(), text: z.string(), createdAt: isoDate })),
+  /** The next reply the business posts is refused, to try the retry and error path (C-47 AC 6). */
+  failNextReply: z.boolean(),
+});
+export type SimGoogleListing = z.infer<typeof simGoogleListing>;
+
+export const simGoogleReviewInput = z.object({
+  reviewer: z.string().trim().min(2, "Enter your name").max(60),
+  rating: z.number().int().min(1, "Pick a rating").max(5),
+  text: z.string().trim().max(4000).optional().default(""),
 });
 
 /* ----------------------------------------------------------------------------

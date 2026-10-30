@@ -12,6 +12,7 @@ import {
   IconSettings,
   IconSettingsFilled,
   IconShieldCheck,
+  IconStar,
   IconUsers,
 } from "@tabler/icons-react";
 
@@ -34,6 +35,7 @@ export const PRIMARY_NAV: NavItem[] = [
 ];
 
 export const SECONDARY_NAV: NavItem[] = [
+  { href: "/reviews", label: "Reviews", icon: IconStar },
   { href: "/compliance", label: "Texting and consent", icon: IconShieldCheck },
   { href: "/integrations", label: "Integrations", icon: IconPlug },
   { href: "/simulator", label: "Call simulator", icon: IconFlask, badge: "dev" },

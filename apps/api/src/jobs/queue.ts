@@ -26,6 +26,20 @@ export const QUEUES = {
   calendarPush: "calendar.push",
   /** Every 5 minutes: read what changed in connected calendars (module 8). */
   calendarSyncTick: "calendar.sync-tick",
+  /** Every 15 minutes: read every connected Google listing: rating and new reviews (C-21). */
+  listingSyncTick: "listing.sync-tick",
+  /** Reads one business's listing now (after connecting, or when the profile's rating is stale). */
+  listingSync: "listing.sync",
+  /** Writes the business's hours, phone, website, booking link and address to its listing (C-21). */
+  listingPush: "listing.push",
+  /** The AI's first draft of a reply to a new Google review (C-47). */
+  reviewDraft: "reviews.draft",
+  /** Posts a reply the owner approved; retries, then tells the owner if it can't (C-47 AC 6). */
+  reviewReplyPost: "reviews.reply-post",
+  /** Sends one completed job's review request, after the short wait (C-46). */
+  reviewRequestSend: "reviews.request-send",
+  /** Every 15 minutes: review requests that were waiting on setup try again (C-46). */
+  reviewRequestsTick: "reviews.requests-tick",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -42,6 +56,13 @@ export interface JobPayloads {
   [QUEUES.bookingsTick]: Record<string, never>;
   [QUEUES.calendarPush]: { tenantId: string; bookingId: string };
   [QUEUES.calendarSyncTick]: Record<string, never>;
+  [QUEUES.listingSyncTick]: Record<string, never>;
+  [QUEUES.listingSync]: { tenantId: string };
+  [QUEUES.listingPush]: { tenantId: string };
+  [QUEUES.reviewDraft]: { tenantId: string; reviewId: string };
+  [QUEUES.reviewReplyPost]: { tenantId: string; reviewId: string };
+  [QUEUES.reviewRequestSend]: { tenantId: string; requestId: string };
+  [QUEUES.reviewRequestsTick]: Record<string, never>;
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });
@@ -65,6 +86,8 @@ export async function startQueue() {
   await boss.schedule(QUEUES.paymentsTick, "*/15 * * * *");
   await boss.schedule(QUEUES.bookingsTick, "*/15 * * * *");
   await boss.schedule(QUEUES.calendarSyncTick, "*/5 * * * *");
+  await boss.schedule(QUEUES.listingSyncTick, "*/15 * * * *");
+  await boss.schedule(QUEUES.reviewRequestsTick, "*/15 * * * *");
   started = true;
 }
 

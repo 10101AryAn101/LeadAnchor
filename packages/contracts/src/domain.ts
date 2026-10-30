@@ -179,7 +179,7 @@ export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
  * waitlist_offer: a freed slot offered to someone on the waitlist (C-22); by text only once counsel
  * has confirmed the waitlist opt-in wording, by email until then.
  */
-export const MESSAGE_PURPOSES = ["transactional", "conversational", "marketing", "keyword_reply", "waitlist_offer"] as const;
+export const MESSAGE_PURPOSES = ["transactional", "conversational", "marketing", "keyword_reply", "waitlist_offer", "review_request"] as const;
 export type MessagePurpose = (typeof MESSAGE_PURPOSES)[number];
 
 export const MESSAGE_DIRECTIONS = ["outbound", "inbound"] as const;
@@ -236,6 +236,8 @@ export const NOTIFICATION_KINDS = [
   "quote",
   "payment",
   "booking",
+  "review",
+  "feedback",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 
@@ -273,6 +275,42 @@ export type WaitlistStatus = (typeof WAITLIST_STATUSES)[number];
 /** Two-way calendar sync (module 8): Google Calendar and Microsoft Outlook, or the simulator until they're set up. */
 export const CALENDAR_PROVIDERS = ["simulator", "google", "microsoft"] as const;
 export type CalendarProviderName = (typeof CALENDAR_PROVIDERS)[number];
+
+/** The business listing a business connects (module 9, C-21): Google, with a simulator until it's set up. */
+export const LISTING_PROVIDERS = ["simulator", "google"] as const;
+export type ListingProviderName = (typeof LISTING_PROVIDERS)[number];
+
+/** What LeadAnchor keeps up to date on the listing (C-21). */
+export const LISTING_SYNC_FIELDS = ["hours", "phone", "website", "bookingLink", "address"] as const;
+export type ListingSyncField = (typeof LISTING_SYNC_FIELDS)[number];
+export type ListingSyncFields = Record<ListingSyncField, boolean>;
+
+/** Where a Google review's reply stands (C-47). Nothing is posted without the owner's approval. */
+export const REVIEW_REPLY_STATUSES = ["needs_reply", "draft", "posting", "posted", "failed"] as const;
+export type ReviewReplyStatus = (typeof REVIEW_REPLY_STATUSES)[number];
+
+/** Reviews of this many stars or fewer get a careful draft and a priority alert (C-47 AC 3). */
+export const LOW_RATING_MAX = 3;
+
+/** The voice of drafted replies, set by the owner (C-47 AC 5). */
+export const REPLY_TONES = ["warm", "professional", "brief"] as const;
+export type ReplyTone = (typeof REPLY_TONES)[number];
+export const REPLY_TONE_LABELS: Record<ReplyTone, string> = { warm: "Warm", professional: "Professional", brief: "Short" };
+
+/**
+ * What happened to a completed job's review request (C-46). Every completed job gets one; when
+ * it can't be sent, the reason is kept so the record still shows nobody was left out on purpose.
+ */
+export const REVIEW_REQUEST_OUTCOMES = [
+  "scheduled",
+  "sent",
+  "no_email",
+  "no_google_link",
+  "no_address",
+  "unsubscribed",
+  "canceled",
+] as const;
+export type ReviewRequestOutcome = (typeof REVIEW_REQUEST_OUTCOMES)[number];
 
 /** Quotes (module 6, C-45): drafted by the AI or from the price list, checked and sent by the owner. */
 export const QUOTE_STATUSES = ["draft", "sent", "accepted", "declined"] as const;

@@ -1,6 +1,6 @@
 import type { IntegrationStatus, RegistrationStatus } from "@leadanchor/contracts";
 import { env } from "../../config/env";
-import { ai, calendarProviders, channels, consentLedger, payments, pdf, registry } from "../../container";
+import { ai, calendarProviders, channels, consentLedger, listingProviders, payments, pdf, registry } from "../../container";
 
 /**
  * Honest status of every third-party service the spec names: live, simulated
@@ -46,11 +46,12 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
     {
       key: "google_business_profile",
       name: "Google Business Profile",
-      purpose: "Booking link on Google, hours sync and reviews.",
-      capabilities: ["C-10", "C-21", "C-47"],
-      state: env.GBP_CLIENT_ID ? "not_configured" : "planned",
-      detail:
-        "Each business already has a Google request link to paste into its profile (Settings → Website & Google). Adding it automatically, hours sync and reviews need Google's API approval and sign-in per business.",
+      purpose: "Keeps hours, phone, website, address and the Book link up to date on Google; reads reviews in; posts approved replies and updates.",
+      capabilities: ["C-10", "C-21", "C-23", "C-41", "C-46", "C-47"],
+      state: listingProviders.google ? "live" : "simulated",
+      detail: listingProviders.google
+        ? "Connected to the Google Business Profile API."
+        : "Reviews, AI-drafted replies, review requests and listing updates run on a simulated Google listing until Google approves API access and each business signs in (free, step 2).",
       mandatedBySpec: true,
     },
     {

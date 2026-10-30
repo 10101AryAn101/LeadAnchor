@@ -1,4 +1,4 @@
-import { type BookingSettings, FORWARDING_STATUSES, ROLES, TRACKS, TRADES } from "@leadanchor/contracts";
+import { type BookingSettings, FORWARDING_STATUSES, REPLY_TONES, ROLES, TRACKS, TRADES } from "@leadanchor/contracts";
 import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { user } from "./auth";
 import { createdAt, pk, tsz, updatedAt } from "./columns";
@@ -13,8 +13,11 @@ export const tenants = pgTable("tenants", {
   timezone: text("timezone").notNull().default("America/Chicago"),
   ownerName: text("owner_name"),
   ownerCellE164: text("owner_cell_e164"),
+  /** Mailing address: printed in marketing-type emails (CAN-SPAM) and kept on the Google listing. */
+  streetAddress: text("street_address"),
   city: text("city"),
   state: text("state"),
+  postalCode: text("postal_code"),
   website: text("website"),
   licenseNumber: text("license_number"),
   insuranceCarrier: text("insurance_carrier"),
@@ -39,6 +42,8 @@ export const tenants = pgTable("tenants", {
   valueProofLastSentAt: tsz("value_proof_last_sent_at"),
   /** Opening hours and booking rules (module 8). Null until the owner sets them: the defaults apply. */
   booking: jsonb("booking").$type<BookingSettings>(),
+  /** The voice of AI-drafted replies to Google reviews (C-47 AC 5). */
+  reviewReplyTone: text("review_reply_tone", { enum: REPLY_TONES }).notNull().default("warm"),
   status: text("status", { enum: ["trial", "active", "past_due", "suspended", "cancelled"] })
     .notNull()
     .default("trial"),

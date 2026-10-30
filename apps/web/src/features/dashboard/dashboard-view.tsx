@@ -16,6 +16,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { UrgencyChip, WaitingChip, isWaiting } from "@/features/leads/lead-meta";
 import { useRecordContact } from "@/features/leads/use-lead-actions";
+import { ReviewsCard } from "@/features/reviews/reviews-card";
 import { formatPhone, money, percent, smsHref, telHref, timeAgo } from "@/lib/format";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { keys, useDashboard, useLeads, useMe } from "@/lib/queries";
@@ -117,6 +118,8 @@ function DashboardContent() {
           {data.leadsCreated > 0 && <UrgencyStrip data={data} />}
 
           <NeedsYouNow leads={waiting} />
+
+          <ReviewsCard />
 
           <p className="rounded-lg border bg-card p-4 text-[15px] leading-6">
             <span className="font-semibold">{data.valueProof.headline}</span> <span className="text-muted-foreground">{data.valueProof.detail}</span>

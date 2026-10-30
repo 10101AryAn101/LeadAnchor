@@ -4,6 +4,8 @@ import { GeminiProvider } from "./integrations/ai/gemini";
 import type { AiProvider } from "./integrations/ai/types";
 import { SimulatorCalendar } from "./integrations/calendar/simulator";
 import type { CalendarProvider } from "./integrations/calendar/types";
+import { SimulatorListings } from "./integrations/listings/simulator";
+import type { ListingProvider } from "./integrations/listings/types";
 import { ChromiumPdf, type PdfRenderer, findBrowser } from "./integrations/documents/pdf";
 import { FirestoreConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
 import { OutboxEmail } from "./integrations/messaging/email";
@@ -75,6 +77,17 @@ export const simulatorCalendar = new SimulatorCalendar(resolve(process.cwd(), en
  * and Microsoft Outlook join in step 2 (both free); until then the simulator stands in.
  */
 export const calendarProviders: Partial<Record<CalendarProvider["name"], CalendarProvider>> = { simulator: simulatorCalendar };
+
+export const simulatorListings = new SimulatorListings(
+  resolve(process.cwd(), env.STORAGE_DIR, "simulator", "google.json"),
+  (account) => `${linkBaseUrl}/sim/google/${account}`,
+);
+
+/**
+ * The business listing (module 9): Google Business Profile joins in step 2 (free, but Google
+ * must approve API access and each business signs in); until then the simulator stands in.
+ */
+export const listingProviders: Partial<Record<ListingProvider["name"], ListingProvider>> = { simulator: simulatorListings };
 
 export const channels: { sms: ChannelAdapter; whatsapp: ChannelAdapter | null; email: ChannelAdapter } = {
   email: new OutboxEmail(),

@@ -84,6 +84,8 @@ const schema = z.object({
   // Card payments run on the local Stripe simulator until a Stripe account is connected.
   STRIPE_SECRET_KEY: optional,
   GBP_CLIENT_ID: optional,
+  /** C-46: minutes between marking a job Won and its review request going out (time to undo a mis-tap). */
+  REVIEW_REQUEST_DELAY_MINUTES: z.coerce.number().int().min(0).max(1440).default(30),
   SCHEDULER_PROVIDER: optional,
 
   // Development helpers (call simulator, simulated carrier approval).

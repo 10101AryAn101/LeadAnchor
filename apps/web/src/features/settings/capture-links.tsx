@@ -5,7 +5,7 @@ import { type Icon, IconBrandGoogle, IconCode, IconCopy, IconExternalLink, IconL
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { copyText } from "@/lib/clipboard";
-import { useBookingSettings } from "@/lib/queries";
+import { useBookingSettings, useListing } from "@/lib/queries";
 
 /**
  * C-10: catch the people who'd never call. One page, three ways in: the Google profile's
@@ -14,6 +14,9 @@ import { useBookingSettings } from "@/lib/queries";
  */
 export function CaptureLinks({ settings }: { settings: SettingsResponse }) {
   const { data: booking } = useBookingSettings();
+  const { data: listing } = useListing();
+  // Connected to Google (C-21): LeadAnchor sets the link itself, no pasting needed.
+  const autoGoogle = listing?.listing.connected === true && listing.syncFields.bookingLink;
   const booksOnline = booking?.settings.enabled === true;
   const link = booksOnline ? booking.bookingUrl : settings.requestUrl;
   const url = new URL(link);
@@ -25,7 +28,11 @@ export function CaptureLinks({ settings }: { settings: SettingsResponse }) {
       <CopyRow
         icon={IconBrandGoogle}
         title="Your Google profile"
-        body={`In Google, open your Business Profile, choose Edit profile, then Contact, and paste this as your appointment link. ${booksOnline ? "Bookings" : "Requests"} from it are marked Google.`}
+        body={
+          autoGoogle
+            ? `Set on your Google listing for you, and kept up to date. ${booksOnline ? "Bookings" : "Requests"} from it are marked Google.`
+            : `In Google, open your Business Profile, choose Edit profile, then Contact, and paste this as your appointment link. ${booksOnline ? "Bookings" : "Requests"} from it are marked Google.`
+        }
         value={`${link}?src=google`}
         copied="Google link copied."
       />

@@ -4,6 +4,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Stars } from "@/features/reviews/stars";
 import { formatPhone, smsHref, telHref } from "@/lib/format";
 
 export const metadata: Metadata = { title: "Pro profile" };
@@ -64,6 +65,20 @@ function ProfileView({ slug, profile }: { slug: string; profile: PublicProfile }
             <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-primary-subtle px-3 text-sm font-semibold text-primary-subtle-foreground">
               <IconShieldCheck className="size-4" /> {trust}
             </span>
+          )}
+          {profile.rating && (
+            <a
+              href={profile.rating.url ?? undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex h-7 items-center gap-1.5 rounded-full bg-muted px-3 text-sm font-medium hover:bg-muted/70"
+            >
+              <span className="tabular font-semibold">{profile.rating.average.toFixed(1)}</span>
+              <Stars rating={profile.rating.average} className="text-[15px]" />
+              <span className="text-muted-foreground">
+                {profile.rating.count} Google {profile.rating.count === 1 ? "review" : "reviews"}
+              </span>
+            </a>
           )}
           {profile.yearsInBusiness != null && profile.yearsInBusiness > 0 && (
             <span className="inline-flex h-7 items-center rounded-full bg-muted px-3 text-sm font-medium">
@@ -132,6 +147,23 @@ function ProfileView({ slug, profile }: { slug: string; profile: PublicProfile }
               </a>
             ))}
           </div>
+        </section>
+      )}
+
+      {profile.reviews.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-[17px] font-bold">What customers say on Google</h2>
+          <ul className="space-y-3">
+            {profile.reviews.map((review) => (
+              <li key={`${review.reviewer}-${review.publishedAt}`} className="space-y-1.5 rounded-lg border bg-card p-4">
+                <p className="flex items-center gap-2">
+                  <Stars rating={review.rating} className="text-[15px]" />
+                  <span className="font-semibold">{review.reviewer}</span>
+                </p>
+                <p className="text-[15px] leading-6">{review.text}</p>
+              </li>
+            ))}
+          </ul>
         </section>
       )}
 

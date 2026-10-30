@@ -3,6 +3,7 @@ import {
   cancelBookingInput,
   intakeSubmitFields,
   paymentReportInput,
+  privateFeedbackInput,
   publicRequestFields,
   quoteDeclineInput,
   rescheduleInput,
@@ -27,6 +28,7 @@ import { MAX_PHOTOS, getIntakeContext, getRequestContext, submitIntake, submitPu
 import { getPublicPayment, reportPayment, startCheckout, syncPublicPayment } from "../../modules/payments/payment.service";
 import { findShowcasePhoto, getPublicProfile } from "../../modules/profile/profile";
 import { acceptQuote, declineQuote, getPublicQuote, publicQuotePdf } from "../../modules/quotes/quote.service";
+import { getFeedbackContext, getUnsubscribe, submitFeedback, unsubscribe } from "../../modules/reviews/review-requests";
 
 const tokenParam = z.object({ token: z.string().min(20).max(64) });
 const slugParam = z.object({ slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$/) });
@@ -169,6 +171,31 @@ export async function publicRoutes(app: FastifyInstance) {
   app.post("/api/public/offers/:token/take", async (req) => {
     const { token } = parseInput(tokenParam, req.params);
     return takeOffer(token);
+  });
+
+  /* ── The review request's private line (C-46) and email unsubscribe ───── */
+
+  app.get("/api/public/feedback/:token", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return getFeedbackContext(token);
+  });
+
+  app.post("/api/public/feedback/:token", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return submitFeedback(token, parseInput(privateFeedbackInput, req.body));
+  });
+
+  /** The token is the business and the address, sealed: longer than the other links. */
+  const unsubscribeParam = z.object({ token: z.string().min(20).max(400) });
+
+  app.get("/api/public/unsubscribe/:token", async (req) => {
+    const { token } = parseInput(unsubscribeParam, req.params);
+    return getUnsubscribe(token);
+  });
+
+  app.post("/api/public/unsubscribe/:token", async (req) => {
+    const { token } = parseInput(unsubscribeParam, req.params);
+    return unsubscribe(token);
   });
 
   /* ── Pay links (C-15, C-26): card checkout, Zelle or Venmo ────────────── */

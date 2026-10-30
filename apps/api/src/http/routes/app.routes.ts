@@ -2,7 +2,12 @@ import {
   type MeResponse,
   bookingSettings,
   CALENDAR_PROVIDERS,
+  LISTING_PROVIDERS,
   dashboardRange,
+  listingPostInput,
+  listingSettingsInput,
+  reviewPatchInput,
+  reviewReplyInput,
   forwardingCheckInput,
   leadContactInput,
   leadUpdateInput,
@@ -41,6 +46,16 @@ import { createService, listServices, reorderServices, updateService } from "../
 import { getBookingSettings, markNoShow, ownerBook, ownerCancel, ownerSlots, updateBookingSettings } from "../../modules/booking/booking.service";
 import { connectCalendar, disconnectCalendar, syncCalendar } from "../../modules/booking/calendar-sync";
 import { listWaitlist, removeFromWaitlist } from "../../modules/booking/waitlist.service";
+import {
+  connectListing,
+  disconnectListing,
+  draftListingPost,
+  getListing,
+  publishListingPost,
+  syncListingNow,
+  updateListingSettings,
+} from "../../modules/reviews/listing.service";
+import { approveReply, getReviews, getReviewsSummary, redraftReply, setShowOnProfile } from "../../modules/reviews/reviews.service";
 import { getCustomer, listCustomers } from "../../modules/customers/customer.queries";
 import { consentLedger } from "../../container";
 import {
@@ -340,6 +355,76 @@ export async function appRoutes(app: FastifyInstance) {
     const ctx = await tenantContext(req);
     await syncCalendar(ctx.tenantId);
     return getBookingSettings(ctx.tenantId);
+  });
+
+  /* ── Reviews and the Google listing (module 9, C-21, C-23, C-46, C-47) ─── */
+
+  app.get("/api/reviews", async (req) => {
+    const ctx = await tenantContext(req);
+    return getReviews(ctx.tenantId);
+  });
+
+  app.get("/api/reviews/summary", async (req) => {
+    const ctx = await tenantContext(req);
+    return getReviewsSummary(ctx.tenantId);
+  });
+
+  /** A fresh AI draft of the reply. */
+  app.post("/api/reviews/:id/draft", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(idParam, req.params);
+    return redraftReply(ctx.tenantId, id);
+  });
+
+  /** The owner approves the reply; it posts to Google in the background (C-47). */
+  app.post("/api/reviews/:id/reply", async (req, reply) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return reply.status(202).send(await approveReply(ctx.tenantId, ctx.userId, id, parseInput(reviewReplyInput, req.body).text));
+  });
+
+  app.patch("/api/reviews/:id", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    const { id } = parseInput(idParam, req.params);
+    return setShowOnProfile(ctx.tenantId, ctx.userId, id, parseInput(reviewPatchInput, req.body).showOnProfile);
+  });
+
+  app.get("/api/listing", async (req) => {
+    const ctx = await tenantContext(req);
+    return getListing(ctx.tenantId);
+  });
+
+  /** Google sends the owner to sign in first (step 2); the simulator connects straight away. */
+  app.post("/api/listing/connect", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { provider } = parseInput(z.object({ provider: z.enum(LISTING_PROVIDERS) }), req.body);
+    return connectListing(ctx.tenantId, ctx.userId, provider, `${ownerOrigin(req)}/settings?google=back#google`);
+  });
+
+  app.post("/api/listing/disconnect", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return disconnectListing(ctx.tenantId, ctx.userId);
+  });
+
+  /** Update Google now and read it back: details out, rating and reviews in. */
+  app.post("/api/listing/sync", async (req) => {
+    const ctx = await tenantContext(req);
+    return syncListingNow(ctx.tenantId);
+  });
+
+  app.put("/api/listing/settings", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    return updateListingSettings(ctx.tenantId, ctx.userId, parseInput(listingSettingsInput, req.body));
+  });
+
+  app.post("/api/listing/posts/draft", async (req) => {
+    const ctx = await tenantContext(req);
+    return draftListingPost(ctx.tenantId);
+  });
+
+  app.post("/api/listing/posts", async (req) => {
+    const ctx = await tenantContext(req, ["owner", "manager"]);
+    return publishListingPost(ctx.tenantId, ctx.userId, parseInput(listingPostInput, req.body).text);
   });
 
   /** Tags in use, for the board filter and the tag picker (module 4). */

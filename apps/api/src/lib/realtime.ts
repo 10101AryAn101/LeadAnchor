@@ -17,6 +17,7 @@ export type RealtimeEvent =
   | { type: "payments.updated" }
   /** Someone joined or left the waitlist, or an offer went out (C-22). */
   | { type: "waitlist.updated" }
+  | { type: "reviews.updated" }
   | { type: "quote.updated"; quoteId: string; leadId: string }
   /** Simulated phone alert (C-05): shown by the browsers whose token is listed. */
   | {

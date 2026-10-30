@@ -27,6 +27,12 @@ describe("send policy (governed send path)", () => {
     expect(decide({ ...base, purpose: "waitlist_offer", waitlistTextsCleared: true, smsConsent: null }).allowed).toBe(false);
   });
 
+  it("sends review requests by email only: they count as marketing (C-46)", () => {
+    const decision = decide({ ...base, purpose: "review_request" });
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toMatch(/by email/i);
+  });
+
   it("blocks texts until carriers approve the business (10DLC hard block)", () => {
     const decision = decide({ ...base, carrierApproved: false });
     expect(decision.allowed).toBe(false);

@@ -14,7 +14,16 @@ import { sendPush } from "./push";
 export async function notifyOwner(
   tx: Tx,
   fx: Effects,
-  input: { tenantId: string; kind: NotificationKind; title: string; body: string; leadId?: string | null; callbackPhone?: string | null },
+  input: {
+    tenantId: string;
+    kind: NotificationKind;
+    title: string;
+    body: string;
+    leadId?: string | null;
+    callbackPhone?: string | null;
+    /** Where tapping the alert opens when it isn't about one job, e.g. "/reviews". */
+    path?: string;
+  },
 ) {
   const [row] = await tx
     .insert(notifications)
@@ -30,7 +39,7 @@ export async function notifyOwner(
   });
 
   fx.afterCommit(async () => {
-    const link = input.leadId ? `${linkBaseUrl}/leads/${input.leadId}` : `${linkBaseUrl}/dashboard`;
+    const link = input.leadId ? `${linkBaseUrl}/leads/${input.leadId}` : `${linkBaseUrl}${input.path ?? "/dashboard"}`;
     const status = await sendPush({
       tenantId: input.tenantId,
       title: input.title,

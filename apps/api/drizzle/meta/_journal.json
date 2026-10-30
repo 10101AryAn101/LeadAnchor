@@ -85,6 +85,20 @@
       "when": 1793339788156,
       "tag": "0011_booking_backfill",
       "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1793342662112,
+      "tag": "0012_reviews",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1793342927948,
+      "tag": "0013_listing_sync_and_address",
+      "breakpoints": true
     }
   ]
 }

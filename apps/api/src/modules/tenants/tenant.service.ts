@@ -12,6 +12,7 @@ import { uuidv7 } from "uuidv7";
 import type { z } from "zod";
 import { systemDb, withTenant } from "../../db/client";
 import { carrierRegistrations, memberships, phoneNumbers, services, tenants } from "../../db/schema";
+import { QUEUES, enqueue } from "../../jobs/queue";
 import { HttpError } from "../../lib/errors";
 import { telephony } from "../../container";
 import { audit } from "../compliance/audit";
@@ -98,8 +99,10 @@ export async function getSettings(tenantId: string): Promise<SettingsResponse> {
       trade: tenant.trade,
       ownerName: tenant.ownerName,
       ownerCell: tenant.ownerCellE164,
+      streetAddress: tenant.streetAddress,
       city: tenant.city,
       state: tenant.state,
+      postalCode: tenant.postalCode,
       timezone: tenant.timezone,
       licenseNumber: tenant.licenseNumber,
       insuranceCarrier: tenant.insuranceCarrier,
@@ -129,6 +132,8 @@ export async function updateSettings(tenantId: string, userId: string, input: Se
         ...(input.businessName !== undefined && { name: input.businessName }),
         ...(input.ownerName !== undefined && { ownerName: input.ownerName }),
         ...(input.ownerCell !== undefined && { ownerCellE164: input.ownerCell }),
+        ...(input.streetAddress !== undefined && { streetAddress: input.streetAddress || null }),
+        ...(input.postalCode !== undefined && { postalCode: input.postalCode || null }),
         ...(input.city !== undefined && { city: input.city || null }),
         ...(input.state !== undefined && { state: input.state ? input.state.toUpperCase() : null }),
         ...(input.timezone !== undefined && { timezone: input.timezone }),
@@ -146,6 +151,8 @@ export async function updateSettings(tenantId: string, userId: string, input: Se
       .where(eq(tenants.id, tenantId));
     await audit(tx, { tenantId, actor: `user:${userId}`, action: "settings.updated", entityType: "tenant", entityId: tenantId, data: { fields: Object.keys(input) } });
   });
+  // The address and website are kept on the Google listing too (C-21); nothing happens if it isn't connected.
+  await enqueue(QUEUES.listingPush, { tenantId });
   return getSettings(tenantId);
 }
 

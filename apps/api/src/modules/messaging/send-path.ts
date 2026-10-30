@@ -7,6 +7,7 @@ import { env } from "../../config/env";
 import { QUEUES } from "../../jobs/queue";
 import { channels, consentLedger } from "../../container";
 import { approvedForTexting } from "../compliance/registration.service";
+import { MARKETING_EMAIL_PURPOSES, isOptedOut, marketingFooter, postalAddress, unsubscribeUrl } from "./email-opt-out";
 import { decide } from "./policy";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -106,11 +107,26 @@ export interface EmailIntent {
 
 /**
  * Email goes through the same governed path as texts: one row per message with the
- * decision attached, delivered by the queue. Job and account emails need no opt-in;
- * marketing email will check the unsubscribe list here when campaigns arrive (C-28).
+ * decision attached, delivered by the queue. Job and account emails need no opt-in.
+ * Marketing-type email (review requests, later campaigns) skips anyone who unsubscribed
+ * and carries the postal address and an unsubscribe link (CAN-SPAM).
  */
 export async function requestEmail(tx: Tx, fx: Effects, intent: EmailIntent) {
   const validAddress = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(intent.to);
+  const checks = [{ check: "email_address", passed: validAddress, detail: validAddress ? "Address looks valid." : "Invalid address." }];
+  let blockedReason = validAddress ? null : "That email address doesn't look right.";
+  let body = intent.body;
+
+  if (validAddress && MARKETING_EMAIL_PURPOSES.has(intent.purpose)) {
+    const optedOut = await isOptedOut(tx, intent.to);
+    checks.push({ check: "email_opt_out", passed: !optedOut, detail: optedOut ? "They unsubscribed from these emails." : "Not on the unsubscribe list." });
+    const address = optedOut ? null : await postalAddress(tx, intent.tenant);
+    if (!optedOut) checks.push({ check: "postal_address", passed: address !== null, detail: address ? "Postal address included." : "No postal address on file." });
+    if (optedOut) blockedReason = "They unsubscribed from these emails.";
+    else if (!address) blockedReason = "Add the business's street address and ZIP in Settings first (US anti-spam law).";
+    else body += marketingFooter({ business: intent.tenant.name, address, unsubscribe: unsubscribeUrl(intent.tenant.id, intent.to) });
+  }
+
   const [message] = await tx
     .insert(messages)
     .values({
@@ -120,18 +136,18 @@ export async function requestEmail(tx: Tx, fx: Effects, intent: EmailIntent) {
       direction: "outbound",
       channel: "email",
       purpose: intent.purpose,
-      status: validAddress ? "queued" : "blocked",
+      status: blockedReason ? "blocked" : "queued",
       toAddress: intent.to,
       fromAddress: env.EMAIL_FROM,
       subject: intent.subject,
-      body: intent.body,
-      blockedReason: validAddress ? null : "That email address doesn't look right.",
+      body,
+      blockedReason,
       provider: channels.email.provider,
-      policy: { checks: [{ check: "email_address", passed: validAddress, detail: validAddress ? "Address looks valid." : "Invalid address." }] },
+      policy: { checks },
     })
     .returning();
 
-  if (validAddress) fx.enqueue(QUEUES.dispatchMessage, { tenantId: intent.tenant.id, messageId: message!.id });
+  if (!blockedReason) fx.enqueue(QUEUES.dispatchMessage, { tenantId: intent.tenant.id, messageId: message!.id });
   fx.publish({ type: "message.created", messageId: message!.id, leadId: intent.leadId });
   return message!;
 }

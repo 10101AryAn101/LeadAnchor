@@ -25,7 +25,9 @@ import {
   IconLock,
   IconLockOpen,
   IconMail,
+  IconMailForward,
   IconMessage,
+  IconMessageCircle,
   IconNote,
   IconPencil,
   IconPhoneCall,
@@ -36,6 +38,7 @@ import {
   IconSend,
   IconShieldCheck,
   IconShieldX,
+  IconStar,
   IconTag,
   IconTrash,
   IconUserOff,
@@ -302,9 +305,38 @@ function bookingRow(event: LeadEvent, base: { id: string; at: string }): Row | n
   }
 }
 
+/** C-46 and C-47: the review request, the Google review it brought, the reply, and the private line. */
+function reviewRow(event: LeadEvent, base: { id: string; at: string }): Row | null {
+  const d = event.data;
+  switch (event.type) {
+    case "review.requested":
+      return d.outcome === "sent"
+        ? { ...base, kind: "messages", icon: IconMailForward, tone: "neutral", title: "Review request emailed", body: "Your Google review link, and a private line to you." }
+        : { ...base, kind: "messages", icon: IconMailForward, tone: "waiting", title: "Review request not sent", body: str(d.detail) || undefined };
+    case "review.left": {
+      const rating = typeof d.rating === "number" ? d.rating : 0;
+      return {
+        ...base,
+        kind: "other",
+        icon: IconStar,
+        tone: rating >= 4 ? "good" : "waiting",
+        title: `Left a ${rating}-star Google review`,
+        body: str(d.text) ? <Quote>{str(d.text)}</Quote> : undefined,
+      };
+    }
+    case "review.replied":
+      return { ...base, kind: "other", icon: IconSend, tone: "neutral", title: "You replied to their Google review", body: str(d.text) ? <Quote>{str(d.text)}</Quote> : undefined };
+    case "feedback.received":
+      return { ...base, kind: "messages", icon: IconMessageCircle, tone: "waiting", title: "Sent you a private message", body: <Quote>{str(d.text)}</Quote> };
+    default:
+      return null;
+  }
+}
+
 function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
   const d = event.data;
   const base = { id: event.id, at: event.createdAt };
+  if (event.type.startsWith("review.") || event.type === "feedback.received") return reviewRow(event, base);
   if (event.type.startsWith("quote.")) return quoteRow(event, base);
   if (event.type.startsWith("payment.")) return paymentRow(event, base);
   if (event.type.startsWith("booking.") || event.type.startsWith("waitlist.")) return bookingRow(event, base);

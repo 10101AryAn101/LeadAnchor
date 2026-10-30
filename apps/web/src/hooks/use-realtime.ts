@@ -15,6 +15,7 @@ type RealtimeEvent =
   | { type: "settings.updated" }
   | { type: "payments.updated" }
   | { type: "waitlist.updated" }
+  | { type: "reviews.updated" }
   | { type: "quote.updated"; quoteId: string; leadId: string }
   | ({ type: "push.preview" } & SimulatedAlert);
 
@@ -69,10 +70,16 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
           case "settings.updated":
             void queryClient.invalidateQueries({ queryKey: keys.settings });
             void queryClient.invalidateQueries({ queryKey: keys.bookingSettings });
+            void queryClient.invalidateQueries({ queryKey: keys.listing });
             void queryClient.invalidateQueries({ queryKey: keys.simCalendar });
             break;
           case "waitlist.updated":
             void queryClient.invalidateQueries({ queryKey: keys.waitlist });
+            break;
+          case "reviews.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.reviews });
+            void queryClient.invalidateQueries({ queryKey: keys.reviewsSummary });
+            void queryClient.invalidateQueries({ queryKey: keys.listing });
             break;
           case "payments.updated":
             void queryClient.invalidateQueries({ queryKey: keys.paymentSettings });

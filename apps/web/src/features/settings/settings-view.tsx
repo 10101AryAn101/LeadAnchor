@@ -22,6 +22,7 @@ import { showFormError } from "@/lib/forms";
 import { keys, useSettings } from "@/lib/queries";
 import { BookingSection } from "./booking-section";
 import { CaptureLinks } from "./capture-links";
+import { GoogleSection } from "./google-section";
 import { ForwardingCheck } from "./forwarding-check";
 import { ForwardingGuide } from "./forwarding-guide";
 import { PaymentsSection } from "./payments-section";
@@ -33,8 +34,10 @@ const formSchema = z.object({
   businessName: z.string().trim().min(2, "Enter your business name").max(80),
   ownerName: z.string().trim().min(2, "Enter your name").max(80),
   ownerCell: z.string().trim().min(7, "Enter your cell number"),
+  streetAddress: z.string().trim().max(120),
   city: z.string().trim().max(80),
   state: z.string().trim().max(2),
+  postalCode: z.union([z.literal(""), z.string().trim().regex(/^\d{5}(-\d{4})?$/, "Enter a valid ZIP code")]),
   licenseNumber: z.string().trim().max(40),
   insuranceCarrier: z.string().trim().max(80),
   insurancePolicyNumber: z.string().trim().max(60),
@@ -52,8 +55,10 @@ const toForm = (s: SettingsResponse): FormValues => ({
   businessName: s.businessName,
   ownerName: s.ownerName ?? "",
   ownerCell: s.ownerCell ? formatPhone(s.ownerCell) : "",
+  streetAddress: s.streetAddress ?? "",
   city: s.city ?? "",
   state: s.state ?? "",
+  postalCode: s.postalCode ?? "",
   licenseNumber: s.licenseNumber ?? "",
   insuranceCarrier: s.insuranceCarrier ?? "",
   insurancePolicyNumber: s.insurancePolicyNumber ?? "",
@@ -83,6 +88,7 @@ export function SettingsView() {
       <SettingsForm settings={settings} />
       <ServicesSection />
       <BookingSection />
+      <GoogleSection />
       <PaymentsSection />
     </div>
   );
@@ -106,6 +112,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
     mutationFn: (values: z.output<typeof formSchema>) => {
       const body = settingsUpdateInput.parse({
         ...values,
+        streetAddress: values.streetAddress || null,
+        postalCode: values.postalCode || null,
         licenseNumber: values.licenseNumber || null,
         insuranceCarrier: values.insuranceCarrier || null,
         insurancePolicyNumber: values.insurancePolicyNumber || null,
@@ -198,9 +206,11 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             <TextField form={form} name="businessName" label="Business name" />
             <TextField form={form} name="ownerName" label="Your name" />
             <TextField form={form} name="ownerCell" label="Your cell (we ring this)" type="tel" />
-            <div className="grid grid-cols-[1fr_96px] gap-3">
+            <TextField form={form} name="streetAddress" label="Street address (for review emails and Google)" />
+            <div className="grid grid-cols-[1fr_72px_104px] gap-3 sm:col-span-2">
               <TextField form={form} name="city" label="City" />
               <TextField form={form} name="state" label="State" />
+              <TextField form={form} name="postalCode" label="ZIP" />
             </div>
             <TextField form={form} name="licenseNumber" label="Licence number (optional)" />
             <TextField form={form} name="insuranceCarrier" label="Insurance carrier (optional)" />
@@ -284,8 +294,10 @@ function TextField({
     | "businessName"
     | "ownerName"
     | "ownerCell"
+    | "streetAddress"
     | "city"
     | "state"
+    | "postalCode"
     | "licenseNumber"
     | "insuranceCarrier"
     | "insurancePolicyNumber"

@@ -43,10 +43,15 @@ export function decide(facts: PolicyFacts): PolicyDecision {
   const checks: PolicyCheck[] = [];
   const blocked = (reason: string): PolicyDecision => ({ allowed: false, channel: null, reason, checks });
 
-  if (facts.purpose === "marketing") {
+  if (facts.purpose === "marketing" || facts.purpose === "review_request") {
     // Email-first strategy: marketing texts stay off until counsel signs off on the TCPA consent stack.
+    // A review request counts as marketing (C-46), so it goes by email too.
     checks.push({ check: "marketing_channel", passed: false, detail: "Marketing runs on email until SMS marketing is legally cleared." });
-    return blocked("Marketing texts are switched off (email-first plan).");
+    return blocked(
+      facts.purpose === "review_request"
+        ? "Review requests go by email: they count as marketing, and marketing texts are off (email-first plan)."
+        : "Marketing texts are switched off (email-first plan).",
+    );
   }
 
   if (facts.purpose === "waitlist_offer") {

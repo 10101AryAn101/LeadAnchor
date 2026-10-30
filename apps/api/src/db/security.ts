@@ -32,6 +32,11 @@ export const TENANT_TABLES = [
   "waitlist_offer_recipients",
   "calendar_connections",
   "calendar_events",
+  "listing_connections",
+  "reviews",
+  "review_requests",
+  "listing_posts",
+  "email_opt_outs",
 ] as const;
 
 /** Append-only tables: no UPDATE or DELETE for application roles. */

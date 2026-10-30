@@ -29,6 +29,7 @@ import {
   waitlistOffers,
 } from "../../db/schema";
 import { type Effects, tenantWork } from "../../db/unit-of-work";
+import { QUEUES } from "../../jobs/queue";
 import { sha256 } from "../../lib/crypto";
 import { HttpError, notFound } from "../../lib/errors";
 import { logger } from "../../lib/logger";
@@ -91,6 +92,8 @@ export async function updateBookingSettings(
 ): Promise<BookingSettingsResponse> {
   await tenantWork(tenantId, async (tx, fx) => {
     await tx.update(tenants).set({ booking: settings }).where(eq(tenants.id, tenantId));
+    // Hours and the booking link are kept on the Google listing too (C-21).
+    fx.enqueue(QUEUES.listingPush, { tenantId });
     await audit(tx, {
       tenantId,
       actor: `user:${userId}`,
