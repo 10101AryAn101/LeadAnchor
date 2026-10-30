@@ -54,7 +54,7 @@ Test cards (any future date, any CVC): `4242 4242 4242 4242` pays; `4000 0000 00
    These four are public by design: every browser that gets alerts needs them. The API hands them out; they aren't written into the code.
 3. **Project settings → Cloud Messaging → Web Push certificates → Generate key pair**: copy the key into `FIREBASE_VAPID_KEY`.
 4. **Project settings → Service accounts → Generate new private key**. Save the file as `apps/api/secrets/firebase-service-account.json` (git ignores that folder), and set `GOOGLE_APPLICATION_CREDENTIALS=./secrets/firebase-service-account.json`. This file is the real secret: never share it.
-5. Set `FCM_ENABLED=true`. Then, in the app, open **Settings → Phone alerts** and turn alerts on in this browser.
+5. Set `FCM_ENABLED=true`. Then, in the app, open **Settings → Missed-call alerts** and turn alerts on in this browser.
 6. Consent ledger: **Build → Firestore Database → Create database**, in production mode with a US location. Then set `CONSENT_LEDGER=local-and-firestore`. The app keeps checking consent against its own ledger, so nothing already recorded is lost, and every new yes or no is also written to Firestore.
 
 ## 5. Google Calendar

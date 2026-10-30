@@ -16,7 +16,9 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
       capabilities: ["C-02", "C-03", "C-05", "C-06", "C-13", "C-39"],
       state: telnyxLive ? "live" : "simulated",
       detail: telnyxLive
-        ? "Connected — calls arrive through the Telnyx webhook."
+        ? env.TELNYX_TEST_NUMBER
+          ? `Trial: ${env.TELNYX_TEST_BUSINESS ?? "the business"} answers on ${env.TELNYX_TEST_NUMBER}. Only your verified mobile can call or text it, and Telnyx adds a short notice before machine speech.`
+          : "Connected — calls arrive through the Telnyx webhook."
         : "Running on the local call simulator. Add TELNYX_API_KEY and switch TELEPHONY_PROVIDER to go live.",
       mandatedBySpec: true,
     },

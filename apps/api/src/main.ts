@@ -9,6 +9,7 @@ import { sleep } from "./lib/time";
 import { ai, consentLedger, simulatorTelephony, telephony } from "./container";
 import { TelnyxTelephony } from "./integrations/telephony/telnyx";
 import { callEngine } from "./modules/calls";
+import { syncTelnyxTestNumber } from "./modules/tenants/test-number";
 
 async function waitForDatabase() {
   for (let attempt = 1; ; attempt++) {
@@ -25,6 +26,10 @@ async function waitForDatabase() {
 
 async function main() {
   await waitForDatabase();
+  // Telnyx trial: attach (or set aside) the one trial number, as the settings say.
+  await syncTelnyxTestNumber().catch((error) =>
+    logger.error({ err: error }, "couldn't attach the Telnyx trial number"),
+  );
   await startQueue();
   await startWorkers();
 

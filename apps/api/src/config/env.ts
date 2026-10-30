@@ -54,9 +54,15 @@ const schema = z.object({
   TELNYX_CONNECTION_ID: optional,
   TELNYX_MESSAGING_PROFILE_ID: optional,
   TELNYX_WEBHOOK_TOLERANCE_SECS: z.coerce.number().int().default(300),
+  // Telnyx trial: the one number ordered by hand, and the business (slug) that answers on it.
+  TELNYX_TEST_NUMBER: optional,
+  TELNYX_TEST_BUSINESS: optional,
 
   // Messaging channels.
   SMS_PROVIDER: z.enum(["simulator", "telnyx"]).default("simulator"),
+  // Carrier registration (10DLC). Unset, it follows SMS_PROVIDER; a Telnyx trial keeps "simulator",
+  // since a trial can't file real registrations.
+  CARRIER_REGISTRY: z.enum(["simulator", "telnyx"]).optional(),
   WHATSAPP_ACCESS_TOKEN: optional,
   WHATSAPP_PHONE_NUMBER_ID: optional,
   WHATSAPP_APP_SECRET: optional,

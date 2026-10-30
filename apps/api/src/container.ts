@@ -56,9 +56,14 @@ export const telephony: TelephonyProvider =
 
 export const simulatorRegistry = new SimulatorRegistry();
 
-/** Carrier registration (C-43) follows the texting provider: Telnyx texts need a Telnyx-filed registration. */
+/**
+ * Carrier registration (C-43) follows the texting provider (Telnyx texts need a Telnyx-filed
+ * registration) unless CARRIER_REGISTRY says otherwise: a Telnyx trial keeps the simulator.
+ */
 export const registry: CarrierRegistry =
-  env.SMS_PROVIDER === "telnyx" ? new TelnyxRegistry(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx")) : simulatorRegistry;
+  (env.CARRIER_REGISTRY ?? env.SMS_PROVIDER) === "telnyx"
+    ? new TelnyxRegistry(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx"))
+    : simulatorRegistry;
 
 export const consentLedger: ConsentLedger =
   env.CONSENT_LEDGER === "firestore"
