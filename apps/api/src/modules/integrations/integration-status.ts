@@ -42,7 +42,9 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
       state: channels.whatsapp?.provider === "meta" ? "live" : channels.whatsapp ? "simulated" : "not_configured",
       detail:
         channels.whatsapp?.provider === "meta"
-          ? "Connected to Meta Cloud API."
+          ? env.WHATSAPP_TEST_BUSINESS
+            ? `Test mode: Meta's free test number answers for ${env.WHATSAPP_TEST_BUSINESS}. Only the numbers you verified on Meta can chat with it.`
+            : "Connected to Meta Cloud API."
           : channels.whatsapp
             ? "A simulated WhatsApp stands in (Chats and the call simulator). Real WhatsApp needs a Meta Business account, a WhatsApp number and the API keys (free to set up, step 2)."
             : "Needs a Meta Business account (directly or through a BSP).",

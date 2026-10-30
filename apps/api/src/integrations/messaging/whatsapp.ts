@@ -9,12 +9,36 @@ import type { OutboundMessage, WhatsAppAdapter } from "./types";
 export class MetaWhatsApp implements WhatsAppAdapter {
   readonly channel = "whatsapp" as const;
   readonly provider = "meta";
+  private readonly graphVersion: string;
+  /** Test mode: Meta's one test number answers for a single business, so chat links lead to it. */
+  private sharedNumber: string | null = null;
 
   constructor(
     private readonly accessToken: string,
     private readonly phoneNumberId: string,
-    private readonly graphVersion = "v23.0",
-  ) {}
+    options: { testMode?: boolean; graphVersion?: string } = {},
+  ) {
+    this.graphVersion = options.graphVersion ?? "v23.0";
+    if (options.testMode)
+      void this.ownNumber().then((number) => {
+        this.sharedNumber = number;
+      });
+  }
+
+  /** The number this WhatsApp account sends from (in test mode, Meta's test number), as +E.164. */
+  async ownNumber(): Promise<string | null> {
+    try {
+      const response = await fetch(
+        `https://graph.facebook.com/${this.graphVersion}/${this.phoneNumberId}?fields=display_phone_number`,
+        { headers: { Authorization: `Bearer ${this.accessToken}` }, signal: AbortSignal.timeout(15_000) },
+      );
+      const json = (await response.json().catch(() => ({}))) as { display_phone_number?: string };
+      const digits = json.display_phone_number?.replace(/\D/g, "");
+      return response.ok && digits ? `+${digits}` : null;
+    } catch {
+      return null;
+    }
+  }
 
   async send(message: OutboundMessage) {
     const response = await fetch(`https://graph.facebook.com/${this.graphVersion}/${this.phoneNumberId}/messages`, {
@@ -34,7 +58,7 @@ export class MetaWhatsApp implements WhatsAppAdapter {
   }
 
   chatLink(businessE164: string, prefill: string) {
-    return whatsappDeepLink(businessE164, prefill);
+    return whatsappDeepLink(this.sharedNumber ?? businessE164, prefill);
   }
 }
 

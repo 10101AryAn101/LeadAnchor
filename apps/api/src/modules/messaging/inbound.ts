@@ -3,6 +3,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { systemDb } from "../../db/client";
 import { leads, messages, phoneNumbers, tenants } from "../../db/schema";
 import { tenantWork } from "../../db/unit-of-work";
+import { env } from "../../config/env";
 import { logger } from "../../lib/logger";
 import { consentLedger } from "../../container";
 import { handleBookingReply } from "../booking/replies";
@@ -23,6 +24,32 @@ const HELP = /^\s*(help|info)\s*[.!?]*\s*$/i;
  * Handles a message a customer sends to a business number. Opt-outs are written
  * to the consent ledger for SMS of every purpose before anything else happens.
  */
+let testBusinessNumber: string | null = null;
+
+/**
+ * WhatsApp test mode: Meta's single test number answers for one business (WHATSAPP_TEST_BUSINESS),
+ * so messages to it are treated as messages to that business's own number. Null when not set.
+ */
+export async function whatsappTestBusinessNumber(): Promise<string | null> {
+  if (!env.WHATSAPP_TEST_BUSINESS) return null;
+  if (testBusinessNumber) return testBusinessNumber;
+  const [row] = await systemDb
+    .select({ e164: phoneNumbers.e164 })
+    .from(phoneNumbers)
+    .innerJoin(tenants, eq(tenants.id, phoneNumbers.tenantId))
+    .where(
+      and(
+        eq(tenants.slug, env.WHATSAPP_TEST_BUSINESS),
+        eq(phoneNumbers.purpose, "tracking"),
+        eq(phoneNumbers.status, "active"),
+      ),
+    )
+    .limit(1);
+  if (!row) logger.warn({ slug: env.WHATSAPP_TEST_BUSINESS }, "WHATSAPP_TEST_BUSINESS has no active number");
+  testBusinessNumber = row?.e164 ?? null;
+  return testBusinessNumber;
+}
+
 export async function handleInboundMessage(input: {
   from: string;
   to: string;

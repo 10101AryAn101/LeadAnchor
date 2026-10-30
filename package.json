@@ -9,6 +9,7 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "tunnel": "node scripts/tunnel.mjs",
     "dev": "turbo run dev --filter=@leadanchor/api --filter=@leadanchor/web",
     "db:start": "pnpm --filter @leadanchor/dev-db start",
     "db:utf8": "pnpm --filter @leadanchor/dev-db to-utf8",

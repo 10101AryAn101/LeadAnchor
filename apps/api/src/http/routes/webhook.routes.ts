@@ -13,7 +13,7 @@ import { StripePayments } from "../../integrations/payments/stripe";
 import { TelnyxTelephony, type TelnyxWebhook, verifyTelnyxSignature } from "../../integrations/telephony/telnyx";
 import { callEngine } from "../../modules/calls";
 import { applyEmailReport } from "../../modules/messaging/email-feedback";
-import { handleInboundMessage } from "../../modules/messaging/inbound";
+import { handleInboundMessage, whatsappTestBusinessNumber } from "../../modules/messaging/inbound";
 import { receivePaymentEvent } from "../../modules/payments/payment.service";
 
 /**
@@ -118,9 +118,11 @@ export async function webhookRoutes(app: FastifyInstance) {
     reply.status(200).send({ received: true });
 
     const body = req.body as WhatsAppWebhook;
+    // Test mode: Meta's test number stands in for one business's own number.
+    const testNumber = await whatsappTestBusinessNumber();
     for (const entry of body.entry ?? []) {
       for (const change of entry.changes ?? []) {
-        const businessNumber = change.value?.metadata?.display_phone_number;
+        const businessNumber = testNumber ?? change.value?.metadata?.display_phone_number;
         const profiles = new Map((change.value?.contacts ?? []).map((contact) => [contact.wa_id, contact.profile?.name ?? null]));
         for (const message of change.value?.messages ?? []) {
           if (message.type !== "text" || !businessNumber) continue;

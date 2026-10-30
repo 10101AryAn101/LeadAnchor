@@ -49,7 +49,8 @@ export const telephony: TelephonyProvider =
         apiKey: requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx"),
         connectionId: requireSetting("TELNYX_CONNECTION_ID", env.TELNYX_CONNECTION_ID, "Telnyx"),
         messagingProfileId: env.TELNYX_MESSAGING_PROFILE_ID,
-        ringbackUrl: `${env.PUBLIC_API_URL}/static/ringback.wav`,
+        // Telnyx fetches it, so it must be reachable from the internet (the tunnel, locally).
+        ringbackUrl: `${env.TUNNEL_URL ?? env.PUBLIC_API_URL}/static/ringback.wav`,
       })
     : simulatorTelephony;
 
@@ -132,7 +133,9 @@ export const channels: { sms: ChannelAdapter; whatsapp: WhatsAppAdapter | null; 
       : new SimulatorSms(),
   whatsapp:
     env.WHATSAPP_ACCESS_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID
-      ? new MetaWhatsApp(env.WHATSAPP_ACCESS_TOKEN, env.WHATSAPP_PHONE_NUMBER_ID)
+      ? new MetaWhatsApp(env.WHATSAPP_ACCESS_TOKEN, env.WHATSAPP_PHONE_NUMBER_ID, {
+          testMode: Boolean(env.WHATSAPP_TEST_BUSINESS),
+        })
       : env.NODE_ENV === "production"
         ? null
         : new SimulatorWhatsApp(linkBaseUrl),

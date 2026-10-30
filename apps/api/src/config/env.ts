@@ -24,6 +24,9 @@ const schema = z.object({
   API_PORT: z.coerce.number().int().default(4000),
   PUBLIC_WEB_URL: z.url().default("http://localhost:3000"),
   PUBLIC_API_URL: z.url().default("http://localhost:4000"),
+  // The public address `pnpm tunnel` (ngrok) gives this computer, for providers' webhooks and
+  // anything they fetch (the call ringback). Sign-in and links keep using the addresses above.
+  TUNNEL_URL: z.url().optional(),
 
   // PostgreSQL. The app role is subject to row-level security; the system role
   // bypasses it for routing lookups (e.g. "which business owns this number?") and jobs.
@@ -58,6 +61,8 @@ const schema = z.object({
   WHATSAPP_PHONE_NUMBER_ID: optional,
   WHATSAPP_APP_SECRET: optional,
   WHATSAPP_VERIFY_TOKEN: optional,
+  // Test mode: Meta's one free test number answers for this business (its slug).
+  WHATSAPP_TEST_BUSINESS: optional,
   // "dev" keeps emails in the local outbox; "resend" sends them through Resend.
   EMAIL_TRANSPORT: z.enum(["dev", "smtp", "resend"]).default("dev"),
   SMTP_URL: optional,

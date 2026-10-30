@@ -48,6 +48,9 @@ async function main() {
   if (linkBaseUrl !== env.PUBLIC_WEB_URL) {
     logger.info(`Others on your network can open ${linkBaseUrl} (links in texts use this address too)`);
   }
+  if (env.TUNNEL_URL) {
+    logger.info(`Provider webhooks reach this API at ${env.TUNNEL_URL}/api/webhooks/… while \`pnpm tunnel\` runs`);
+  }
 
   const shutdown = async (signal: string) => {
     logger.info(`${signal} received — shutting down`);
