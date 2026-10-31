@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import Stripe from "stripe";
 import type {
   AccountState,
@@ -38,22 +39,23 @@ export class StripePayments implements PaymentsProvider {
   /* ── The business's own account ─────────────────────────────────────────── */
 
   async createAccount(input: { tenantId: string; businessName: string; email: string | null }) {
+    const params: Stripe.AccountCreateParams = {
+      controller: {
+        stripe_dashboard: { type: "full" },
+        fees: { payer: "account" },
+        losses: { payments: "stripe" },
+        requirement_collection: "stripe",
+      },
+      country: "US",
+      ...(input.email ? { email: input.email } : {}),
+      business_profile: { name: input.businessName },
+      metadata: { tenantId: input.tenantId },
+    };
+    // Stripe keeps a key for 24 hours and refuses it with any other details, so the key carries the
+    // details too: a double click still makes one account, and a renamed business can retry at once.
+    const digest = createHash("sha256").update(JSON.stringify(params)).digest("hex").slice(0, 16);
     const account = await this.stripe.accounts
-      .create(
-        {
-          controller: {
-            stripe_dashboard: { type: "full" },
-            fees: { payer: "account" },
-            losses: { payments: "stripe" },
-            requirement_collection: "stripe",
-          },
-          country: "US",
-          ...(input.email ? { email: input.email } : {}),
-          business_profile: { name: input.businessName },
-          metadata: { tenantId: input.tenantId },
-        },
-        { idempotencyKey: `account:${input.tenantId}` },
-      )
+      .create(params, { idempotencyKey: `account:${input.tenantId}:${digest}` })
       .catch(refuse);
     return { accountId: account.id };
   }
