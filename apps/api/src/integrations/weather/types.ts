@@ -14,8 +14,8 @@ export interface Place {
 
 /**
  * Weather port (C-30: "a freeze is coming, offer pipe protection"). The US National Weather
- * Service API (free, no key) joins in step 2; until then the simulator forecasts, and can be
- * told a cold snap or a heat wave is coming.
+ * Service (free, no key) forecasts when WEATHER_PROVIDER=nws; otherwise the simulator does, and
+ * can be told a cold snap or a heat wave is coming.
  */
 export interface WeatherProvider {
   readonly name: "simulator" | "nws";

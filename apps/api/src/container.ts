@@ -23,6 +23,7 @@ import type { PaymentsProvider } from "./integrations/payments/types";
 import { FcmPush } from "./integrations/push/fcm";
 import { SimulatedPush } from "./integrations/push/simulator";
 import type { PushProvider } from "./integrations/push/types";
+import { NationalWeatherService } from "./integrations/weather/nws";
 import { SimulatorWeather } from "./integrations/weather/simulator";
 import type { WeatherProvider } from "./integrations/weather/types";
 import { SimulatorRegistry } from "./integrations/registry/simulator";
@@ -117,10 +118,14 @@ export const listingProviders: Partial<Record<ListingProvider["name"], ListingPr
 export const simulatorWeather = new SimulatorWeather(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "weather.json"));
 
 /**
- * Seasonal offers (C-30) watch the forecast and the holiday calendar. The National Weather
- * Service and a holiday API (both free, no key) join in step 2; until then simulators stand in.
+ * Seasonal offers (C-30) watch the forecast and the holiday calendar. The forecast comes from the
+ * US National Weather Service when WEATHER_PROVIDER=nws; a holiday API (free, no key) joins in
+ * step 2. Until then simulators stand in.
  */
-export const weather: WeatherProvider = simulatorWeather;
+export const weather: WeatherProvider =
+  env.WEATHER_PROVIDER === "nws"
+    ? new NationalWeatherService(`LeadAnchor (${env.WEATHER_CONTACT ?? env.PUBLIC_WEB_URL})`)
+    : simulatorWeather;
 export const holidays: HolidayProvider = new SimulatorHolidays();
 
 /**

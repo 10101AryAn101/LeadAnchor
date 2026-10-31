@@ -97,3 +97,12 @@ The trial gives $5 of credit, one phone number (a local one in your signup count
    - `TELNYX_TEST_NUMBER=<the number you bought, in +E.164 form>`
 
    The demo business then answers on that number.
+
+## 8. Weather (US National Weather Service)
+
+No account and no key. In `.env`, set:
+
+- `WEATHER_PROVIDER=nws`
+- `WEATHER_CONTACT=<your email>`: weather.gov asks every app for a contact, and it's sent with each request.
+
+The forecast is for each business's town, from its ZIP code or else its city and state in **Settings**. The town is turned into map coordinates once with OpenStreetMap's free geocoder. weather.gov covers the US only, so a business elsewhere gets no weather offers. To try it, open **Dev tools → Campaigns**: the week shows the real forecast, and **Check for offer ideas now** suggests an offer if a freeze (32°F or below) or a heat wave (100°F or above) is due in the next five days. The cold snap and heat wave switches only work with `WEATHER_PROVIDER=simulator`.

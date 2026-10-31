@@ -94,6 +94,11 @@ const schema = z.object({
 
   STORAGE_DIR: z.string().default("./storage"),
 
+  // Weather for seasonal offers (C-30). "nws" reads the US National Weather Service (free, no key);
+  // weather.gov asks every app to name itself and a contact, sent as WEATHER_CONTACT.
+  WEATHER_PROVIDER: z.enum(["simulator", "nws"]).default("simulator"),
+  WEATHER_CONTACT: optional,
+
   // C-22: waitlist offers go by email until counsel confirms the waitlist opt-in wording
   // covers texts. Platform-wide, so it is a deployment setting rather than a business one.
   WAITLIST_TEXTS_CLEARED: flag,

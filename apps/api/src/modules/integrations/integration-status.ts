@@ -135,7 +135,7 @@ export function integrationStatuses(registration: RegistrationStatus): Integrati
       detail:
         weather.name === "simulator"
           ? "A simulated forecast stands in until the US National Weather Service is connected (free, no key, step 2). Dev tools can bring on a cold snap or heat wave."
-          : "Forecasts come from the US National Weather Service.",
+          : "Forecasts come from the US National Weather Service, for each business's town (US only).",
       mandatedBySpec: true,
     },
     {

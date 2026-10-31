@@ -156,10 +156,17 @@ export async function devRoutes(app: FastifyInstance) {
 
   app.get("/api/dev/simulator/weather", async (req) => {
     const ctx = await tenantContext(req);
+    const [place] = await withTenant(ctx.tenantId, (tx) =>
+      tx
+        .select({ city: tenants.city, state: tenants.state, postalCode: tenants.postalCode })
+        .from(tenants)
+        .where(eq(tenants.id, ctx.tenantId)),
+    );
     return {
       scenario: simulatorWeather.scenarioOf(ctx.tenantId),
       simulated: weather.name === "simulator",
-      forecast: await weather.forecast(ctx.tenantId, { city: null, state: null, postalCode: null }),
+      place: [place?.city, place?.state].filter(Boolean).join(", ") || null,
+      forecast: await weather.forecast(ctx.tenantId, place ?? { city: null, state: null, postalCode: null }),
     };
   });
 

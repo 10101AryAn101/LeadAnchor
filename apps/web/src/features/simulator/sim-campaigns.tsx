@@ -17,6 +17,7 @@ type Scenario = "mild" | "freeze" | "heat";
 interface SimWeather {
   scenario: Scenario;
   simulated: boolean;
+  place: string | null;
   forecast: Array<{ date: string; lowF: number; highF: number }>;
 }
 
@@ -93,6 +94,13 @@ export function SimulatedCampaigns() {
           <Skeleton className="h-24 rounded-lg" />
         ) : (
           <>
+            {!weather.data.simulated && (
+              <p className="text-sm text-muted-foreground">
+                {weather.data.forecast.length > 0
+                  ? `Live from the US National Weather Service${weather.data.place ? ` for ${weather.data.place}` : ""}, so the simulated weather is off.`
+                  : "No forecast: the National Weather Service covers US towns only. Check the city and state (or ZIP) in Settings."}
+              </p>
+            )}
             <ToggleGroup
               value={[weather.data.scenario]}
               onValueChange={(next) => next[0] && setWeather.mutate(next[0] as Scenario)}
