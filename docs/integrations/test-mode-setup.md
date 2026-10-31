@@ -21,12 +21,14 @@ Below, `<tunnel>` means `https://<your domain>`.
 
 ## 2. Stripe (test mode)
 
-1. Sign up at <https://dashboard.stripe.com/register>. Pick **United States** as the country: the app is for US businesses and charges in dollars. Test mode needs no business details or bank account.
-2. Open **Connect** in the dashboard and click **Get started**. This lets each business have its own Stripe account, as the spec requires.
-3. **Developers → API keys**: copy the **Secret key** (`sk_test_…`) into `STRIPE_SECRET_KEY`.
-4. **Developers → Webhooks**: add an endpoint (an "event destination") at `<tunnel>/api/webhooks/stripe`. Set it to listen to events on **Connected accounts**, and pick `account.updated` plus all `checkout.session.*`, `payment_intent.*`, `customer.subscription.*` and `invoice.*` events. Copy its signing secret (`whsec_…`) into `STRIPE_WEBHOOK_SECRET`.
+1. Sign up at <https://dashboard.stripe.com/register>. Pick **United States** as the country: the app is for US businesses and charges in dollars. Test mode needs no business details or bank account; skip "Verify your business", which is only for going live. If Stripe shows "Welcome to Stripe India", the account was made for India: create a new account from the account menu and pick United States there, because an India account treats every dollar payment as an export.
+2. Work inside the **sandbox** (test mode): the keys start with `sk_test_`.
+3. Open **Connect** in the dashboard and click **Get started**. Pick **Your merchants collect payments directly**: each business has its own Stripe account with the full Stripe Dashboard, as the spec requires.
+4. New Stripe accounts refuse the way the app creates those business accounts (Accounts v1) until you allow it: turn on <https://dashboard.stripe.com/settings/developers/api-policies/feat_accounts_v1_support>.
+5. **Developers → API keys**: copy the **Secret key** (`sk_test_…`) into `STRIPE_SECRET_KEY`.
+6. **Developers → Webhooks**: add an endpoint (an "event destination") at `<tunnel>/api/webhooks/stripe`. Set it to listen to events on **Connected accounts**, keep the **Snapshot** payload and the API version Stripe suggests, and pick `account.updated` plus all `checkout.session.*`, `payment_intent.*`, `customer.subscription.*` and `invoice.*` events. Check that `customer.subscription.updated` is among them: without it, a member's cancellation never reaches the app. Copy its signing secret (`whsec_…`) into `STRIPE_WEBHOOK_SECRET`.
 
-When a business turns on card payments in the app, Stripe's own setup page opens. In test mode it accepts test values: SMS code `000000`, SSN `000-00-0000`, routing number `110000000`, account number `000123456789`.
+When a business turns on card payments in the app, Stripe's own setup page opens. In test mode it accepts test values: SMS code `000000`, SSN `000-00-0000`, routing number `110000000`, account number `000123456789`, or the **Test (Non-OAuth)** bank with its **Success** account. Skip the optional extras it offers (Link, Stripe Climate, Stripe Tax): the app doesn't use them.
 
 Test cards (any future date, any CVC): `4242 4242 4242 4242` pays; `4000 0000 0000 0341` saves but declines when charged, which is useful for membership retries; `4000 0000 0000 9995` always declines.
 
