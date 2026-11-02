@@ -37,7 +37,8 @@ export function Providers({ children }: { children: ReactNode }) {
             </TooltipProvider>
           </MotionConfig>
         </NuqsAdapter>
-        <ReactQueryDevtools initialIsOpen={false} buttonPosition="bottom-left" />
+        {/* Development only. Top-left keeps it off the account menu (bottom-left) and Next.js's own badge (bottom-right). */}
+        <ReactQueryDevtools initialIsOpen={false} buttonPosition="top-left" />
       </QueryClientProvider>
     </ThemeProvider>
   );

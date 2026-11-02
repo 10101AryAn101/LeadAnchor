@@ -162,12 +162,13 @@ function Sidebar({ me }: { me: MeResponse | undefined }) {
           </>
         )}
       </div>
-      <div className="mt-6">
+      {/* On a short screen the links scroll, so the account menu below always stays in view. */}
+      <div className="-mx-4 mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3 [scrollbar-width:thin]">
         <Nav items={PRIMARY_NAV} label="Main" showWaiting />
+        <div className="mt-6 mb-1.5 px-3 text-sm text-muted-foreground">Business</div>
+        <Nav items={SECONDARY_NAV} label="Business" />
       </div>
-      <div className="mt-6 mb-1.5 px-3 text-sm text-muted-foreground">Business</div>
-      <Nav items={SECONDARY_NAV} label="Business" />
-      <div className="mt-auto border-t border-sidebar-border pt-3">
+      <div className="border-t border-sidebar-border pt-3">
         {me?.tenant ? <UserMenu name={me.user.name} email={me.user.email} business={me.tenant.name} /> : <Skeleton className="h-12 w-full" />}
       </div>
     </aside>
