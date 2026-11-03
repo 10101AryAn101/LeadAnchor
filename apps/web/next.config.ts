@@ -7,14 +7,18 @@ const API_URL = process.env.API_INTERNAL_URL ?? "http://127.0.0.1:4000";
 /**
  * This computer's addresses on the local network. `next dev` listens on all of them, so a
  * teammate or a phone on the same Wi-Fi can open http://<address>:3000, but Next.js only
- * serves its dev scripts and live reload to hosts listed in allowedDevOrigins.
+ * serves its dev scripts and live reload to hosts listed in allowedDevOrigins. Without them
+ * a page there still shows, but none of its buttons work.
  */
 const lanAddresses = Object.values(networkInterfaces())
   .flat()
   .flatMap((net) => (net && net.family === "IPv4" && !net.internal ? [net.address] : []));
 
+/** Every private network range too, for an address that turns up after the server started (a phone hotspot). */
+const privateNetworks = ["10.*.*.*", "192.168.*.*", ...Array.from({ length: 16 }, (_, i) => `172.${16 + i}.*.*`)];
+
 const nextConfig: NextConfig = {
-  allowedDevOrigins: lanAddresses,
+  allowedDevOrigins: [...privateNetworks, ...lanAddresses],
   cacheComponents: true,
   partialPrefetching: true,
   poweredByHeader: false,

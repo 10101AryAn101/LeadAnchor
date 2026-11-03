@@ -143,6 +143,14 @@ export const isDev = env.NODE_ENV === "development";
 export const devToolsEnabled = env.NODE_ENV !== "production" && (env.DEV_TOOLS || isDev);
 
 /**
+ * A phone hotspot ("Local Area Connection* 12" on 192.168.137.1), Hyper-V, WSL, Docker or a VPN
+ * adapter: links go out on Wi-Fi or Ethernet first, where other devices on the network can reach them.
+ */
+const isVirtualAdapter = ({ adapter, address }: { adapter: string; address: string }) =>
+  /local area connection\*|vethernet|virtualbox|vmware|hyper-v|wsl|docker|tailscale|zerotier|bluetooth/i.test(adapter) ||
+  address.startsWith("192.168.137.");
+
+/**
  * In development `next dev` also serves the web app on this computer's local-network
  * address, so a teammate or a phone on the same Wi-Fi can open it (e.g. http://192.168.1.20:3000).
  * Sign-in has to trust that origin, and links we send out have to use it, or they would
@@ -151,13 +159,14 @@ export const devToolsEnabled = env.NODE_ENV !== "production" && (env.DEV_TOOLS |
 const lanWebOrigins = (() => {
   const { protocol, hostname, port } = new URL(env.PUBLIC_WEB_URL);
   if (!isDev || (hostname !== "localhost" && hostname !== "127.0.0.1")) return [];
-  return Object.values(networkInterfaces())
-    .flat()
-    .flatMap((net) =>
-      net && net.family === "IPv4" && !net.internal && !net.address.startsWith("169.254.")
-        ? [`${protocol}//${net.address}${port ? `:${port}` : ""}`]
-        : [],
-    );
+  return Object.entries(networkInterfaces())
+    .flatMap(([adapter, nets]) =>
+      (nets ?? [])
+        .filter((net) => net.family === "IPv4" && !net.internal && !net.address.startsWith("169.254."))
+        .map((net) => ({ adapter, address: net.address })),
+    )
+    .sort((a, b) => Number(isVirtualAdapter(a)) - Number(isVirtualAdapter(b)))
+    .map(({ address }) => `${protocol}//${address}${port ? `:${port}` : ""}`);
 })();
 
 /** Origins the web app is opened from. Sign-in rejects requests from any other page. */

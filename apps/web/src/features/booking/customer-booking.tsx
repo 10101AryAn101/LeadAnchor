@@ -7,6 +7,7 @@ import {
   type PublicCampaignOffer,
   type RequestSource,
   type SlotsResponse,
+  toUsE164,
   waitlistConsentText,
 } from "@leadanchor/contracts";
 import {
@@ -17,7 +18,7 @@ import {
   IconHourglass,
 } from "@tabler/icons-react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { useState } from "react";
+import { type Dispatch, type SetStateAction, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -309,30 +310,51 @@ function WaitlistPrompt({
   );
 }
 
+type FieldErrors = Record<string, string[]>;
+
 function useContactFields() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [company, setCompany] = useState("");
-  return {
-    name,
-    setName,
-    phone,
-    setPhone,
-    email,
-    setEmail,
-    company,
-    setCompany,
-    valid: name.trim().length >= 2 && phone.replace(/\D/g, "").length >= 10,
+  /** What's missing or wrong, by field, so the customer is told why instead of facing a grey button. */
+  const problems = (): FieldErrors => {
+    const found: FieldErrors = {};
+    if (name.trim().length < 2) found.name = ["Enter your name"];
+    const digits = phone.replace(/\D/g, "");
+    if (!digits) found.phone = ["Enter your mobile number"];
+    else if (digits.length < 10) found.phone = ["Enter all 10 digits, including the area code"];
+    else if (!toUsE164(phone)) found.phone = ["Enter a valid US mobile number"];
+    return found;
   };
+  return { name, setName, phone, setPhone, email, setEmail, company, setCompany, problems };
 }
+
+/** Shows `found` on the form; true when there's nothing to fix. The first field to fix gets the cursor. */
+function showProblems(found: FieldErrors, setErrors: (errors: FieldErrors) => void) {
+  setErrors(found);
+  const first = ["name", "phone", "email"].find((field) => found[field]);
+  if (first) document.getElementById(`book-${first}`)?.focus();
+  return Object.keys(found).length === 0;
+}
+
+/** Clears a field's message as soon as the customer changes it. */
+const clearError = (setErrors: Dispatch<SetStateAction<FieldErrors>>) => (field: string) =>
+  setErrors((current) => {
+    if (!current[field]) return current;
+    const next = { ...current };
+    delete next[field];
+    return next;
+  });
 
 function ContactFields({
   fields,
   errors,
+  onEdit,
 }: {
   fields: ReturnType<typeof useContactFields>;
-  errors: Record<string, string[]>;
+  errors: FieldErrors;
+  onEdit: (field: string) => void;
 }) {
   return (
     <>
@@ -342,7 +364,10 @@ function ContactFields({
           id="book-name"
           autoComplete="name"
           value={fields.name}
-          onChange={(event) => fields.setName(event.target.value)}
+          onChange={(event) => {
+            fields.setName(event.target.value);
+            onEdit("name");
+          }}
         />
         <FieldError errors={(errors.name ?? []).map((message) => ({ message }))} />
       </Field>
@@ -354,7 +379,10 @@ function ContactFields({
           autoComplete="tel"
           inputMode="tel"
           value={fields.phone}
-          onChange={(event) => fields.setPhone(event.target.value)}
+          onChange={(event) => {
+            fields.setPhone(event.target.value);
+            onEdit("phone");
+          }}
         />
         <FieldError errors={(errors.phone ?? []).map((message) => ({ message }))} />
       </Field>
@@ -365,7 +393,10 @@ function ContactFields({
           type="email"
           autoComplete="email"
           value={fields.email}
-          onChange={(event) => fields.setEmail(event.target.value)}
+          onChange={(event) => {
+            fields.setEmail(event.target.value);
+            onEdit("email");
+          }}
         />
         <FieldError errors={(errors.email ?? []).map((message) => ({ message }))} />
       </Field>
@@ -409,7 +440,7 @@ function Details({
   const [notes, setNotes] = useState("");
   const [smsConsent, setSmsConsent] = useState(false);
   const [earlier, setEarlier] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
+  const [errors, setErrors] = useState<FieldErrors>({});
 
   const book = useMutation({
     mutationFn: () =>
@@ -451,12 +482,13 @@ function Details({
       </div>
       <form
         className="relative space-y-4"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          book.mutate();
+          if (showProblems(fields.problems(), setErrors)) book.mutate();
         }}
       >
-        <ContactFields fields={fields} errors={errors} />
+        <ContactFields fields={fields} errors={errors} onEdit={clearError(setErrors)} />
         <Field>
           <FieldLabel htmlFor="book-notes">Anything they should know? (optional)</FieldLabel>
           <Textarea
@@ -487,12 +519,7 @@ function Details({
           </span>
         </label>
         <LegalNote>Neither box is needed to book.</LegalNote>
-        <Button
-          type="submit"
-          size="lg"
-          className="w-full"
-          disabled={!fields.valid || book.isPending}
-        >
+        <Button type="submit" size="lg" className="w-full" disabled={book.isPending}>
           {book.isPending && <Spinner />} Book it
         </Button>
       </form>
@@ -540,7 +567,15 @@ function JoinWaitlist({
     }),
   );
   const [smsConsent, setSmsConsent] = useState(false);
-  const [errors, setErrors] = useState<Record<string, string[]>>({});
+  const [errors, setErrors] = useState<FieldErrors>({});
+
+  /** The contact checks plus the waitlist's own: both dates, and a way to reach them (as the server asks). */
+  const problems = (): FieldErrors => ({
+    ...(!from && { from: ["Pick a date"] }),
+    ...(!to && { to: ["Pick a date"] }),
+    ...fields.problems(),
+    ...(!fields.email.trim() && !smsConsent && { email: ["Add your email, or tick the box below"] }),
+  });
 
   const join = useMutation({
     mutationFn: () =>
@@ -576,9 +611,10 @@ function JoinWaitlist({
       </div>
       <form
         className="relative space-y-4"
+        noValidate
         onSubmit={(event) => {
           event.preventDefault();
-          join.mutate();
+          if (showProblems(problems(), setErrors)) join.mutate();
         }}
       >
         <div className="grid grid-cols-2 gap-3">
@@ -589,8 +625,12 @@ function JoinWaitlist({
               type="date"
               min={today}
               value={from}
-              onChange={(event) => setFrom(event.target.value)}
+              onChange={(event) => {
+                setFrom(event.target.value);
+                clearError(setErrors)("from");
+              }}
             />
+            <FieldError errors={(errors.from ?? []).map((message) => ({ message }))} />
           </Field>
           <Field data-invalid={Boolean(errors.to)}>
             <FieldLabel htmlFor="wait-to">Until</FieldLabel>
@@ -599,17 +639,23 @@ function JoinWaitlist({
               type="date"
               min={from}
               value={to}
-              onChange={(event) => setTo(event.target.value)}
+              onChange={(event) => {
+                setTo(event.target.value);
+                clearError(setErrors)("to");
+              }}
             />
             <FieldError errors={(errors.to ?? []).map((message) => ({ message }))} />
           </Field>
         </div>
-        <ContactFields fields={fields} errors={errors} />
+        <ContactFields fields={fields} errors={errors} onEdit={clearError(setErrors)} />
         <label className="flex cursor-pointer gap-3 rounded-lg border border-input bg-card p-3.5">
           <Checkbox
             className="mt-0.5"
             checked={smsConsent}
-            onCheckedChange={(checked) => setSmsConsent(checked === true)}
+            onCheckedChange={(checked) => {
+              setSmsConsent(checked === true);
+              clearError(setErrors)("email");
+            }}
           />
           <span className="text-[15px] leading-6">
             {waitlistConsentText(context.business.name)}
@@ -618,12 +664,7 @@ function JoinWaitlist({
         <LegalNote>
           Add your email, tick the box, or both, so you hear when a time opens up.
         </LegalNote>
-        <Button
-          type="submit"
-          size="lg"
-          className="w-full"
-          disabled={!fields.valid || !from || !to || join.isPending}
-        >
+        <Button type="submit" size="lg" className="w-full" disabled={join.isPending}>
           {join.isPending && <Spinner />} Join the waitlist
         </Button>
       </form>

@@ -102,6 +102,22 @@ export async function showSimulatedAlert(alert: SimulatedAlert): Promise<number 
   return Date.now() - Date.parse(alert.sentAt);
 }
 
+/**
+ * Opens a tapped alert's page in this tab when the alert service worker can't steer the tab
+ * itself (see notificationclick in /sw.js). Only paths on this site are followed. Returns the unsubscribe.
+ */
+export function onAlertLink(open: (path: string) => void): () => void {
+  if (!("serviceWorker" in navigator)) return () => {};
+  const listener = (event: MessageEvent) => {
+    const data = event.data as { type?: unknown; url?: unknown } | null;
+    if (data?.type !== "open-link" || typeof data.url !== "string") return;
+    const target = new URL(data.url, window.location.origin);
+    if (target.origin === window.location.origin) open(target.pathname + target.search);
+  };
+  navigator.serviceWorker.addEventListener("message", listener);
+  return () => navigator.serviceWorker.removeEventListener("message", listener);
+}
+
 /** "Chrome on Android", so the owner can tell their phones apart. */
 export function deviceLabel() {
   const ua = navigator.userAgent;

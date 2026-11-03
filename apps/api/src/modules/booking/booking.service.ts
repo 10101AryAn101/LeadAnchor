@@ -11,6 +11,7 @@ import {
   type SlotsResponse,
   WAITLIST_CONSENT_VERSION,
   type bookingInput,
+  formatPhone,
   type noShowInput,
   type ownerBookingInput,
 } from "@leadanchor/contracts";
@@ -42,6 +43,7 @@ import { creditCampaign } from "../campaigns/links";
 import { notifyOwner } from "../notifications/notify";
 import { capturePayment, publicBusinessOf } from "../payments/payment.service";
 import { availableSlots, isBookable } from "./availability";
+import { calendarFile } from "./calendar-file";
 import { calendarStatusOf } from "./calendar-sync";
 import {
   type BookingRow,
@@ -524,36 +526,32 @@ export async function rescheduleByCustomer(
   return getPublicBooking(token);
 }
 
-/** "Add to my calendar": a standard .ics file. */
+/** "Add to my calendar": a standard .ics file with the business's number and the link to change or cancel. */
 export async function bookingIcs(token: string) {
   const row = await resolveBooking(token);
   const [tenant] = await systemDb.select().from(tenants).where(eq(tenants.id, row.tenantId));
-  const stamp = (date: Date) =>
-    date
-      .toISOString()
-      .replace(/[-:]/g, "")
-      .replace(/\.\d{3}/, "");
-  const text = (value: string) =>
-    value
-      .replace(/\\/g, "\\\\")
-      .replace(/[,;]/g, (char) => `\\${char}`)
-      .replace(/\n/g, "\\n");
-  const lines = [
-    "BEGIN:VCALENDAR",
-    "VERSION:2.0",
-    "PRODID:-//LeadAnchor//Booking//EN",
-    "BEGIN:VEVENT",
-    `UID:${row.id}@leadanchor`,
-    `DTSTAMP:${stamp(new Date())}`,
-    `DTSTART:${stamp(row.startsAt)}`,
-    `DTEND:${stamp(row.endsAt)}`,
-    `SUMMARY:${text(`${row.serviceName ?? "Visit"} with ${tenant!.name}`)}`,
-    `STATUS:${row.status === "booked" ? "CONFIRMED" : "CANCELLED"}`,
-    "END:VEVENT",
-    "END:VCALENDAR",
-  ];
-  return { filename: `${tenant!.slug}-booking.ics`, body: lines.join("\r\n") };
+  const business = await publicBusinessOf(tenant!);
+  const link = manageUrl(token);
+  const body = calendarFile({
+    id: row.id,
+    title: `${row.serviceName ?? "Visit"} with ${business.name}`,
+    startsAt: row.startsAt,
+    endsAt: row.endsAt,
+    happening: row.status === "booked" || row.status === "completed",
+    details: [business.phone && `Questions? Call or text ${business.name} at ${formatPhone(business.phone)}.`, `To change or cancel: ${link}`]
+      .filter(Boolean)
+      .join("\n"),
+    location: visitPlace(tenant!),
+    link,
+  });
+  return { filename: `${tenant!.slug}-booking.ics`, body };
 }
+
+/** The address a customer goes to: only for businesses they visit (a salon or groomer), since mobile trades go to them. */
+const visitPlace = (tenant: Tenant) =>
+  tenant.track === "B" && tenant.streetAddress && tenant.city
+    ? [tenant.streetAddress, tenant.city, [tenant.state, tenant.postalCode].filter(Boolean).join(" ")].filter(Boolean).join(", ")
+    : null;
 
 /* ── The owner's side ────────────────────────────────────────────────────── */
 

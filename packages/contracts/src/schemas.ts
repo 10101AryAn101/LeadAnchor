@@ -67,7 +67,8 @@ import {
   type LeadStage,
   type Track,
 } from "./domain";
-import { toE164 } from "./phone";
+import { toUsE164 } from "./phone";
+import { isTimeZone } from "./time-zones";
 
 /* ----------------------------------------------------------------------------
  * Building blocks
@@ -78,7 +79,7 @@ export const usPhone = z
   .trim()
   .min(7, "Enter a phone number")
   .transform((value, ctx) => {
-    const e164 = toE164(value);
+    const e164 = toUsE164(value);
     if (!e164) {
       ctx.addIssue({ code: "custom", message: "Enter a valid US phone number" });
       return z.NEVER;
@@ -100,7 +101,7 @@ export const onboardingInput = z.object({
   ownerCell: usPhone,
   city: z.string().trim().max(80).optional().default(""),
   state: z.string().trim().max(2).optional().default(""),
-  timezone: z.string().trim().min(3).default("America/Chicago"),
+  timezone: z.string().trim().refine(isTimeZone, "Pick your time zone").default("America/Chicago"),
   avgJobValueDollars: z.coerce.number().int().min(25).max(50_000).default(250),
 });
 export type OnboardingInput = z.input<typeof onboardingInput>;
@@ -685,7 +686,7 @@ export const settingsUpdateInput = z.object({
     .union([z.literal(""), z.string().trim().regex(/^\d{5}(-\d{4})?$/, "Enter a valid ZIP code")])
     .nullable()
     .optional(),
-  timezone: z.string().trim().min(3).optional(),
+  timezone: z.string().trim().refine(isTimeZone, "Pick your time zone").optional(),
   licenseNumber: z.string().trim().max(40).nullable().optional(),
   insuranceCarrier: z.string().trim().max(80).nullable().optional(),
   insurancePolicyNumber: z.string().trim().max(60).nullable().optional(),
@@ -933,7 +934,7 @@ const zelleContact = z
   .max(120)
   .transform((value, ctx) => {
     if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)) return value.toLowerCase();
-    const e164 = toE164(value);
+    const e164 = toUsE164(value);
     if (e164) return e164;
     ctx.addIssue({ code: "custom", message: "Enter the email or US mobile number your Zelle uses" });
     return z.NEVER;

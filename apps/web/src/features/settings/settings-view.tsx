@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { type SettingsResponse, settingsUpdateInput } from "@leadanchor/contracts";
+import { type SettingsResponse, US_TIME_ZONE_LABELS, US_TIME_ZONES, isUsTimeZone, settingsUpdateInput } from "@leadanchor/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -39,6 +39,7 @@ const formSchema = z.object({
   city: z.string().trim().max(80),
   state: z.string().trim().max(2),
   postalCode: z.union([z.literal(""), z.string().trim().regex(/^\d{5}(-\d{4})?$/, "Enter a valid ZIP code")]),
+  timezone: z.string(),
   licenseNumber: z.string().trim().max(40),
   insuranceCarrier: z.string().trim().max(80),
   insurancePolicyNumber: z.string().trim().max(60),
@@ -60,6 +61,7 @@ const toForm = (s: SettingsResponse): FormValues => ({
   city: s.city ?? "",
   state: s.state ?? "",
   postalCode: s.postalCode ?? "",
+  timezone: s.timezone,
   licenseNumber: s.licenseNumber ?? "",
   insuranceCarrier: s.insuranceCarrier ?? "",
   insurancePolicyNumber: s.insurancePolicyNumber ?? "",
@@ -214,6 +216,20 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               <TextField form={form} name="state" label="State" />
               <TextField form={form} name="postalCode" label="ZIP" />
             </div>
+            <Field data-invalid={!!errors.timezone} className="sm:col-span-2">
+              <FieldLabel htmlFor="timezone">Time zone</FieldLabel>
+              <select id="timezone" className="h-11 w-full rounded-md border border-input bg-background px-3 text-[15px]" {...form.register("timezone")}>
+                {/* A business set up before the picker existed may hold a zone outside the US: show it so it can be changed. */}
+                {!isUsTimeZone(settings.timezone) && <option value={settings.timezone}>{settings.timezone} (outside the US)</option>}
+                {US_TIME_ZONES.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {US_TIME_ZONE_LABELS[zone]}
+                  </option>
+                ))}
+              </select>
+              <FieldDescription>Your booking hours, reminders and daily summary run on this clock.</FieldDescription>
+              <FieldError errors={[errors.timezone]} />
+            </Field>
             <TextField form={form} name="licenseNumber" label="Licence number (optional)" />
             <TextField form={form} name="insuranceCarrier" label="Insurance carrier (optional)" />
             <TextField form={form} name="insurancePolicyNumber" label="Insurance policy number (optional)" />

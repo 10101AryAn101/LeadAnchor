@@ -4,3 +4,4 @@ export * from "./memberships";
 export * from "./phone";
 export * from "./reviews";
 export * from "./schemas";
+export * from "./time-zones";

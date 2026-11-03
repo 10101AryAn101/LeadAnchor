@@ -29,7 +29,8 @@ export function CommandMenu() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (event.key.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
+      // Chrome's autofill fires keydown events with no key at all, so don't assume there is one.
+      if (event.key?.toLowerCase() === "k" && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
         setOpen((value) => !value);
       }

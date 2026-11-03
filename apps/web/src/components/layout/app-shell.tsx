@@ -14,6 +14,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRealtime } from "@/hooks/use-realtime";
 import { ApiError } from "@/lib/api";
+import { onAlertLink } from "@/lib/push";
 import { useLeads, useMe } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 import { CommandMenu, openCommandMenu } from "./command-menu";
@@ -81,6 +82,8 @@ function LiveUpdates() {
       action: event.leadId ? { label: "Open", onClick: () => router.push(`/leads/${event.leadId}`) } : undefined,
     }),
   );
+  // A phone alert tapped while this tab is open brings its page here.
+  useEffect(() => onAlertLink((path) => router.push(path)), [router]);
   return null;
 }
 

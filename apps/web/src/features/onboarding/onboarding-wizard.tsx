@@ -1,7 +1,16 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { type TenantSummary, TRADE_LABELS, TRADES, type Trade, onboardingInput } from "@leadanchor/contracts";
+import {
+  type TenantSummary,
+  TRADE_LABELS,
+  TRADES,
+  type Trade,
+  US_TIME_ZONE_LABELS,
+  US_TIME_ZONES,
+  onboardingInput,
+  suggestTimeZone,
+} from "@leadanchor/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type Icon,
@@ -22,7 +31,7 @@ import {
 } from "@tabler/icons-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm, useWatch } from "react-hook-form";
 import type { z } from "zod";
 import { Logo } from "@/components/brand/logo";
@@ -72,12 +81,20 @@ export function OnboardingWizard() {
       ownerCell: "",
       city: "",
       state: "",
-      timezone: typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : "America/Chicago",
+      timezone: "America/Chicago",
       avgJobValueDollars: 250,
     },
   });
   const trade = useWatch({ control: form.control, name: "trade" });
+  const state = useWatch({ control: form.control, name: "state" });
   const errors = form.formState.errors;
+
+  // Suggest the business's zone from its state (the browser's clock only settles a split state),
+  // until the owner picks one themselves. Runs after mount: the server doesn't know the browser's zone.
+  const [zonePicked, setZonePicked] = useState(false);
+  useEffect(() => {
+    if (!zonePicked) form.setValue("timezone", suggestTimeZone(state, Intl.DateTimeFormat().resolvedOptions().timeZone));
+  }, [state, zonePicked, form]);
 
   const create = useMutation({
     mutationFn: (values: Output) => api<{ tenant: TenantSummary }>("/onboarding", { method: "POST", body: values }),
@@ -90,7 +107,7 @@ export function OnboardingWizard() {
   });
 
   const next = async () => {
-    if (await form.trigger(["businessName", "trade", "city", "state"])) setStep(1);
+    if (await form.trigger(["businessName", "trade", "city", "state", "timezone"])) setStep(1);
   };
 
   return (
@@ -161,6 +178,22 @@ export function OnboardingWizard() {
                     <Input id="state" placeholder="TX" maxLength={2} className="uppercase" {...form.register("state")} />
                   </Field>
                 </div>
+                <Field data-invalid={!!errors.timezone}>
+                  <FieldLabel htmlFor="timezone">Time zone</FieldLabel>
+                  <select
+                    id="timezone"
+                    className="h-11 w-full rounded-md border border-input bg-background px-3 text-[15px]"
+                    {...form.register("timezone", { onChange: () => setZonePicked(true) })}
+                  >
+                    {US_TIME_ZONES.map((zone) => (
+                      <option key={zone} value={zone}>
+                        {US_TIME_ZONE_LABELS[zone]}
+                      </option>
+                    ))}
+                  </select>
+                  <FieldDescription>Your booking hours, reminders and daily summary run on this clock.</FieldDescription>
+                  <FieldError errors={[errors.timezone]} />
+                </Field>
               </FieldGroup>
             </div>
           )}

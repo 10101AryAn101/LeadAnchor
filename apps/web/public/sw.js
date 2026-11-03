@@ -58,18 +58,29 @@ self.addEventListener("notificationclick", (event) => {
   // Links carry the public address; always open the page on the origin this app runs on.
   const target = new URL(data.link || "/dashboard", self.location.origin);
   const url = new URL(target.pathname + target.search, self.location.origin).href;
+  const ours = (client) => new URL(client.url).origin === self.location.origin;
   event.waitUntil(
     (async () => {
-      const windows = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      const open = windows.find((client) => new URL(client.url).origin === self.location.origin);
-      if (open) {
-        await open.focus();
+      // A tab this worker controls can be sent straight to the page.
+      const controlled = (await self.clients.matchAll({ type: "window" })).find(ours);
+      if (controlled) {
+        await controlled.focus();
         try {
-          await open.navigate(url);
-          return;
+          await controlled.navigate(url);
         } catch {
-          // A tab this worker doesn't control can't be navigated; open a new one instead.
+          controlled.postMessage({ type: "open-link", url });
         }
+        return;
+      }
+      // A tab opened before the worker, or after a hard refresh, can't be steered from here, and
+      // focusing it uses up the click's one window action, so the page is asked to go there itself.
+      const open = (
+        await self.clients.matchAll({ type: "window", includeUncontrolled: true })
+      ).find(ours);
+      if (open) {
+        open.postMessage({ type: "open-link", url });
+        await open.focus();
+        return;
       }
       await self.clients.openWindow(url);
     })(),
