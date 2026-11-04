@@ -22,6 +22,12 @@ export type RealtimeEvent =
   /** A member joined, paid, failed a payment, paused or cancelled (module 12). */
   | { type: "membership.updated"; membershipId: string }
   | { type: "quote.updated"; quoteId: string; leadId: string }
+  /** The business's LeadAnchor tier, trial or billing changed. */
+  | { type: "account.updated" }
+  /** A job was offered to, taken from or passed by this business, or its network settings or referrals changed (C-24, C-25). */
+  | { type: "network.updated" }
+  /** The business's "Found by AI" check ran, or the owner switched it off or on (C-42). */
+  | { type: "discovery.updated" }
   /** Simulated phone alert (C-05): shown by the browsers whose token is listed. */
   | {
       type: "push.preview";

@@ -28,10 +28,11 @@ import { encryptSecret } from "../../lib/crypto";
 import { HttpError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { iso } from "../../lib/time";
-import { bookingUrl, settingsOf } from "../booking/core";
+import { bookingOpen, bookingUrl, settingsOf } from "../booking/core";
 import { audit } from "../compliance/audit";
 import { whatsappLinkFor } from "../chat/links";
 import { requestUrl } from "../intake/intake.service";
+import { siteUrl, websiteLive } from "../profile/links";
 import { profileUrl } from "../profile/profile";
 import { ingestReviews } from "./reviews.service";
 
@@ -127,9 +128,10 @@ async function desiredDetails(tx: Tx, tenant: Tenant) {
   const details: ListingDetails = {
     // The LeadAnchor line, so calls from Google are caught too (C-01).
     phone: number?.e164 ?? null,
-    website: tenant.website ?? profileUrl(tenant.slug),
+    // The owner's own site; else the LeadAnchor website when they have the add-on (C-33); else the profile.
+    website: tenant.website ?? (websiteLive(tenant) ? siteUrl(tenant.slug) : profileUrl(tenant.slug)),
     hours,
-    bookingLink: `${settings.enabled ? bookingUrl(tenant.slug) : requestUrl(tenant.slug)}?src=google`,
+    bookingLink: `${bookingOpen(tenant) ? bookingUrl(tenant.slug) : requestUrl(tenant.slug)}?src=google`,
     address,
     // C-21: the WhatsApp chat link, so Google's Chat button opens a chat the assistant answers.
     chatLink: whatsappLinkFor(tenant.name, number?.e164),

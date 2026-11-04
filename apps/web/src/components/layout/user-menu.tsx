@@ -1,6 +1,6 @@
 "use client";
 
-import { IconDeviceDesktop, IconLogout, IconMoon, IconSelector, IconSun } from "@tabler/icons-react";
+import { IconDeviceDesktop, IconLogout, IconMoon, IconSelector, IconShieldLock, IconSun } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
@@ -19,7 +19,7 @@ import {
 import { signOut } from "@/lib/auth-client";
 import { initials } from "@/lib/format";
 
-export function UserMenu({ name, email, business }: { name: string; email: string; business: string }) {
+export function UserMenu({ name, email, business, operator = false }: { name: string; email: string; business: string; operator?: boolean }) {
   const router = useRouter();
   const queryClient = useQueryClient();
   const { theme, setTheme } = useTheme();
@@ -65,6 +65,12 @@ export function UserMenu({ name, email, business }: { name: string; email: strin
           </DropdownMenuRadioGroup>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
+        {/* LeadAnchor staff (module 14). */}
+        {operator && (
+          <DropdownMenuItem onClick={() => router.push("/ops")}>
+            <IconShieldLock /> Operator console
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem onClick={handleSignOut}>
           <IconLogout /> Sign out
         </DropdownMenuItem>

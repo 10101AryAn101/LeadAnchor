@@ -6,12 +6,13 @@ import { type NextRequest, NextResponse } from "next/server";
  * session cookie exists — a fast, optimistic gate. The API re-validates the
  * session on every request, so a forged cookie gets nothing.
  */
-const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/i/", "/p/", "/r/", "/b/", "/w/", "/f/", "/u/", "/c/", "/m/", "/o/", "/q/", "/pay/", "/sim/", "/privacy", "/terms"];
+const PUBLIC_PREFIXES = ["/sign-in", "/sign-up", "/i/", "/p/", "/r/", "/b/", "/w/", "/f/", "/u/", "/c/", "/m/", "/o/", "/q/", "/pay/", "/h/", "/s/", "/sim/", "/privacy", "/terms", "/robots.txt", "/sitemap.xml"];
 
 export function proxy(request: NextRequest) {
   const { pathname, search } = request.nextUrl;
   const hasSession = Boolean(getSessionCookie(request, { cookiePrefix: "leadanchor" }));
-  const isPublic = pathname === "/" ? false : PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
+  // "/" is the marketing page for visitors; signed-in owners go on to their dashboard below.
+  const isPublic = pathname === "/" || PUBLIC_PREFIXES.some((prefix) => pathname.startsWith(prefix));
 
   if (!hasSession && !isPublic) {
     const url = new URL("/sign-in", request.url);
@@ -23,8 +24,8 @@ export function proxy(request: NextRequest) {
     return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
-  if (pathname === "/") {
-    return NextResponse.redirect(new URL(hasSession ? "/dashboard" : "/sign-in", request.url));
+  if (pathname === "/" && hasSession) {
+    return NextResponse.redirect(new URL("/dashboard", request.url));
   }
 
   return NextResponse.next();

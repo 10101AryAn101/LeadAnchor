@@ -22,6 +22,7 @@ import { PageHeader } from "@/components/layout/page-header";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { UpgradeNotice } from "@/features/billing/upgrade-notice";
 import { api, isApiError } from "@/lib/api";
 import { fullDate, timeAgo } from "@/lib/format";
 import { keys, useMe, useReviews } from "@/lib/queries";
@@ -49,6 +50,10 @@ export function ReviewsView() {
           )
         }
       />
+      <UpgradeNotice feature="review_replies">
+        You can still write and post replies yourself, and every finished job still gets a review
+        request.
+      </UpgradeNotice>
       {isPending || !data ? (
         <div className="space-y-4">
           <Skeleton className="h-28 rounded-lg" />

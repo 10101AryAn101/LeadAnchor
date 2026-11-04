@@ -28,6 +28,7 @@ import { ForwardingCheck } from "./forwarding-check";
 import { ForwardingGuide } from "./forwarding-guide";
 import { PaymentsSection } from "./payments-section";
 import { PhoneAlerts } from "./phone-alerts";
+import { PlanSection } from "./plan-section";
 import { ServicesSection } from "./services-section";
 
 /** Form shape: plain strings/numbers in the inputs, validated by the shared schema on submit. */
@@ -45,6 +46,7 @@ const formSchema = z.object({
   insurancePolicyNumber: z.string().trim().max(60),
   yearsInBusiness: z.string().trim().regex(/^\d{0,3}$/, "Use a whole number"),
   googleProfileUrl: z.union([z.literal(""), z.url("Paste the full link, starting with https://").max(300)]),
+  website: z.union([z.literal(""), z.url({ protocol: /^https?$/, error: "Paste the full address, starting with https://" }).max(300)]),
   profileLinkInTexts: z.boolean(),
   avgJobValueDollars: z.coerce.number().int().min(25).max(50_000),
   ringTimeoutSecs: z.coerce.number().int().min(10).max(30),
@@ -67,6 +69,7 @@ const toForm = (s: SettingsResponse): FormValues => ({
   insurancePolicyNumber: s.insurancePolicyNumber ?? "",
   yearsInBusiness: s.yearsInBusiness != null ? String(s.yearsInBusiness) : "",
   googleProfileUrl: s.googleProfileUrl ?? "",
+  website: s.website ?? "",
   profileLinkInTexts: s.profileLinkInTexts,
   avgJobValueDollars: Math.round(s.avgJobValueCents / 100),
   ringTimeoutSecs: s.ringTimeoutSecs,
@@ -89,6 +92,7 @@ export function SettingsView() {
   return (
     <div className="space-y-6 pb-24 lg:pb-0">
       <SettingsForm settings={settings} />
+      <PlanSection />
       <ServicesSection />
       <BookingSection />
       <AssistantSection />
@@ -123,6 +127,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         insurancePolicyNumber: values.insurancePolicyNumber || null,
         yearsInBusiness: values.yearsInBusiness ? Number(values.yearsInBusiness) : null,
         googleProfileUrl: values.googleProfileUrl || null,
+        website: values.website || null,
       });
       return api<SettingsResponse>("/settings", { method: "PATCH", body });
     },
@@ -235,6 +240,9 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
             <TextField form={form} name="insurancePolicyNumber" label="Insurance policy number (optional)" />
             <TextField form={form} name="yearsInBusiness" label="Years in business (optional)" type="number" />
             <div className="sm:col-span-2">
+              <TextField form={form} name="website" label="Your website (optional)" type="url" />
+            </div>
+            <div className="sm:col-span-2">
               <TextField form={form} name="googleProfileUrl" label="Your Google listing link (optional)" type="url" />
             </div>
           </div>
@@ -320,7 +328,8 @@ function TextField({
     | "insuranceCarrier"
     | "insurancePolicyNumber"
     | "yearsInBusiness"
-    | "googleProfileUrl";
+    | "googleProfileUrl"
+    | "website";
   label: string;
   type?: string;
 }) {

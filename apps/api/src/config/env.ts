@@ -111,6 +111,9 @@ const schema = z.object({
   // Test mode: an sk_test_ key; webhooks arrive through the tunnel (docs/integrations/test-mode-setup.md).
   STRIPE_SECRET_KEY: optional,
   STRIPE_WEBHOOK_SECRET: optional,
+  // LeadAnchor's own subscriptions (businesses paying for their tier) are events on LeadAnchor's
+  // account, which Stripe sends to a second endpoint with its own signing secret.
+  STRIPE_BILLING_WEBHOOK_SECRET: optional,
 
   // Later phases — read now so the integrations page can report them honestly.
   GBP_CLIENT_ID: optional,
@@ -123,6 +126,10 @@ const schema = z.object({
 
   // Development helpers (call simulator, simulated carrier approval).
   DEV_TOOLS: flag,
+
+  // ── LeadAnchor staff (module 14) ──
+  /** Comma-separated emails of staff who can open the operator console and get its alerts. */
+  OPERATOR_EMAILS: z.string().default(""),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -138,6 +145,11 @@ if (!parsed.success) {
 
 export const env = parsed.data;
 export type Env = typeof env;
+
+/** LeadAnchor staff: the operator console (module 14) and its alert emails. */
+export const operatorEmails = env.OPERATOR_EMAILS.split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
 
 export const isDev = env.NODE_ENV === "development";
 export const devToolsEnabled = env.NODE_ENV !== "production" && (env.DEV_TOOLS || isDev);

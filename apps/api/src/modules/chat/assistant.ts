@@ -33,6 +33,7 @@ import { captureLead } from "../leads/lead-capture";
 import { requestMessage } from "../messaging/send-path";
 import { notifyOwner } from "../notifications/notify";
 import { dollars } from "../payments/money";
+import { assistantOn } from "../billing/access";
 import { ON_CHANNEL, addressOf, chatTitle, linkChatToLead } from "./chat.service";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -238,7 +239,7 @@ export async function assistantReplyJob(data: { tenantId: string; conversationId
     );
   // The owner is on it, or it's already answered (several quick messages share one reply).
   if (
-    !tenant.assistantEnabled ||
+    !assistantOn(tenant) ||
     conversation.handler === "owner" ||
     conversation.needsOwner ||
     !last ||

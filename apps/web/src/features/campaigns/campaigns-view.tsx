@@ -12,6 +12,7 @@ import { ResponsiveSheet } from "@/components/responsive-sheet";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
+import { UpgradeNotice, useFeature } from "@/features/billing/upgrade-notice";
 import { api, isApiError } from "@/lib/api";
 import { keys, useCampaigns } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -22,17 +23,21 @@ export function CampaignsView() {
   const { data, isPending } = useCampaigns();
   const [picking, setPicking] = useState(false);
   const create = useCreateCampaign();
+  const allowed = useFeature("campaigns");
   return (
     <div className="space-y-6 pb-24 lg:pb-0">
       <PageHeader
         title="Campaigns"
         description="Email offers to your past customers. Nothing goes out until you approve it."
         actions={
-          <Button onClick={() => setPicking(true)}>
+          <Button onClick={() => setPicking(true)} disabled={!allowed}>
             <IconPlus /> New campaign
           </Button>
         }
       />
+      <UpgradeNotice feature="campaigns">
+        Your past campaigns and their results stay here.
+      </UpgradeNotice>
       {isPending || !data ? (
         <div className="space-y-3">
           <Skeleton className="h-24 rounded-lg" />
@@ -44,6 +49,7 @@ export function CampaignsView() {
           data={data}
           onStart={(kind) => create.mutate(kind)}
           starting={create.isPending ? create.variables : null}
+          locked={!allowed}
         />
       )}
       <ResponsiveSheet
@@ -80,10 +86,13 @@ function Content({
   data,
   onStart,
   starting,
+  locked,
 }: {
   data: CampaignsResponse;
   onStart: (kind: CampaignKind) => void;
   starting: CampaignKind | null;
+  /** The plan doesn't include campaigns right now. */
+  locked: boolean;
 }) {
   const suggested = data.campaigns.filter((campaign) => campaign.status === "suggested");
   const working = data.campaigns.filter((campaign) =>
@@ -128,7 +137,7 @@ function Content({
           <h2 id="start" className="text-[17px] font-bold">
             Start your first campaign
           </h2>
-          <Starters onPick={onStart} starting={starting} />
+          <Starters onPick={onStart} starting={starting} locked={locked} />
           <p className="text-sm text-muted-foreground">
             We&apos;ll also suggest offers when a freeze or heat wave is forecast, and before
             holidays that matter to your trade.
@@ -147,9 +156,11 @@ function Content({
 function Starters({
   onPick,
   starting,
+  locked = false,
 }: {
   onPick: (kind: CampaignKind) => void;
   starting: CampaignKind | null;
+  locked?: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 gap-3 pb-2 sm:grid-cols-3">
@@ -157,7 +168,7 @@ function Starters({
         <button
           key={kind}
           type="button"
-          disabled={starting !== null}
+          disabled={locked || starting !== null}
           onClick={() => onPick(kind)}
           className="flex items-start gap-3 rounded-lg border bg-card p-4 text-left transition-colors hover:border-primary/50 hover:bg-primary-subtle/40 focus-visible:ring-3 focus-visible:ring-ring/50 focus-visible:outline-none disabled:opacity-60 sm:flex-col"
         >

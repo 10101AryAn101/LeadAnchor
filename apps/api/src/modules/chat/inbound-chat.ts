@@ -4,6 +4,7 @@ import { conversations, type customers, leads, messages, type tenants } from "..
 import type { Effects } from "../../db/unit-of-work";
 import { QUEUES } from "../../jobs/queue";
 import { notifyOwner } from "../notifications/notify";
+import { assistantOn } from "../billing/access";
 import { ON_CHANNEL, chatTitle } from "./chat.service";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -23,7 +24,7 @@ export async function answerOrAlert(
   customer: Customer | null,
   text: string,
 ) {
-  if (tenant.assistantEnabled && conversation.handler === "assistant" && !conversation.needsOwner) {
+  if (assistantOn(tenant) && conversation.handler === "assistant" && !conversation.needsOwner) {
     await tx
       .update(conversations)
       .set({ assistantPendingAt: new Date() })

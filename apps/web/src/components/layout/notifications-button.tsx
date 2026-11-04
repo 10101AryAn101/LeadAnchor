@@ -20,6 +20,7 @@ import {
   IconSpeakerphone,
   IconStar,
   IconTrendingUp,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -49,6 +50,7 @@ const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   chat: { icon: IconMessages, tone: "bg-info-subtle text-info-strong" },
   campaign: { icon: IconSpeakerphone, tone: "bg-primary-subtle text-primary-subtle-foreground" },
   membership: { icon: IconRepeat, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  network: { icon: IconUsersGroup, tone: "bg-signal-subtle text-signal-strong" },
 };
 
 export function NotificationsButton({ className }: { className?: string }) {

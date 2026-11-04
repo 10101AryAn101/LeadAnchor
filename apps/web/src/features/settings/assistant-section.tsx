@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { UpgradeNotice } from "@/features/billing/upgrade-notice";
 import { api, isApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { formatPhone } from "@/lib/format";
@@ -32,7 +33,12 @@ export function AssistantSection() {
       {isPending || !data ? (
         <Skeleton className="h-48 rounded-lg" />
       ) : (
-        <AssistantForm data={data} />
+        <div className="space-y-4">
+          <UpgradeNotice feature="assistant">
+            New chats and texts wait for you to answer them yourself. Your notes are kept.
+          </UpgradeNotice>
+          <AssistantForm data={data} />
+        </div>
       )}
     </section>
   );

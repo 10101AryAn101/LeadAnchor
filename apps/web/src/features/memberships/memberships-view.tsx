@@ -40,6 +40,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { UpgradeNotice, useFeature } from "@/features/billing/upgrade-notice";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { api, isApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
@@ -73,6 +74,7 @@ export function MembershipsView() {
   // The session can load before this view hydrates; owner-only buttons wait for hydration so
   // the first browser render matches the server's HTML (see useHydrated).
   const owner = useHydrated() && me?.role === "owner";
+  const allowed = useFeature("memberships");
 
   return (
     <div className="space-y-5 pb-24 lg:pb-0">
@@ -82,6 +84,7 @@ export function MembershipsView() {
         actions={
           owner && (
             <Button
+              disabled={!allowed}
               onClick={() => {
                 void setTab("plans");
                 setEditing("new");
@@ -92,7 +95,11 @@ export function MembershipsView() {
           )
         }
       />
-      {plans.data && !plans.data.cardsReady && (
+      <UpgradeNotice feature="memberships">
+        Members you already have keep paying as usual, and you can still look after them here. New
+        plans and sign-ups are paused.
+      </UpgradeNotice>
+      {allowed && plans.data && !plans.data.cardsReady && (
         <p className="flex items-start gap-2 rounded-lg border border-signal/40 bg-signal-subtle p-4 text-[15px] text-signal-strong">
           <IconAlertTriangle className="mt-0.5 size-5 shrink-0" />
           <span>
@@ -131,7 +138,7 @@ export function MembershipsView() {
           ) : (
             <Plans
               data={plans.data}
-              owner={owner}
+              owner={owner && allowed}
               onEdit={(plan) => setEditing(plan)}
               onNew={() => setEditing("new")}
             />

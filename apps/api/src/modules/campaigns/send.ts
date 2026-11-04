@@ -2,6 +2,7 @@ import { and, eq } from "drizzle-orm";
 import { campaignRecipients, campaigns, tenants } from "../../db/schema";
 import { tenantWork } from "../../db/unit-of-work";
 import { randomToken, sha256 } from "../../lib/crypto";
+import { featureOn } from "../billing/access";
 import { audit } from "../compliance/audit";
 import { requestEmail } from "../messaging/send-path";
 import { notifyOwner } from "../notifications/notify";
@@ -37,6 +38,30 @@ export async function campaignSendJob({
     if (campaign.scheduledFor && campaign.scheduledFor.getTime() > Date.now() + 60_000) return;
     const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, tenantId));
     if (!tenant) return;
+    // Scheduled while the plan covered campaigns, but it no longer does (say the trial ended):
+    // back to a draft, and the owner hears why.
+    if (!featureOn(tenant, "campaigns")) {
+      await tx
+        .update(campaigns)
+        .set({ status: "draft", scheduledFor: null, approvedAt: null, approvedBy: null })
+        .where(eq(campaigns.id, campaignId));
+      await audit(tx, {
+        tenantId,
+        actor: "system",
+        action: "campaign.unscheduled",
+        entityType: "campaign",
+        entityId: campaignId,
+        data: { reason: "plan" },
+      });
+      await notifyOwner(tx, fx, {
+        tenantId,
+        kind: "campaign",
+        title: `“${campaign.name}” wasn't sent`,
+        body: "Campaigns are part of Pro, and your plan doesn't include them right now. Choose a plan in Settings, then send it again.",
+        path: `/campaigns/${campaignId}`,
+      });
+      return;
+    }
     await tx.update(campaigns).set({ status: "sending" }).where(eq(campaigns.id, campaignId));
 
     const audience = await resolveAudience(tx, tenant, campaign.audience);

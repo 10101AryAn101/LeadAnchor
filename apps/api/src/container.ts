@@ -1,6 +1,9 @@
 import { resolve } from "node:path";
 import { env, linkBaseUrl } from "./config/env";
 import { GeminiProvider } from "./integrations/ai/gemini";
+import { SimulatorBilling } from "./integrations/billing/simulator";
+import { StripeBilling } from "./integrations/billing/stripe";
+import type { BillingProvider } from "./integrations/billing/types";
 import type { AiProvider } from "./integrations/ai/types";
 import { GoogleCalendar } from "./integrations/calendar/google";
 import { SimulatorCalendar } from "./integrations/calendar/simulator";
@@ -90,6 +93,16 @@ export const simulatorPayments = new SimulatorPayments(resolve(process.cwd(), en
 export const payments: PaymentsProvider = env.STRIPE_SECRET_KEY
   ? new StripePayments(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET)
   : simulatorPayments;
+
+export const simulatorBilling = new SimulatorBilling(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "billing.json"));
+
+/**
+ * LeadAnchor's own subscriptions: businesses paying for Starter, Pro or Growth, on LeadAnchor's
+ * Stripe account (the same key, no connected account). Without a key the simulator plays its part.
+ */
+export const billing: BillingProvider = env.STRIPE_SECRET_KEY
+  ? new StripeBilling(env.STRIPE_SECRET_KEY, env.STRIPE_BILLING_WEBHOOK_SECRET)
+  : simulatorBilling;
 
 export const simulatorCalendar = new SimulatorCalendar(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "calendar.json"));
 

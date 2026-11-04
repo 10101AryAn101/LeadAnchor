@@ -25,6 +25,8 @@ import { paymentsFor } from "../payments/payment.service";
 import { quotesFor } from "../quotes/quote.service";
 import { cancelReviewRequest, scheduleReviewRequest } from "../reviews/review-requests";
 import { profileLine } from "../profile/profile";
+import { assistantOn } from "../billing/access";
+import { latestHandoff, passedBy } from "../network/network.service";
 import { addLeadEvent, topPosition } from "./lead-capture";
 import { advanceLead } from "./pipeline";
 import { canonicalTags } from "./tags";
@@ -121,7 +123,7 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       .where(eq(leads.id, leadId));
     if (!row) throw notFound("Lead");
 
-    const [events, callRows, messageRows, mediaRows, otherRows, quoteItems, paymentItems, booking, [chat], [tenant]] = await Promise.all([
+    const [events, callRows, messageRows, mediaRows, otherRows, quoteItems, paymentItems, booking, [chat], [tenant], handoff, from] = await Promise.all([
       // Events saved together share a timestamp; their time-ordered ids keep them in the order they happened.
       tx.select().from(leadEvents).where(eq(leadEvents.leadId, leadId)).orderBy(desc(leadEvents.createdAt), desc(leadEvents.id)),
       tx.select().from(calls).where(eq(calls.leadId, leadId)).orderBy(desc(calls.startedAt)),
@@ -137,7 +139,12 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       paymentsFor(tx, [leadId]),
       bookingForLead(tx, leadId),
       tx.select().from(conversations).where(eq(conversations.leadId, leadId)).orderBy(desc(conversations.lastMessageAt)).limit(1),
-      tx.select({ assistantEnabled: tenants.assistantEnabled }).from(tenants).where(eq(tenants.id, tenantId)),
+      tx
+        .select({ assistantEnabled: tenants.assistantEnabled, status: tenants.status, tier: tenants.tier, trialEndsAt: tenants.trialEndsAt, isDemo: tenants.isDemo })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId)),
+      latestHandoff(tenantId, leadId),
+      row.lead.source === "network" ? passedBy(leadId) : null,
     ]);
 
     const photos = mediaRows.filter((m) => m.kind === "photo");
@@ -146,6 +153,8 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
     return {
       ...card,
       lostReason: row.lead.lostReason,
+      handoff,
+      passedBy: from,
       events: events.map((e) => ({ id: e.id, type: e.type, actor: e.actor, data: e.data, createdAt: e.createdAt.toISOString() })),
       calls: callRows.map((c) => toCallItem(c, null)),
       messages: messageRows.map(toMessageItem),
@@ -157,7 +166,7 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       // The job's price is the owner's own figure: set by a sent quote, or by hand.
       balance: balanceOf(row.lead.valueCents, paymentItems),
       booking,
-      chat: chat ? { id: chat.id, channel: chat.channel, state: stateOf(chat, tenant?.assistantEnabled ?? true) } : null,
+      chat: chat ? { id: chat.id, channel: chat.channel, state: stateOf(chat, tenant ? assistantOn(tenant) : true) } : null,
     };
   });
 }

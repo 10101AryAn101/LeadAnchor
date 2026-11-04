@@ -9,6 +9,7 @@ import {
 } from "@leadanchor/contracts";
 import { and, desc, eq, gt, inArray, isNull, lt, ne, notExists, sql } from "drizzle-orm";
 import { linkBaseUrl } from "../../config/env";
+import { featureOn } from "../billing/access";
 import type { Tx } from "../../db/client";
 import {
   bookings,
@@ -45,6 +46,10 @@ export const settingsOf = (tenant: Pick<Tenant, "booking" | "track">): BookingSe
   ...defaultBookingSettings(tenant.track),
   ...tenant.booking,
 });
+
+/** Customers can book online: the owner turned it on, and the business's tier includes it (C-18 to C-22 are Pro). */
+export const bookingOpen = (tenant: Pick<Tenant, "booking" | "track" | "status" | "tier" | "trialEndsAt" | "isDemo">) =>
+  settingsOf(tenant).enabled && featureOn(tenant, "online_booking");
 
 export const durationOf = (service: { durationMins: number | null } | null | undefined) =>
   service?.durationMins ?? DEFAULT_SERVICE_MINUTES;

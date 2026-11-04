@@ -125,6 +125,7 @@ export const LEAD_SOURCES = [
   "web_chat",
   "text",
   "membership",
+  "network",
 ] as const;
 export type LeadSource = (typeof LEAD_SOURCES)[number];
 
@@ -140,6 +141,7 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   web_chat: "Website chat",
   text: "Texted in",
   membership: "Membership",
+  network: "Passed by a partner pro",
 };
 
 export const URGENCY_LEVELS = ["low", "normal", "high", "emergency"] as const;
@@ -248,6 +250,7 @@ export const NOTIFICATION_KINDS = [
   "chat",
   "campaign",
   "membership",
+  "network",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

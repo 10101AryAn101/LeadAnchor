@@ -35,6 +35,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import { UpgradeNotice } from "@/features/billing/upgrade-notice";
 import { api, isApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { timeAgo } from "@/lib/format";
@@ -66,6 +67,10 @@ export function BookingSection() {
         </div>
       ) : (
         <div className="space-y-4">
+          <UpgradeNotice feature="online_booking">
+            Customers who open your booking link are asked to send a request instead, and reminders
+            and waitlist offers are paused. Your hours and rules are kept.
+          </UpgradeNotice>
           <BookingForm data={data} />
           <CalendarCard calendar={data.calendar} />
         </div>

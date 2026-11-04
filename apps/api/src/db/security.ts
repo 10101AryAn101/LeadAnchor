@@ -43,6 +43,12 @@ export const TENANT_TABLES = [
   "membership_plans",
   "plan_memberships",
   "membership_invoices",
+  "network_members",
+  "lead_handoffs",
+  "handoff_offers",
+  "referral_conversions",
+  "referral_credits",
+  "ai_visibility_checks",
 ] as const;
 
 /** Append-only tables: no UPDATE or DELETE for application roles. */

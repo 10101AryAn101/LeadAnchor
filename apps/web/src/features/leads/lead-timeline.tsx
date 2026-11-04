@@ -47,6 +47,7 @@ import {
   IconTag,
   IconTrash,
   IconUserOff,
+  IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@leadanchor/contracts";
@@ -502,6 +503,21 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
       };
     case "chat.started":
       return { ...base, kind: "messages", icon: CHAT_ICON[str(d.channel)] ?? IconMessage, tone: "neutral", title: STARTED[str(d.channel)] ?? "Started a chat", body: str(d.text) ? <Quote>{str(d.text)}</Quote> : undefined };
+    /* C-24: passed to the trusted pros network, and what came of it. */
+    case "network.offered": {
+      const offered = typeof d.offeredTo === "number" ? d.offeredTo : 0;
+      return { ...base, kind: "other", icon: IconUsersGroup, tone: "auto", title: `Offered to ${offered} trusted ${offered === 1 ? "pro" : "pros"} near you`, body: "They saw the job and the area only." };
+    }
+    case "network.passed":
+      return { ...base, kind: "other", icon: IconUsersGroup, tone: "good", title: `Passed to ${str(d.partner)}`, body: "They got the customer's name, number, address and the job. The customer was told by text and can choose to stay with you." };
+    case "network.received":
+      return { ...base, kind: "other", icon: IconUsersGroup, tone: "good", title: `Passed to you by ${str(d.from)}`, body: str(d.note) ? <Quote>{str(d.note)}</Quote> : "For this job only, as the partner terms say." };
+    case "network.expired":
+      return { ...base, kind: "other", icon: IconUsersGroup, tone: "waiting", title: "No pro took it in time", body: "The job stayed with you." };
+    case "network.withdrawn":
+      return { ...base, kind: "other", icon: IconUsersGroup, tone: "neutral", title: "You took it back from the network" };
+    case "network.stayed":
+      return { ...base, kind: "other", icon: IconUsersGroup, tone: "good", title: "The customer chose to stay with you", body: str(d.partner) ? `${str(d.partner)} was told and took it off their board.` : undefined };
     default:
       return null;
   }

@@ -7,6 +7,7 @@ import { tenantWork } from "../../db/unit-of-work";
 import { logger } from "../../lib/logger";
 import { localDate, shiftDate, zonedTime } from "../../lib/zoned";
 import { notifyOwner } from "../notifications/notify";
+import { featureOn } from "../billing/access";
 import { copyContextOf } from "./campaign.service";
 import { type Copy, holidayCopy, weatherCopy } from "./copy";
 
@@ -182,10 +183,12 @@ export async function checkSignals(tenantId: string): Promise<number> {
 /** Every six hours: each business's forecast and calendar (C-30). */
 export async function campaignSignalsTickJob() {
   const active = await systemDb
-    .select({ id: tenants.id })
+    .select({ id: tenants.id, status: tenants.status, tier: tenants.tier, trialEndsAt: tenants.trialEndsAt, isDemo: tenants.isDemo })
     .from(tenants)
     .where(inArray(tenants.status, ["trial", "active"]));
-  for (const { id } of active) {
+  for (const { id, ...account } of active) {
+    // Offer ideas are part of campaigns (Pro); an ended trial or Starter gets none.
+    if (!featureOn(account, "campaigns")) continue;
     try {
       await checkSignals(id);
     } catch (error) {

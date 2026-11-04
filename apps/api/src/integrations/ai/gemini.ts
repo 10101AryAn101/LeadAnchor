@@ -18,6 +18,8 @@ import type {
   ChatTurn,
   ChatTurnInput,
   ListingPostInput,
+  LocalAnswer,
+  LocalQuestionInput,
   PhotoTriage,
   PhotoTriageInput,
   QuoteDraft,
@@ -80,6 +82,23 @@ const listingPostResponseSchema: Schema = {
   type: Type.OBJECT,
   properties: { text: { type: Type.STRING, description: "The update to post on the Google listing" } },
   required: ["text"],
+};
+
+const localAnswerSchema = z.object({
+  answer: z.string().max(2000),
+  businesses: z.array(z.string().max(120)).max(10),
+});
+const localAnswerResponseSchema: Schema = {
+  type: Type.OBJECT,
+  properties: {
+    answer: { type: Type.STRING, description: "The answer, as you would give it, in at most 80 words" },
+    businesses: {
+      type: Type.ARRAY,
+      items: { type: Type.STRING },
+      description: "Every business named in the answer, exactly as named; empty if none",
+    },
+  },
+  required: ["answer", "businesses"],
 };
 
 const campaignSchema = z.object({ subject: z.string().min(1).max(150), body: z.string().min(1).max(3000) });
@@ -457,19 +476,38 @@ export class GeminiProvider implements AiProvider {
     return { subject: result.subject.trim(), body: result.body.trim() };
   }
 
+  async answerLocalQuestion(input: LocalQuestionInput): Promise<LocalAnswer> {
+    const result = await this.generateJson(
+      localAnswerSchema,
+      localAnswerResponseSchema,
+      input.question.slice(0, 300),
+      "A customer asks you, an AI assistant, for a local service business. Answer the way you normally would, from what you " +
+        "know. Name specific businesses only if you actually know of them; never make up a name. Then list every business you named.",
+      // A monthly check asks ten of these: the cheaper model keeps the main one's daily quota for real work.
+      { attempts: 2, deadline: Date.now() + input.timeoutMs, cheap: true },
+    );
+    return { answer: result.answer.trim(), businesses: result.businesses.map((name) => name.trim()).filter(Boolean) };
+  }
+
   private async generateJson<T extends z.ZodType>(
     validator: T,
     responseSchema: Schema,
     contents: string | Array<{ text: string } | { inlineData: { mimeType: string; data: string } }>,
     systemInstruction: string,
-    options: { attempts?: number; deadline?: number; attemptMs?: number; fallbackSooner?: boolean } = {},
+    options: { attempts?: number; deadline?: number; attemptMs?: number; fallbackSooner?: boolean; cheap?: boolean } = {},
   ): Promise<z.output<T>> {
     if (!this.client) throw new Error("Gemini is not configured (GEMINI_API_KEY is missing).");
 
     const parts = typeof contents === "string" ? [{ text: contents }] : contents;
     // Two tries on the main model; if a fallback is configured, one more on it (or the second, when sooner).
     const fallback = this.fallbackModel ? [this.fallbackModel] : [];
-    const plan = (options.fallbackSooner ? [this.model, ...fallback, this.model] : [this.model, this.model, ...fallback]).slice(0, options.attempts);
+    const plan = (
+      options.cheap && this.fallbackModel
+        ? [this.fallbackModel, this.fallbackModel]
+        : options.fallbackSooner
+          ? [this.model, ...fallback, this.model]
+          : [this.model, this.model, ...fallback]
+    ).slice(0, options.attempts);
     let lastError: unknown;
 
     for (let attempt = 1; attempt <= plan.length; attempt++) {

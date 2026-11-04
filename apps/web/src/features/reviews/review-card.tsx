@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
+import { useFeature } from "@/features/billing/upgrade-notice";
 import { api, isApiError } from "@/lib/api";
 import { timeAgo } from "@/lib/format";
 import { keys } from "@/lib/queries";
@@ -26,6 +27,8 @@ import { Stars } from "./stars";
 export function ReviewCard({ review }: { review: ReviewItem }) {
   const queryClient = useQueryClient();
   const low = review.rating <= LOW_RATING_MAX;
+  // AI-drafted replies are Pro (C-47); without them the owner writes the reply.
+  const drafting = useFeature("review_replies");
   const serverText = review.draft ?? review.reply?.text ?? "";
   const [text, setText] = useState(serverText);
   const [seen, setSeen] = useState(serverText);
@@ -128,10 +131,14 @@ export function ReviewCard({ review }: { review: ReviewItem }) {
             className="text-sm font-semibold text-muted-foreground"
           >
             {review.replyStatus === "needs_reply" && !text
-              ? "Drafting a reply for you…"
+              ? drafting
+                ? "Drafting a reply for you…"
+                : "Write your reply"
               : editing
                 ? "Edit your reply"
-                : "Your reply (drafted for you: check it, then post)"}
+                : drafting
+                  ? "Your reply (drafted for you: check it, then post)"
+                  : "Your reply"}
           </label>
           <Textarea
             id={`reply-${review.id}`}
@@ -156,9 +163,11 @@ export function ReviewCard({ review }: { review: ReviewItem }) {
               {post.isPending ? <Spinner /> : <IconSend />}{" "}
               {review.replyStatus === "failed" ? "Try again" : "Post reply"}
             </Button>
-            <Button variant="ghost" disabled={redraft.isPending} onClick={() => redraft.mutate()}>
-              {redraft.isPending ? <Spinner /> : <IconRefresh />} Write it again
-            </Button>
+            {drafting && (
+              <Button variant="ghost" disabled={redraft.isPending} onClick={() => redraft.mutate()}>
+                {redraft.isPending ? <Spinner /> : <IconRefresh />} Write it again
+              </Button>
+            )}
             {editing && (
               <Button variant="ghost" onClick={() => setEditing(false)}>
                 Cancel

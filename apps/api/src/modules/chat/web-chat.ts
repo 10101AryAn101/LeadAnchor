@@ -8,6 +8,7 @@ import { randomToken, sha256 } from "../../lib/crypto";
 import { HttpError, notFound } from "../../lib/errors";
 import { addLeadEvent } from "../leads/lead-capture";
 import { publicBusinessOf } from "../payments/payment.service";
+import { assistantOn } from "../billing/access";
 import { answerOrAlert } from "./inbound-chat";
 
 const MESSAGES_PER_10_MIN = 20;
@@ -28,7 +29,7 @@ export async function getChatContext(slug: string): Promise<PublicChatContext> {
   const owner = tenant.ownerName?.trim().split(/\s+/)[0];
   return {
     business: await publicBusinessOf(tenant),
-    greeting: tenant.assistantEnabled
+    greeting: assistantOn(tenant)
       ? `Hi! I'm ${tenant.name}'s assistant. What can we help you with today?`
       : `Hi! Send ${tenant.name} a message and ${owner ?? "the owner"} will reply here.`,
   };

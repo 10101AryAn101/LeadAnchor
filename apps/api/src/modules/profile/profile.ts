@@ -1,16 +1,16 @@
 import type { PublicProfile } from "@leadanchor/contracts";
 import { and, asc, desc, eq } from "drizzle-orm";
-import { linkBaseUrl } from "../../config/env";
 import { systemDb } from "../../db/client";
 import { mediaAssets, phoneNumbers, services, tenants } from "../../db/schema";
-import { bookingUrl, settingsOf } from "../booking/core";
+import { bookingOpen, bookingUrl } from "../booking/core";
 import { whatsappLinkFor } from "../chat/links";
+import { discoveryFor } from "../discovery/discovery.service";
 import { profileReviews } from "../reviews/reviews.service";
+import { profileUrl, websiteLive } from "./links";
 
 type Tenant = typeof tenants.$inferSelect;
 
-/** The business's public profile page (C-41). */
-export const profileUrl = (slug: string) => `${linkBaseUrl}/p/${slug}`;
+export { profileUrl };
 
 /**
  * The short line added to a new customer's first text. It only says "licensed & insured"
@@ -49,6 +49,9 @@ export async function getPublicProfile(slug: string): Promise<PublicProfile | nu
     profileReviews(tenant),
   ]);
 
+  const rating = google.rating ? { average: google.rating.average, count: google.rating.count } : null;
+  const discovery = await discoveryFor(tenant, { phone: number?.e164 ?? null, rating, photoIds: photoRows.map((photo) => photo.id) });
+
   return {
     name: tenant.name,
     trade: tenant.trade,
@@ -61,7 +64,8 @@ export async function getPublicProfile(slug: string): Promise<PublicProfile | nu
     googleProfileUrl: tenant.googleProfileUrl,
     website: tenant.website,
     services: serviceRows,
-    bookingUrl: settingsOf(tenant).enabled ? bookingUrl(tenant.slug) : null,
+    // Only while customers can really book: switched on, and the plan includes it.
+    bookingUrl: bookingOpen(tenant) ? bookingUrl(tenant.slug) : null,
     whatsappLink: whatsappLinkFor(tenant.name, number?.e164),
     photos: photoRows.map((photo) => {
       const tags = (photo.aiTags ?? {}) as { itemType?: string; issue?: string };
@@ -70,6 +74,8 @@ export async function getPublicProfile(slug: string): Promise<PublicProfile | nu
     // C-41 AC 2 and C-23: the live Google rating, and the reviews the owner chose to show.
     rating: google.rating,
     reviews: google.reviews,
+    siteLive: websiteLive(tenant),
+    discovery,
   };
 }
 

@@ -6,7 +6,12 @@ import {
   type SimGoogleListing,
   type SimPortal,
   type SimRedirect,
+  type SimTierCheckout,
+  type SimTierPortal,
   type SimWhatsAppThread,
+  simTierCheckoutInput,
+  simTierPortalInput,
+  simTrialInput,
   simCalendarEventInput,
   simGoogleReviewInput,
   simWhatsAppInput,
@@ -23,14 +28,27 @@ import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 import { systemDb, withTenant } from "../../db/client";
-import { conversations, listingConnections, messages, phoneNumbers, tenants } from "../../db/schema";
+import { conversations, leadHandoffs, listingConnections, messages, phoneNumbers, tenants } from "../../db/schema";
 import { HttpError, badRequest, notFound, parseInput } from "../../lib/errors";
-import { payments, simulatorListings, simulatorPayments, simulatorTelephony, simulatorWeather, telephony, weather } from "../../container";
+import {
+  billing,
+  payments,
+  simulatorBilling,
+  simulatorListings,
+  simulatorPayments,
+  simulatorTelephony,
+  simulatorWeather,
+  telephony,
+  weather,
+} from "../../container";
+import { applyAddonSubscription, applyTierSubscription, setTrialDaysLeft } from "../../modules/billing/billing.service";
 import { PaymentRefused } from "../../integrations/payments/types";
 import { getCallTrace } from "../../modules/calls/call.queries";
 import { approveRegistrationForDev, resetRegistrationForDev, simulatedRegistrationCode } from "../../modules/compliance/registration.service";
 import { handleInboundMessage } from "../../modules/messaging/inbound";
 import { paymentsTickJob, receivePaymentEvent } from "../../modules/payments/payment.service";
+import { networkTickJob } from "../../modules/network/network.service";
+import { runVisibilityCheck } from "../../modules/discovery/discovery.service";
 import { bookingsTickJob, sendReminder } from "../../modules/booking/booking.service";
 import { addSimulatedEvent, moveSimulatedEvent, removeSimulatedEvent, simulatedCalendarEvents } from "../../modules/booking/calendar-sync";
 import { paymentRequests } from "../../db/schema";
@@ -259,6 +277,78 @@ export async function devRoutes(app: FastifyInstance) {
     return simulatorPayments.portalView(id)!;
   });
 
+  /* ── LeadAnchor's own billing (the business paying for its tier) ─────────── */
+
+  const billingSimulatedOnly = () => {
+    if (billing.name !== "simulator") throw new HttpError(409, "not_simulated", "Billing goes through Stripe, so the simulator is off.");
+  };
+  const tierCheckoutParam = z.object({ id: z.string().regex(/^cs_sim_[a-f0-9]+$/) });
+  const tierPortalParam = z.object({ id: z.string().regex(/^bps_sim_[a-f0-9]+$/) });
+  const billingRefused = (error: unknown): never => {
+    if (error instanceof PaymentRefused) throw new HttpError(409, "payment_refused", error.message);
+    throw error;
+  };
+
+  /** The simulated checkout for a tier. Public like Stripe's page; the id is the secret. */
+  app.get("/api/dev/simulator/billing/checkout/:id", async (req): Promise<SimTierCheckout> => {
+    billingSimulatedOnly();
+    const { id } = parseInput(tierCheckoutParam, req.params);
+    try {
+      return simulatorBilling.checkoutView(id);
+    } catch (error) {
+      return billingRefused(error);
+    }
+  });
+
+  app.post("/api/dev/simulator/billing/checkout/:id", async (req): Promise<SimRedirect> => {
+    billingSimulatedOnly();
+    const { id } = parseInput(tierCheckoutParam, req.params);
+    const { outcome } = parseInput(simTierCheckoutInput, req.body);
+    try {
+      // What Stripe's webhook would deliver, applied the same way: a tier, or the website add-on (C-33).
+      if (simulatorBilling.checkoutView(id).product === "website") {
+        const { redirect, addon } = simulatorBilling.completeAddonCheckout(id, outcome === "decline");
+        await applyAddonSubscription(addon, "billing");
+        return { redirectUrl: redirect };
+      }
+      const { redirect, subscription } = simulatorBilling.completeCheckout(id, outcome === "decline");
+      await applyTierSubscription(subscription, "billing");
+      return { redirectUrl: redirect };
+    } catch (error) {
+      return billingRefused(error);
+    }
+  });
+
+  app.get("/api/dev/simulator/billing/portal/:id", async (req): Promise<SimTierPortal> => {
+    billingSimulatedOnly();
+    const { id } = parseInput(tierPortalParam, req.params);
+    try {
+      return simulatorBilling.portalView(id);
+    } catch (error) {
+      return billingRefused(error);
+    }
+  });
+
+  app.post("/api/dev/simulator/billing/portal/:id", async (req): Promise<SimTierPortal> => {
+    billingSimulatedOnly();
+    const { id } = parseInput(tierPortalParam, req.params);
+    const { action } = parseInput(simTierPortalInput, req.body);
+    try {
+      const subscription = simulatorBilling.portalAction(id, action);
+      if (subscription) await applyTierSubscription(subscription, "billing");
+      return simulatorBilling.portalView(id);
+    } catch (error) {
+      return billingRefused(error);
+    }
+  });
+
+  /** Moves the business's free trial end, to try what happens when it runs out (works with Stripe too). */
+  app.post("/api/dev/simulator/trial", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { daysLeft } = parseInput(simTrialInput, req.body);
+    return setTrialDaysLeft(ctx.tenantId, daysLeft);
+  });
+
   /** Bills a membership's next period now, with a card that pays or declines (instead of waiting a month). */
   app.post("/api/dev/simulator/memberships/:id/renew", async (req) => {
     const ctx = await tenantContext(req, ["owner"]);
@@ -274,6 +364,29 @@ export async function devRoutes(app: FastifyInstance) {
   });
 
   /** Runs the 15-minute payments check now: reconciliation and hold reminders. */
+  /**
+   * Runs the five-minute network check now (C-24, C-25): offers past their time come back, won jobs
+   * count as referrals. With endOffers, this business's open offers end first, instead of in two hours.
+   */
+  /** Runs the "Found by AI" check with made-up answers: no AI quota used, no once-a-day limit (C-42). */
+  app.post("/api/dev/simulator/discovery/check", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return runVisibilityCheck(ctx.tenantId, { simulate: true, force: true });
+  });
+
+  app.post("/api/dev/simulator/network/tick", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { endOffers } = parseInput(z.object({ endOffers: z.boolean().default(false) }), req.body ?? {});
+    if (endOffers) {
+      await systemDb
+        .update(leadHandoffs)
+        // A second back, so the check that follows can't land in the same instant.
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(and(eq(leadHandoffs.tenantId, ctx.tenantId), eq(leadHandoffs.status, "offered")));
+    }
+    return networkTickJob();
+  });
+
   app.post("/api/dev/simulator/payments/tick", async (req) => {
     await tenantContext(req, ["owner"]);
     await paymentsTickJob();

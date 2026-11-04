@@ -15,6 +15,7 @@ import { carrierRegistrations, memberships, phoneNumbers, services, tenants } fr
 import { QUEUES, enqueue } from "../../jobs/queue";
 import { HttpError } from "../../lib/errors";
 import { telephony } from "../../container";
+import { accountOf } from "../billing/access";
 import { audit } from "../compliance/audit";
 import { requestUrl } from "../intake/intake.service";
 import { profileUrl } from "../profile/profile";
@@ -35,6 +36,13 @@ export async function onboardTenant(userId: string, input: OnboardingData) {
   const number = await telephony.provisionNumber({ areaCode });
   const tenantId = uuidv7();
   const slug = `${slugify(input.businessName)}-${tenantId.slice(-4)}`;
+  // C-25: the business whose link this one came from earns when it starts paying.
+  const [referrer] = input.referralCode
+    ? await systemDb
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.referralCode, input.referralCode.toUpperCase()))
+    : [];
 
   await withTenant(tenantId, async (tx) => {
     await tx.insert(tenants).values({
@@ -49,6 +57,7 @@ export async function onboardTenant(userId: string, input: OnboardingData) {
       city: input.city || null,
       state: input.state ? input.state.toUpperCase() : null,
       avgJobValueCents: input.avgJobValueDollars * 100,
+      referredByTenantId: referrer?.id ?? null,
       onboardedAt: new Date(),
     });
     await tx.insert(memberships).values({ tenantId, userId, role: "owner" });
@@ -85,6 +94,7 @@ export async function getTenantSummary(tenantId: string): Promise<TenantSummary>
       trackingNumber: number?.e164 ?? null,
       ownerCell: tenant.ownerCellE164,
       registrationStatus: registration?.status ?? REGISTRATION_STATUSES[0],
+      account: accountOf(tenant),
     };
   });
 }
@@ -109,6 +119,7 @@ export async function getSettings(tenantId: string): Promise<SettingsResponse> {
       insurancePolicyNumber: tenant.insurancePolicyNumber,
       yearsInBusiness: tenant.yearsInBusiness,
       googleProfileUrl: tenant.googleProfileUrl,
+      website: tenant.website,
       profileLinkInTexts: tenant.profileLinkInTexts,
       profileUrl: profileUrl(tenant.slug),
       requestUrl: requestUrl(tenant.slug),
@@ -142,6 +153,7 @@ export async function updateSettings(tenantId: string, userId: string, input: Se
         ...(input.insurancePolicyNumber !== undefined && { insurancePolicyNumber: input.insurancePolicyNumber || null }),
         ...(input.yearsInBusiness !== undefined && { yearsInBusiness: input.yearsInBusiness }),
         ...(input.googleProfileUrl !== undefined && { googleProfileUrl: input.googleProfileUrl || null }),
+        ...(input.website !== undefined && { website: input.website || null }),
         ...(input.profileLinkInTexts !== undefined && { profileLinkInTexts: input.profileLinkInTexts }),
         ...(input.avgJobValueDollars !== undefined && { avgJobValueCents: input.avgJobValueDollars * 100 }),
         ...(input.ringTimeoutSecs !== undefined && { ringTimeoutSecs: input.ringTimeoutSecs }),

@@ -44,6 +44,7 @@ import { cn } from "@/lib/utils";
 import { SourceLabel, StageGlyph, UrgencyChip, WaitingChip, isWaiting } from "./lead-meta";
 import { TagsEditor } from "./lead-tags";
 import { LeadTimeline } from "./lead-timeline";
+import { HandoffCard } from "@/features/network/handoff-card";
 import { MoveLeadSheet, type MoveTarget } from "./move-lead-sheet";
 import { useRecordContact, useUpdateLead } from "./use-lead-actions";
 
@@ -130,6 +131,7 @@ export function LeadDetailView() {
           {lead.chat && <ChatCard chat={lead.chat} />}
           <BookingCard lead={lead} onMarkWon={() => setMoving({ target: moveTarget, stage: "won" })} />
           <RequestDetailsCard lead={lead} />
+          <HandoffCard lead={lead} />
         </aside>
       </div>
 

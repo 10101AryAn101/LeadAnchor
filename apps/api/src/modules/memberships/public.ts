@@ -26,6 +26,7 @@ import { upsertCustomerByPhone } from "../customers/customer.repo";
 import { requestEmail } from "../messaging/send-path";
 import { cardsReady, publicBusinessOf } from "../payments/payment.service";
 import { firstNameOf } from "../reviews/reviews.service";
+import { featureOn } from "../billing/access";
 import { applySubscriptionState } from "./billing";
 import { manageUrl, resolveManageToken, signupUrl } from "./links";
 import { ensurePrice } from "./plans.service";
@@ -46,7 +47,8 @@ async function planByToken(token: string) {
     .innerJoin(tenants, eq(tenants.id, membershipPlans.tenantId))
     .where(eq(membershipPlans.linkToken, token))
     .limit(1);
-  if (!row || row.tenant.status === "cancelled" || row.tenant.status === "suspended")
+  // New members join only while the business's tier includes memberships (Growth).
+  if (!row || row.tenant.status === "cancelled" || row.tenant.status === "suspended" || !featureOn(row.tenant, "memberships"))
     throw notFound("Plan");
   return row;
 }

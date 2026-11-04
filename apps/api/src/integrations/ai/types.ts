@@ -132,6 +132,18 @@ export interface ListingPostInput {
   timeoutMs: number;
 }
 
+/** C-42: a question a customer might ask an AI assistant, e.g. "Who's a good plumber in Austin, TX?" */
+export interface LocalQuestionInput {
+  question: string;
+  timeoutMs: number;
+}
+
+export interface LocalAnswer {
+  answer: string;
+  /** The businesses the answer names; empty when it names none. */
+  businesses: string[];
+}
+
 /** Module 11: a campaign email to the business's own past customers. */
 export interface CampaignDraftInput {
   businessName: string;
@@ -171,4 +183,6 @@ export interface AiProvider {
   chatTurn(input: ChatTurnInput): Promise<ChatTurn>;
   /** Module 11: a campaign's subject and message; nothing is sent until the owner approves. */
   draftCampaign(input: CampaignDraftInput): Promise<{ subject: string; body: string }>;
+  /** C-42: how an AI assistant answers a local "who should I call" question, and which businesses it names. */
+  answerLocalQuestion(input: LocalQuestionInput): Promise<LocalAnswer>;
 }

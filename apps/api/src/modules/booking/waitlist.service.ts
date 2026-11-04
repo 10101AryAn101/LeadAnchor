@@ -32,6 +32,7 @@ import {
   type FreedSlot,
   type Tenant,
   assertFree,
+  bookingOpen,
   customerOf,
   durationOf,
   insertBooking,
@@ -58,6 +59,8 @@ export async function joinWaitlist(
   const [tenant] = await systemDb.select().from(tenants).where(eq(tenants.slug, slug)).limit(1);
   if (!tenant || tenant.status === "cancelled" || tenant.status === "suspended")
     throw notFound("Business");
+  if (!bookingOpen(tenant))
+    throw new HttpError(409, "booking_off", `${tenant.name} isn't taking online bookings right now.`);
   if (input.company) return { ok: true as const };
   if (input.to < input.from)
     throw new HttpError(422, "validation_failed", "The last day must be after the first.", {
@@ -178,6 +181,7 @@ export async function recordWaitlistConsent(
  */
 export async function offerFreedSlot(tx: Tx, fx: Effects, tenant: Tenant, slot: FreedSlot) {
   const settings = settingsOf(tenant);
+  if (!bookingOpen(tenant)) return 0;
   if (slot.start.getTime() < Date.now() + settings.noticeHours * 3_600_000) return 0;
 
   const candidates = await tx

@@ -36,6 +36,8 @@ import { getFeedbackContext, getUnsubscribe, submitFeedback, unsubscribe } from 
 import { getChatContext, getChatThread, postChatMessage } from "../../modules/chat/web-chat";
 import { getCampaignOffer, openCampaignLink } from "../../modules/campaigns/links";
 import { getPublicMembership, getPublicPlan, joinPlan, joinedStatus, openPortal, resendManageLink } from "../../modules/memberships/public";
+import { publicHandoffView, stayWithBusiness } from "../../modules/network/network.service";
+import { sitemapProfiles } from "../../modules/discovery/discovery.service";
 
 const tokenParam = z.object({ token: z.string().min(20).max(64) });
 const slugParam = z.object({ slug: z.string().min(3).max(80).regex(/^[a-z0-9-]+$/) });
@@ -272,6 +274,25 @@ export async function publicRoutes(app: FastifyInstance) {
   app.post("/api/public/chat/:slug/messages", async (req) => {
     const { slug } = parseInput(slugParam, req.params);
     return postChatMessage(slug, chatToken(req), parseInput(publicChatInput, req.body), { ipAddress: req.ip ?? null });
+  });
+
+  /** The public profiles for the web app's sitemap (C-42: crawlable by search engines and AI assistants). */
+  app.get("/api/public/sitemap-profiles", async (_req, reply) => {
+    reply.header("Cache-Control", "public, max-age=3600");
+    return { profiles: await sitemapProfiles() };
+  });
+
+  /* ── A job passed to another pro (C-24): who has it, and the choice to stay ── */
+
+  app.get("/api/public/handoffs/:token", async (req, reply) => {
+    const { token } = parseInput(tokenParam, req.params);
+    reply.header("Cache-Control", "no-store");
+    return publicHandoffView(token);
+  });
+
+  app.post("/api/public/handoffs/:token/stay", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return stayWithBusiness(token);
   });
 
   /* ── The review request's private line (C-46) and email unsubscribe ───── */

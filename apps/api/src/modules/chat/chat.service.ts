@@ -28,6 +28,7 @@ import { HttpError, notFound } from "../../lib/errors";
 import { audit } from "../compliance/audit";
 import { approvedForTexting } from "../compliance/registration.service";
 import { requestMessage } from "../messaging/send-path";
+import { assistantOn } from "../billing/access";
 import { webChatUrl, whatsappLinkFor } from "./links";
 
 type Conversation = typeof conversations.$inferSelect;
@@ -156,8 +157,8 @@ export async function listChats(tenantId: string): Promise<ChatsResponse> {
       .orderBy(desc(conversations.lastMessageAt))
       .limit(60);
     return {
-      chats: await summaries(tx, rows, tenant!.assistantEnabled),
-      assistantOn: tenant!.assistantEnabled,
+      chats: await summaries(tx, rows, assistantOn(tenant!)),
+      assistantOn: assistantOn(tenant!),
     };
   });
 }
@@ -217,7 +218,7 @@ export async function getChat(tenantId: string, conversationId: string): Promise
       .from(conversations)
       .where(eq(conversations.id, conversationId));
     if (!conversation) throw notFound("Chat");
-    const [summary] = await summaries(tx, [conversation], tenant!.assistantEnabled);
+    const [summary] = await summaries(tx, [conversation], assistantOn(tenant!));
     const rows = await tx
       .select()
       .from(messages)

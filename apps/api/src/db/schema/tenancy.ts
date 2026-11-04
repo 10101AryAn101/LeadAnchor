@@ -1,5 +1,6 @@
-import { type BookingSettings, FORWARDING_STATUSES, REPLY_TONES, ROLES, TRACKS, TRADES } from "@leadanchor/contracts";
-import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { ACCOUNT_STATUSES, type BookingSettings, FORWARDING_STATUSES, REPLY_TONES, ROLES, TIERS, TRACKS, TRADES, WEBSITE_STATUSES } from "@leadanchor/contracts";
+import { sql } from "drizzle-orm";
+import { type AnyPgColumn, boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { user } from "./auth";
 import { createdAt, pk, tsz, updatedAt } from "./columns";
 
@@ -48,10 +49,32 @@ export const tenants = pgTable("tenants", {
   assistantNotes: text("assistant_notes"),
   /** The voice of AI-drafted replies to Google reviews (C-47 AC 5). */
   reviewReplyTone: text("review_reply_tone", { enum: REPLY_TONES }).notNull().default("warm"),
-  status: text("status", { enum: ["trial", "active", "past_due", "suspended", "cancelled"] })
-    .notNull()
-    .default("trial"),
+  status: text("status", { enum: ACCOUNT_STATUSES }).notNull().default("trial"),
+  /** The LeadAnchor tier the business pays for; null while it's on the free trial. */
+  tier: text("tier", { enum: TIERS }),
+  /** Every new business tries everything for TRIAL_DAYS; existing ones got the same from the day tiers arrived. */
+  trialEndsAt: tsz("trial_ends_at").default(sql`now() + interval '14 days'`),
+  /** LeadAnchor's own Stripe customer and subscription for this business (on LeadAnchor's account, not theirs). */
+  billingCustomerId: text("billing_customer_id"),
+  billingSubscriptionId: text("billing_subscription_id"),
+  billingPeriodEnd: tsz("billing_period_end"),
+  /** Set when the owner has cancelled: the tier stays until this date, then the account closes. */
+  billingCancelsAt: tsz("billing_cancels_at"),
+  /** C-33: the website add-on (its own subscription: hosting monthly, setup on the first bill). */
+  websiteStatus: text("website_status", { enum: WEBSITE_STATUSES }).notNull().default("none"),
+  websiteSubscriptionId: text("website_subscription_id"),
+  /** Hosting was stopped: the site stays up until this date. */
+  websiteCancelsAt: tsz("website_cancels_at"),
   isDemo: boolean("is_demo").notNull().default(false),
+  /** C-25: the code in this business's "refer a business" link. */
+  referralCode: text("referral_code")
+    .notNull()
+    .unique()
+    .default(sql`upper(substr(md5(random()::text || clock_timestamp()::text), 1, 8))`),
+  /** C-42: the owner switched off the AI-readable page and the monthly mention check. */
+  aiDiscoveryOptOut: boolean("ai_discovery_opt_out").notNull().default(false),
+  /** The business whose referral link this one joined with. */
+  referredByTenantId: uuid("referred_by_tenant_id").references((): AnyPgColumn => tenants.id, { onDelete: "set null" }),
   onboardedAt: tsz("onboarded_at"),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

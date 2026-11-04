@@ -97,7 +97,12 @@ export function OnboardingWizard() {
   }, [state, zonePicked, form]);
 
   const create = useMutation({
-    mutationFn: (values: Output) => api<{ tenant: TenantSummary }>("/onboarding", { method: "POST", body: values }),
+    mutationFn: (values: Output) =>
+      // A "refer a business" link (C-25) carries the referring business's code through sign-up.
+      api<{ tenant: TenantSummary }>("/onboarding", {
+        method: "POST",
+        body: { ...values, referralCode: new URLSearchParams(window.location.search).get("ref") ?? undefined },
+      }),
     onSuccess: ({ tenant }) => {
       setTenant(tenant);
       setStep(2);

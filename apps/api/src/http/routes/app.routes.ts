@@ -13,6 +13,7 @@ import {
   planInput,
   chatReplyInput,
   dashboardRange,
+  reportPeriod,
   listingPostInput,
   listingSettingsInput,
   reviewPatchInput,
@@ -39,6 +40,7 @@ import {
   sendInput,
   serviceUpdateInput,
   settingsUpdateInput,
+  tierChoiceInput,
   toE164,
 } from "@leadanchor/contracts";
 import { and, eq } from "drizzle-orm";
@@ -92,6 +94,7 @@ import {
   submitRegistration,
 } from "../../modules/compliance/registration.service";
 import { getDashboard } from "../../modules/dashboard/dashboard.service";
+import { getReports } from "../../modules/reports/reports.service";
 import { integrationStatuses } from "../../modules/integrations/integration-status";
 import { addNote, getLeadDetail, listBoard, recordContact, requestDetails, updateLead } from "../../modules/leads/lead.service";
 import { listTags } from "../../modules/leads/tags";
@@ -112,7 +115,9 @@ import {
 import { createQuote, discardQuote, getQuote, quotePdf, redraftQuote, reopenQuote, sendQuote, updateQuote } from "../../modules/quotes/quote.service";
 import { startForwardingCheck } from "../../modules/tenants/forwarding";
 import { findMembership, getSettings, getTenantSummary, onboardTenant, updateSettings } from "../../modules/tenants/tenant.service";
-import { tenantContext, userContext } from "../context";
+import { billingPortal, chooseTier, chooseWebsite, getBilling, refreshBilling, setWebsiteCancel } from "../../modules/billing/billing.service";
+import { requireFeature } from "../../modules/billing/access";
+import { isOperator, tenantContext, userContext } from "../context";
 
 const idParam = z.object({ id: z.uuid() });
 
@@ -139,6 +144,7 @@ export async function appRoutes(app: FastifyInstance) {
       user: { id: user.userId, name: user.name, email: user.email },
       tenant: membership ? await getTenantSummary(membership.tenantId) : null,
       role: membership?.role ?? null,
+      operator: isOperator(user.email),
     };
   });
 
@@ -155,6 +161,14 @@ export async function appRoutes(app: FastifyInstance) {
     const ctx = await tenantContext(req);
     const { range } = parseInput(z.object({ range: dashboardRange.default("30d") }), req.query);
     return getDashboard(ctx.tenantId, range);
+  });
+
+  /** Module 10: the fixed suite of reports (full reports are Pro; Today's headline numbers are on every plan). */
+  app.get("/api/reports", async (req) => {
+    const ctx = await tenantContext(req);
+    await requireFeature(ctx.tenantId, "reports");
+    const { period } = parseInput(z.object({ period: reportPeriod }), req.query);
+    return getReports(ctx.tenantId, period);
   });
 
   /* ── Leads (C-12, C-34) ───────────────────────────────────────────────── */
@@ -202,6 +216,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/leads/:id/quotes", async (req, reply) => {
     const ctx = await tenantContext(req);
     const { id } = parseInput(idParam, req.params);
+    await requireFeature(ctx.tenantId, "ai_quotes");
     const { quote, created } = await createQuote(ctx.tenantId, ctx.userId, id);
     return reply.status(created ? 201 : 200).send(quote);
   });
@@ -229,6 +244,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/quotes/:id/redraft", async (req) => {
     const ctx = await tenantContext(req);
     const { id } = parseInput(idParam, req.params);
+    await requireFeature(ctx.tenantId, "ai_quotes");
     return redraftQuote(ctx.tenantId, ctx.userId, id);
   });
 
@@ -310,6 +326,44 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/payments/settings/refresh", async (req) => {
     const ctx = await tenantContext(req);
     return refreshPaymentAccount(ctx.tenantId);
+  });
+
+  /* ── LeadAnchor's own subscription (the Excel's tier key) ─────────────── */
+
+  app.get("/api/billing", async (req) => {
+    const ctx = await tenantContext(req);
+    return getBilling(ctx.tenantId);
+  });
+
+  /** Opens checkout for a tier, or switches at once when the business already pays for one. */
+  app.post("/api/billing/choose", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { tier } = parseInput(tierChoiceInput, req.body);
+    return chooseTier(ctx.tenantId, ctx.userId, tier, { email: ctx.email, origin: ownerOrigin(req) });
+  });
+
+  app.post("/api/billing/refresh", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { checkout } = parseInput(z.object({ checkout: z.string().regex(/^cs_[A-Za-z0-9_]+$/).optional() }), req.body ?? {});
+    return refreshBilling(ctx.tenantId, checkout);
+  });
+
+  app.post("/api/billing/portal", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return billingPortal(ctx.tenantId, ownerOrigin(req));
+  });
+
+  /** C-33: checkout for the website add-on. */
+  app.post("/api/billing/website", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return chooseWebsite(ctx.tenantId, { email: ctx.email, origin: ownerOrigin(req) });
+  });
+
+  /** Stops the website's hosting at the end of the paid month (cancel: true), or keeps it (false). */
+  app.post("/api/billing/website/cancel", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { cancel } = parseInput(z.object({ cancel: z.boolean() }), req.body);
+    return setWebsiteCancel(ctx.tenantId, ctx.userId, cancel);
   });
 
   /* ── Booking (module 8, C-17 … C-22) ──────────────────────────────────── */
@@ -439,6 +493,7 @@ export async function appRoutes(app: FastifyInstance) {
 
   app.post("/api/campaigns", async (req, reply) => {
     const ctx = await tenantContext(req, ["owner", "manager"]);
+    await requireFeature(ctx.tenantId, "campaigns");
     const created = await createCampaign(ctx.tenantId, parseInput(campaignCreateInput, req.body).kind);
     return reply.status(201).send(created);
   });
@@ -452,6 +507,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.patch("/api/campaigns/:id", async (req) => {
     const ctx = await tenantContext(req, ["owner", "manager"]);
     const { id } = parseInput(idParam, req.params);
+    await requireFeature(ctx.tenantId, "campaigns");
     return updateCampaign(ctx.tenantId, id, parseInput(campaignUpdateInput, req.body));
   });
 
@@ -466,6 +522,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/campaigns/:id/draft", async (req) => {
     const ctx = await tenantContext(req, ["owner", "manager"]);
     const { id } = parseInput(idParam, req.params);
+    await requireFeature(ctx.tenantId, "campaigns");
     return draftCampaignCopy(ctx.tenantId, id);
   });
 
@@ -478,6 +535,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/campaigns/:id/test", async (req) => {
     const ctx = await tenantContext(req, ["owner", "manager"]);
     const { id } = parseInput(idParam, req.params);
+    await requireFeature(ctx.tenantId, "campaigns");
     return sendTestEmail(ctx.tenantId, id, { name: ctx.name, email: ctx.email });
   });
 
@@ -485,6 +543,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/campaigns/:id/send", async (req) => {
     const ctx = await tenantContext(req, ["owner"]);
     const { id } = parseInput(idParam, req.params);
+    await requireFeature(ctx.tenantId, "campaigns");
     return approveCampaign(ctx.tenantId, id, parseInput(campaignSendInput, req.body), ctx);
   });
 
@@ -521,6 +580,7 @@ export async function appRoutes(app: FastifyInstance) {
 
   app.post("/api/membership-plans", async (req, reply) => {
     const ctx = await tenantContext(req, ["owner"]);
+    await requireFeature(ctx.tenantId, "memberships");
     const plan = await createPlan(ctx.tenantId, parseInput(planInput, req.body), `user:${ctx.userId}`);
     return reply.status(201).send(plan);
   });
@@ -528,6 +588,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.patch("/api/membership-plans/:id", async (req) => {
     const ctx = await tenantContext(req, ["owner"]);
     const { id } = parseInput(idParam, req.params);
+    await requireFeature(ctx.tenantId, "memberships");
     return updatePlan(ctx.tenantId, id, parseInput(planInput, req.body), `user:${ctx.userId}`);
   });
 
@@ -555,6 +616,7 @@ export async function appRoutes(app: FastifyInstance) {
   app.post("/api/reviews/:id/draft", async (req) => {
     const ctx = await tenantContext(req);
     const { id } = parseInput(idParam, req.params);
+    await requireFeature(ctx.tenantId, "review_replies");
     return redraftReply(ctx.tenantId, id);
   });
 

@@ -42,6 +42,7 @@ import { toMessageItem } from "../messaging/message-item";
 import { creditCampaign } from "../campaigns/links";
 import { notifyOwner } from "../notifications/notify";
 import { capturePayment, publicBusinessOf } from "../payments/payment.service";
+import { featureOn } from "../billing/access";
 import { availableSlots, isBookable } from "./availability";
 import { calendarFile } from "./calendar-file";
 import { calendarStatusOf } from "./calendar-sync";
@@ -49,6 +50,7 @@ import {
   type BookingRow,
   type Tenant,
   assertFree,
+  bookingOpen,
   bookingUrl,
   busyBetween,
   cancelBooking,
@@ -128,7 +130,7 @@ export async function getPublicBookingContext(slug: string): Promise<PublicBooki
     .orderBy(asc(services.sortOrder));
   return {
     business: await publicBusinessOf(tenant),
-    enabled: settingsOf(tenant).enabled,
+    enabled: bookingOpen(tenant),
     timezone: tenant.timezone,
     services: rows.map((service) => ({
       id: service.id,
@@ -172,7 +174,7 @@ async function slotsFor(
 export async function publicSlots(slug: string, serviceId: string): Promise<SlotsResponse> {
   const tenant = await tenantBySlug(slug);
   const settings = settingsOf(tenant);
-  if (!settings.enabled)
+  if (!bookingOpen(tenant))
     throw new HttpError(
       409,
       "booking_off",
@@ -205,7 +207,7 @@ export async function bookOnline(
 ): Promise<BookingCreated> {
   const tenant = await tenantBySlug(slug);
   const settings = settingsOf(tenant);
-  if (!settings.enabled)
+  if (!bookingOpen(tenant))
     throw new HttpError(
       409,
       "booking_off",
@@ -921,7 +923,8 @@ export async function sendReminder(tenantId: string, bookingId: string) {
       .from(bookings)
       .innerJoin(tenants, eq(tenants.id, bookings.tenantId))
       .where(eq(bookings.id, bookingId));
-    if (!row || row.booking.status !== "booked") return;
+    // C-20 reminders come with online booking (Pro); without it the visit simply isn't reminded.
+    if (!row || row.booking.status !== "booked" || !featureOn(row.tenant, "online_booking")) return;
     await tx.update(bookings).set({ reminderSentAt: new Date() }).where(eq(bookings.id, bookingId));
     await sendBookingMessage(tx, fx, {
       tenant: row.tenant,

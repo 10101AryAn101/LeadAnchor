@@ -1,4 +1,6 @@
+import { randomUUID } from "node:crypto";
 import cors from "@fastify/cors";
+import { trace } from "@opentelemetry/api";
 import multipart from "@fastify/multipart";
 import Fastify, { type FastifyError } from "fastify";
 import { devToolsEnabled, webOrigins } from "../config/env";
@@ -6,9 +8,13 @@ import { pingDatabase } from "../db/client";
 import { RINGBACK_WAV } from "../integrations/telephony/ringback";
 import { HttpError } from "../lib/errors";
 import { logger } from "../lib/logger";
+import { recordServerError } from "../modules/monitoring/monitoring.service";
 import { appRoutes } from "./routes/app.routes";
 import { authRoutes } from "./routes/auth.routes";
 import { devRoutes } from "./routes/dev.routes";
+import { discoveryRoutes } from "./routes/discovery.routes";
+import { networkRoutes } from "./routes/network.routes";
+import { opsRoutes } from "./routes/ops.routes";
 import { publicRoutes } from "./routes/public.routes";
 import { webhookRoutes } from "./routes/webhook.routes";
 
@@ -25,6 +31,12 @@ export async function buildServer() {
     trustProxy: true,
     bodyLimit: 2 * 1024 * 1024,
     disableRequestLogging: true,
+    // Tracing: every request carries an id (the caller's x-request-id when it sends a sane one).
+    // It's on every log line for the request, in the response header, and on its trace span.
+    genReqId: (req) => {
+      const given = req.headers["x-request-id"];
+      return typeof given === "string" && /^[A-Za-z0-9._-]{8,64}$/.test(given) ? given : randomUUID();
+    },
     // Sealed links (the email unsubscribe token) run past the default 100 characters.
     routerOptions: { maxParamLength: 400 },
   });
@@ -50,6 +62,12 @@ export async function buildServer() {
   });
   await app.register(multipart, { limits: { fileSize: 15 * 1024 * 1024, files: 5, fields: 20 } });
 
+  app.addHook("onRequest", (req, reply, done) => {
+    reply.header("x-request-id", req.id);
+    trace.getActiveSpan()?.setAttribute("leadanchor.request_id", req.id);
+    done();
+  });
+
   app.addHook("onResponse", (req, reply, done) => {
     if (!req.url.startsWith("/api/events")) {
       req.log.info({ method: req.method, url: req.url.split("?")[0], status: reply.statusCode, ms: Math.round(reply.elapsedTime) }, "request");
@@ -68,6 +86,8 @@ export async function buildServer() {
       return reply.status(error.statusCode).send({ error: { code: error.code ?? "bad_request", message: error.message } });
     }
     req.log.error({ err: error }, "unhandled error");
+    // Kept for the operator console and the health check's alerts (module 14).
+    recordServerError({ route: `${req.method} ${req.routeOptions.url ?? req.url.split("?")[0]}`, status: 500, message: error.message, requestId: req.id });
     return reply.status(500).send({ error: { code: "internal", message: "Something went wrong on our side." } });
   });
 
@@ -89,6 +109,9 @@ export async function buildServer() {
   await app.register(publicRoutes);
   await app.register(webhookRoutes);
   await app.register(appRoutes);
+  await app.register(networkRoutes);
+  await app.register(discoveryRoutes);
+  await app.register(opsRoutes);
   if (devToolsEnabled) await app.register(devRoutes);
 
   return app;

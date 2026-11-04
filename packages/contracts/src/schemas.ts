@@ -67,7 +67,9 @@ import {
   type LeadStage,
   type Track,
 } from "./domain";
+import { HANDOFF_OFFER_STATUSES, HANDOFF_STATUSES } from "./network";
 import { toUsE164 } from "./phone";
+import { ACCOUNT_STATUSES, TIERS, WEBSITE_STATUSES } from "./tiers";
 import { isTimeZone } from "./time-zones";
 
 /* ----------------------------------------------------------------------------
@@ -103,6 +105,8 @@ export const onboardingInput = z.object({
   state: z.string().trim().max(2).optional().default(""),
   timezone: z.string().trim().refine(isTimeZone, "Pick your time zone").default("America/Chicago"),
   avgJobValueDollars: z.coerce.number().int().min(25).max(50_000).default(250),
+  /** From another business's "refer a business" link (C-25). */
+  referralCode: z.string().trim().max(16).optional(),
 });
 export type OnboardingInput = z.input<typeof onboardingInput>;
 
@@ -116,6 +120,13 @@ export const tenantSummary = z.object({
   trackingNumber: z.string().nullable(),
   ownerCell: z.string().nullable(),
   registrationStatus: z.enum(REGISTRATION_STATUSES),
+  account: z.object({
+    status: z.enum(ACCOUNT_STATUSES),
+    /** What the business can use right now: everything on a trial, its tier once paying, none once the trial is over. */
+    tier: z.enum(TIERS).nullable(),
+    paidTier: z.enum(TIERS).nullable(),
+    trialEndsAt: isoDate.nullable(),
+  }),
 });
 export type TenantSummary = z.infer<typeof tenantSummary>;
 
@@ -123,6 +134,8 @@ export const meResponse = z.object({
   user: z.object({ id, name: z.string(), email: z.string() }),
   tenant: tenantSummary.nullable(),
   role: z.enum(ROLES).nullable(),
+  /** LeadAnchor staff: can open the operator console (module 14). */
+  operator: z.boolean(),
 });
 export type MeResponse = z.infer<typeof meResponse>;
 
@@ -229,6 +242,26 @@ export const publicProfile = z.object({
   rating: z.object({ average: z.number(), count: z.number().int(), url: z.string().nullable() }).nullable(),
   /** Google reviews the owner chose to show; only ones already public on Google (C-23). */
   reviews: z.array(z.object({ reviewer: z.string(), rating: z.number().int(), text: z.string(), publishedAt: isoDate })),
+  /**
+   * C-42: what AI assistants and search engines read, built only from real records. Null when the
+   * business opted out, or its plan doesn't include it.
+   */
+  /** C-33: the business has the website add-on, so its one-page site is live. */
+  siteLive: z.boolean(),
+  discovery: z
+    .object({
+      /** schema.org JSON-LD: LocalBusiness with its services, area, hours, rating and FAQ. */
+      jsonLd: z.record(z.string(), z.unknown()),
+      /** A 40-60 word direct answer for each service the business really does. */
+      answers: z.array(z.object({ service: z.string(), text: z.string() })),
+      faq: z.array(z.object({ question: z.string(), answer: z.string() })),
+      /** ZIP codes of jobs done in the last year: ZIP level only, never a street (AC g). */
+      areaServed: z.array(z.string()),
+      hours: z.array(z.object({ day: z.string(), hours: z.string() })),
+      /** The newest job or review behind it: the page changes when they do. */
+      updatedAt: isoDate,
+    })
+    .nullable(),
 });
 export type PublicProfile = z.infer<typeof publicProfile>;
 
@@ -388,8 +421,32 @@ export const bookingItem = z.object({
 });
 export type BookingItem = z.infer<typeof bookingItem>;
 
+/** A job this business passed to the trusted pros network (C-24), as it shows on the job and the network page. */
+export const handoffItem = z.object({
+  id,
+  leadId: id,
+  title: z.string(),
+  trade: z.enum(TRADES),
+  status: z.enum(HANDOFF_STATUSES),
+  /** How many pros were offered it. */
+  offeredTo: z.number().int(),
+  /** The pro who took it. */
+  partner: z.object({ name: z.string(), phone: z.string().nullable() }).nullable(),
+  createdAt: isoDate,
+  expiresAt: isoDate,
+  acceptedAt: isoDate.nullable(),
+  declinedAt: isoDate.nullable(),
+  /** The partner won the job, so it counted as a referral (C-25). */
+  convertedAt: isoDate.nullable(),
+});
+export type HandoffItem = z.infer<typeof handoffItem>;
+
 export const leadDetail = leadCard.extend({
   lostReason: z.string().nullable(),
+  /** The latest time this business passed the job to the network. */
+  handoff: handoffItem.nullable(),
+  /** The business that passed this job here, when it came from the network. */
+  passedBy: z.string().nullable(),
   events: z.array(leadEvent),
   calls: z.array(callItem),
   messages: z.array(messageItem),
@@ -655,6 +712,8 @@ export const settingsResponse = z.object({
   insurancePolicyNumber: z.string().nullable(),
   yearsInBusiness: z.number().int().nullable(),
   googleProfileUrl: z.string().nullable(),
+  /** The business's own website, if it has one: on its public page, kept on Google (C-21), checked for C-42. */
+  website: z.string().nullable(),
   profileLinkInTexts: z.boolean(),
   /** The public profile page (C-41). */
   profileUrl: z.string(),
@@ -692,6 +751,8 @@ export const settingsUpdateInput = z.object({
   insurancePolicyNumber: z.string().trim().max(60).nullable().optional(),
   yearsInBusiness: z.number().int().min(0).max(150).nullable().optional(),
   googleProfileUrl: z.url("Paste the full link, starting with https://").max(300).nullable().optional(),
+  // Only web addresses: it becomes a link on the public page.
+  website: z.url({ protocol: /^https?$/, error: "Paste the full address, starting with https://" }).max(300).nullable().optional(),
   profileLinkInTexts: z.boolean().optional(),
   avgJobValueDollars: z.number().int().min(25).max(50_000).optional(),
   ringTimeoutSecs: z.number().int().min(10).max(30).optional(),
@@ -2037,3 +2098,373 @@ export const apiError = z.object({
   }),
 });
 export type ApiError = z.infer<typeof apiError>;
+
+/* ----------------------------------------------------------------------------
+ * LeadAnchor's own subscription: what a business pays LeadAnchor (the Excel's tier key)
+ * ------------------------------------------------------------------------- */
+
+export const billingResponse = z.object({
+  status: z.enum(ACCOUNT_STATUSES),
+  /** What the business can use right now (see accessTier). */
+  tier: z.enum(TIERS).nullable(),
+  /** What it pays for; null on the trial. */
+  paidTier: z.enum(TIERS).nullable(),
+  trialEndsAt: isoDate.nullable(),
+  /** The next renewal, or the trial's end once a tier is chosen during it. */
+  periodEnd: isoDate.nullable(),
+  /** Set once cancelled: the tier stays until then. */
+  cancelsAt: isoDate.nullable(),
+  /** Credit waiting to come off the next bills: free months from referrals (C-25) and what's left from moving down a plan. */
+  creditCents: z.number().int(),
+  /** A billing account exists, so the provider's page (card, past bills, cancel) can open. */
+  manageable: z.boolean(),
+  simulated: z.boolean(),
+  /** C-33: the website add-on. */
+  website: z.object({
+    status: z.enum(WEBSITE_STATUSES),
+    /** Set once hosting is stopped: the site stays up until then. */
+    cancelsAt: isoDate.nullable(),
+    /** The site's address (live or not: before it's live, it opens as a preview). */
+    url: z.string(),
+  }),
+});
+export type BillingResponse = z.infer<typeof billingResponse>;
+
+export const tierChoiceInput = z.object({ tier: z.enum(TIERS) });
+export type TierChoiceInput = z.infer<typeof tierChoiceInput>;
+
+/** Choosing a tier either opens the provider's checkout or, when already subscribed, switches at once. */
+export const tierChoiceResult = z.union([z.object({ url: z.string() }), z.object({ billing: billingResponse })]);
+export type TierChoiceResult = z.infer<typeof tierChoiceResult>;
+
+export const simTierCheckout = z.object({
+  id: z.string(),
+  businessName: z.string(),
+  /** A LeadAnchor tier, or the website add-on (C-33). */
+  product: z.enum(["tier", "website"]),
+  tier: z.enum(TIERS).nullable(),
+  tierName: z.string(),
+  /** Each month. */
+  priceCents: z.number().int(),
+  /** Charged once, on the first bill (the website add-on's setup). */
+  setupCents: z.number().int().nullable(),
+  /** Null when the first charge is today; otherwise the trial's end. */
+  firstChargeAt: isoDate.nullable(),
+  status: z.enum(["open", "complete"]),
+  cancelUrl: z.string(),
+});
+export type SimTierCheckout = z.infer<typeof simTierCheckout>;
+
+export const simTierCheckoutInput = z.object({ outcome: z.enum(["pay", "decline"]) });
+
+export const SIM_TIER_PORTAL_ACTIONS = ["cancel", "resume", "fail_next", "renew"] as const;
+export type SimTierPortalAction = (typeof SIM_TIER_PORTAL_ACTIONS)[number];
+
+export const simTierPortal = z.object({
+  id: z.string(),
+  email: z.string(),
+  returnUrl: z.string(),
+  creditCents: z.number().int(),
+  subscription: z
+    .object({
+      tier: z.enum(TIERS),
+      tierName: z.string(),
+      priceCents: z.number().int(),
+      status: z.enum(["active", "past_due", "canceled", "incomplete"]),
+      periodEnd: isoDate,
+      cancelAtPeriodEnd: z.boolean(),
+    })
+    .nullable(),
+});
+export type SimTierPortal = z.infer<typeof simTierPortal>;
+
+export const simTierPortalInput = z.object({ action: z.enum(SIM_TIER_PORTAL_ACTIONS) });
+
+/** Development: move the free trial's end to try what an ended trial looks like. */
+export const simTrialInput = z.object({ daysLeft: z.number().int().min(0).max(60) });
+
+/* ----------------------------------------------------------------------------
+ * Trusted pros network (C-24) and referral credits (C-25)
+ * ------------------------------------------------------------------------- */
+
+const tradeList = z
+  .array(z.enum(TRADES))
+  .min(1, "Pick at least one trade")
+  .max(TRADES.length)
+  .transform((trades) => [...new Set(trades)]);
+
+export const networkResponse = z.object({
+  /** Null until the business joins. */
+  member: z
+    .object({
+      available: z.boolean(),
+      trades: z.array(z.enum(TRADES)),
+      termsVersion: z.string(),
+      termsAcceptedAt: isoDate,
+      /** The terms changed since: accept them again to keep getting jobs. */
+      termsOutdated: z.boolean(),
+    })
+    .nullable(),
+  /** What the business still needs before it can join, in the owner's words. */
+  missing: z.array(z.string()),
+  stats: z.object({
+    passed: z.number().int(),
+    taken: z.number().int(),
+    received: z.number().int(),
+    won: z.number().int(),
+  }),
+  referral: z.object({
+    /** The "refer a business" sign-up link. */
+    url: z.string(),
+    /** Businesses that joined with the link. */
+    joined: z.number().int(),
+    /** Referrals that turned into business and count toward free months. */
+    counted: z.number().int(),
+    perFreeMonth: z.number().int(),
+    monthsEarned: z.number().int(),
+    /** Free months waiting for a paid plan to come off. */
+    monthsWaiting: z.number().int(),
+    /** The plan includes referral credits (C-25 is Pro). */
+    earning: z.boolean(),
+  }),
+  /** Jobs this business passed, newest first. */
+  handoffs: z.array(handoffItem),
+});
+export type NetworkResponse = z.infer<typeof networkResponse>;
+
+export const networkJoinInput = z.object({
+  trades: tradeList,
+  available: z.boolean().default(true),
+  acceptTerms: z.literal(true, "Accept the partner terms to join"),
+  termsVersion: z.string(),
+});
+export type NetworkJoinInput = z.input<typeof networkJoinInput>;
+
+export const networkUpdateInput = z.object({
+  available: z.boolean().optional(),
+  trades: tradeList.optional(),
+});
+export type NetworkUpdateInput = z.input<typeof networkUpdateInput>;
+
+/** A job offered to this business by another pro. Only the work and the area until it's accepted. */
+export const networkOffer = z.object({
+  id,
+  status: z.enum(HANDOFF_OFFER_STATUSES),
+  fromBusiness: z.string(),
+  trade: z.enum(TRADES),
+  title: z.string(),
+  /** City, state and ZIP: never the street (guardrail 2). */
+  area: z.string(),
+  urgency: z.enum(URGENCY_LEVELS),
+  note: z.string().nullable(),
+  offeredAt: isoDate,
+  expiresAt: isoDate,
+  /** The job on this business's board, once accepted. */
+  leadId: id.nullable(),
+});
+export type NetworkOffer = z.infer<typeof networkOffer>;
+
+export const networkOffersResponse = z.object({ offers: z.array(networkOffer) });
+export type NetworkOffersResponse = z.infer<typeof networkOffersResponse>;
+
+export const handoffInput = z.object({
+  trade: z.enum(TRADES),
+  note: z.string().trim().max(300, "Keep the note under 300 characters").default(""),
+});
+export type HandoffInput = z.input<typeof handoffInput>;
+
+/** The customer's page from the handoff text: who has their request, and the choice to stay. */
+export const publicHandoff = z.object({
+  businessName: z.string(),
+  partnerName: z.string(),
+  partnerPhone: z.string().nullable(),
+  job: z.string(),
+  status: z.enum(["with_partner", "stayed", "closed"]),
+  canStay: z.boolean(),
+});
+export type PublicHandoff = z.infer<typeof publicHandoff>;
+
+/* ----------------------------------------------------------------------------
+ * Found by AI (C-42)
+ * ------------------------------------------------------------------------- */
+
+export const AI_MISMATCH_FIELDS = ["name", "phone", "address", "website"] as const;
+
+export const aiVisibility = z.object({
+  /** The plan includes it and the owner hasn't opted out. */
+  on: z.boolean(),
+  optedOut: z.boolean(),
+  /** The page AI assistants read: the business's public profile. */
+  pageUrl: z.string(),
+  latest: z
+    .object({
+      checkedAt: isoDate,
+      asked: z.number().int(),
+      mentioned: z.number().int(),
+      questions: z.array(z.object({ question: z.string(), mentioned: z.boolean(), named: z.array(z.string()) })),
+      /** Answers made up by the simulator, not asked of a real AI assistant. */
+      simulated: z.boolean(),
+    })
+    .nullable(),
+  /** The mention rate of each monthly check, oldest first. */
+  history: z.array(z.object({ checkedAt: isoDate, rate: z.number() })),
+  /** Where the name, phone, address or website disagree between LeadAnchor, Google and the owner's site. */
+  mismatches: z.array(z.object({ field: z.enum(AI_MISMATCH_FIELDS), detail: z.string() })),
+  /** Two or three things that would help most, in plain words. */
+  nextActions: z.array(z.object({ title: z.string(), detail: z.string(), href: z.string().nullable() })),
+  /** A check asks an AI assistant ten questions, so it can run at most once a day. */
+  canCheckNow: z.boolean(),
+});
+export type AiVisibility = z.infer<typeof aiVisibility>;
+
+export const aiVisibilityInput = z.object({ optedOut: z.boolean() });
+
+/* ----------------------------------------------------------------------------
+ * Reports (module 10): a fixed suite of operational reports, aggregated. Not ad-hoc BI.
+ * ------------------------------------------------------------------------- */
+
+export const REPORT_PERIODS = ["30d", "90d", "12m"] as const;
+export type ReportPeriod = (typeof REPORT_PERIODS)[number];
+export const reportPeriod = z.enum(REPORT_PERIODS).catch("30d");
+
+/** Morning 6-11, afternoon 12-4, evening 5-9, night the rest, in the business's time zone. */
+export const DAYPARTS = ["morning", "afternoon", "evening", "night"] as const;
+export type Daypart = (typeof DAYPARTS)[number];
+
+const count = z.number().int();
+const cents = z.number().int();
+
+export const reportsResponse = z.object({
+  period: z.enum(REPORT_PERIODS),
+  /** The first day counted, in the business's time zone. */
+  from: z.string(),
+  money: z.object({
+    /** Real job values of jobs won (never estimates), and payments received. */
+    wonCents: cents,
+    collectedCents: cents,
+    /** Deposits held on a card, and payment requests not paid yet. */
+    heldCents: cents,
+    openCents: cents,
+    averageJobCents: cents.nullable(),
+    /** Weekly (30 and 90 days) or monthly (12 months). */
+    buckets: z.array(z.object({ start: z.string(), wonCents: cents, collectedCents: cents })),
+    byMethod: z.array(z.object({ method: z.enum(PAYMENT_METHODS), count, cents })),
+  }),
+  /** Leads that came in during the period, by where they came from, and how many were won. */
+  sources: z.array(z.object({ source: z.enum(LEAD_SOURCES), leads: count, won: count, wonCents: cents })),
+  calls: z.object({
+    total: count,
+    answered: count,
+    /** Missed calls LeadAnchor caught: hang-ups, voicemails and AI Dispatcher calls. */
+    missed: count,
+    ghost: count,
+    voicemail: count,
+    dispatcher: count,
+    /** Missed calls that became a lead. */
+    toLeads: count,
+    /** When calls are missed: weekday (0 = Sunday) and part of the day. */
+    byTime: z.array(z.object({ weekday: z.number().int().min(0).max(6), daypart: z.enum(DAYPARTS), missed: count })),
+  }),
+  /** How fast the owner reached new leads (a tap on Call or Text, or answering their call). */
+  response: z.object({
+    leads: count,
+    contacted: count,
+    medianMinutes: z.number().nullable(),
+    within5: count,
+    within60: count,
+  }),
+  bookings: z.object({
+    total: count,
+    online: count,
+    byOwner: count,
+    fromWaitlist: count,
+    completed: count,
+    noShows: count,
+    canceled: count,
+  }),
+  reviews: z.object({ requested: count, received: count, averageRating: z.number().nullable(), replied: count }),
+  campaigns: z.array(z.object({ id, name: z.string(), sentAt: isoDate, sent: count, clicked: count, booked: count })),
+});
+export type ReportsResponse = z.infer<typeof reportsResponse>;
+
+/* ----------------------------------------------------------------------------
+ * Operator console (module 14): LeadAnchor staff only. Onboarding, support, tenant administration, monitoring.
+ * ------------------------------------------------------------------------- */
+
+export const opsTenantRow = z.object({
+  id,
+  name: z.string(),
+  slug: z.string(),
+  trade: z.enum(TRADES),
+  place: z.string().nullable(),
+  ownerEmail: z.string().nullable(),
+  status: z.enum(ACCOUNT_STATUSES),
+  tier: z.enum(TIERS).nullable(),
+  trialEndsAt: isoDate.nullable(),
+  createdAt: isoDate,
+  /** New leads in the last 30 days: the quickest sign a business is getting value. */
+  leads30d: z.number().int(),
+});
+export type OpsTenantRow = z.infer<typeof opsTenantRow>;
+
+export const opsHealth = z.object({
+  /** Background jobs that failed in the last 24 hours, by queue, with the latest error. */
+  failedJobs: z.array(z.object({ queue: z.string(), count: z.number().int(), lastError: z.string().nullable(), lastAt: isoDate })),
+  /** Webhooks from providers that failed to apply in the last 24 hours. */
+  failedWebhooks: z.array(z.object({ provider: z.string(), count: z.number().int(), lastError: z.string().nullable() })),
+  /** Messages in the last 24 hours that failed to send, or the policy blocked. */
+  messages: z.object({ failed: z.number().int(), blocked: z.number().int(), sent: z.number().int() }),
+  /** Unexpected server errors in the last 24 hours, newest first. */
+  errors: z.array(z.object({ at: isoDate, route: z.string(), message: z.string(), requestId: z.string().nullable() })),
+  /** Open alerts: problems the health check found and emailed staff about. */
+  alerts: z.array(z.object({ id, kind: z.string(), message: z.string(), raisedAt: isoDate })),
+});
+export type OpsHealth = z.infer<typeof opsHealth>;
+
+export const opsOverview = z.object({
+  businesses: z.record(z.enum(ACCOUNT_STATUSES), z.number().int()),
+  newThisWeek: z.number().int(),
+  trialsEndingSoon: z.array(opsTenantRow),
+  pastDue: z.array(opsTenantRow),
+  /** People who signed up but never set up a business: onboarding support. */
+  stuckSignups: z.array(z.object({ email: z.string(), name: z.string(), createdAt: isoDate })),
+  websites: z.number().int(),
+  networkMembers: z.number().int(),
+  health: opsHealth,
+  /** What is kept, and for how long (spec §6, "defined retention"). */
+  retention: z.array(z.object({ what: z.string(), keepDays: z.number().int() })),
+});
+export type OpsOverview = z.infer<typeof opsOverview>;
+
+export const opsTenantDetail = opsTenantRow.extend({
+  ownerName: z.string().nullable(),
+  ownerCell: z.string().nullable(),
+  trackingNumber: z.string().nullable(),
+  forwardingStatus: z.string(),
+  registration: z.object({ status: z.string(), stage: z.string().nullable() }).nullable(),
+  billing: z.object({
+    customerId: z.string().nullable(),
+    subscriptionId: z.string().nullable(),
+    periodEnd: isoDate.nullable(),
+    cancelsAt: isoDate.nullable(),
+    websiteStatus: z.enum(WEBSITE_STATUSES),
+  }),
+  integrations: z.object({ payments: z.string().nullable(), listing: z.boolean(), calendar: z.boolean() }),
+  activity: z.object({
+    leads30d: z.number().int(),
+    calls30d: z.number().int(),
+    messagesSent30d: z.number().int(),
+    messagesFailed30d: z.number().int(),
+    bookings30d: z.number().int(),
+  }),
+  network: z.object({ available: z.boolean(), termsVersion: z.string() }).nullable(),
+  failures: z.array(z.object({ at: isoDate, what: z.string(), detail: z.string() })),
+  audit: z.array(z.object({ at: isoDate, actor: z.string(), action: z.string() })),
+  profileUrl: z.string(),
+});
+export type OpsTenantDetail = z.infer<typeof opsTenantDetail>;
+
+export const opsSuspendInput = z.object({ reason: z.string().trim().min(3, "Say why, for the audit trail").max(300) });
+export const opsTrialInput = z.object({ days: z.number().int().min(1).max(60) });
+/** Erasing a cancelled business's customer data is typed out: the business's name, exactly. */
+export const opsEraseInput = z.object({ confirm: z.string().trim().min(1) });

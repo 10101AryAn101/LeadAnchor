@@ -11,4 +11,6 @@ export * from "./booking";
 export * from "./reviews";
 export * from "./campaigns";
 export * from "./memberships";
+export * from "./network";
+export * from "./discovery";
 export * from "./system";

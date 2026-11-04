@@ -48,6 +48,14 @@ export const QUEUES = {
   campaignSignalsTick: "campaigns.signals-tick",
   /** Every 15 minutes: the simulated Stripe Billing clock: renewals, retries, cancellations (module 12). */
   membershipsTick: "memberships.tick",
+  /** Every 5 minutes: passed jobs nobody took come back, and won ones count as referrals (C-24, C-25). */
+  networkTick: "network.tick",
+  /** Daily: the monthly "Found by AI" check for a few businesses that are due (C-42). */
+  discoveryTick: "discovery.tick",
+  /** Every 5 minutes: alert staff when jobs, webhooks, messages or the server start failing (module 14). */
+  healthTick: "monitoring.health-tick",
+  /** Daily: delete what's past its keep date (the retention rules). */
+  retentionTick: "monitoring.retention-tick",
 } as const;
 
 export type QueueName = (typeof QUEUES)[keyof typeof QUEUES];
@@ -75,6 +83,10 @@ export interface JobPayloads {
   [QUEUES.campaignSend]: { tenantId: string; campaignId: string };
   [QUEUES.campaignSignalsTick]: Record<string, never>;
   [QUEUES.membershipsTick]: Record<string, never>;
+  [QUEUES.networkTick]: Record<string, never>;
+  [QUEUES.discoveryTick]: Record<string, never>;
+  [QUEUES.healthTick]: Record<string, never>;
+  [QUEUES.retentionTick]: Record<string, never>;
 }
 
 export const boss = new PgBoss({ connectionString: env.DATABASE_SYSTEM_URL, schema: "pgboss" });
@@ -102,6 +114,10 @@ export async function startQueue() {
   await boss.schedule(QUEUES.reviewRequestsTick, "*/15 * * * *");
   await boss.schedule(QUEUES.campaignSignalsTick, "0 */6 * * *");
   await boss.schedule(QUEUES.membershipsTick, "*/15 * * * *");
+  await boss.schedule(QUEUES.networkTick, "*/5 * * * *");
+  await boss.schedule(QUEUES.discoveryTick, "15 4 * * *");
+  await boss.schedule(QUEUES.healthTick, "*/5 * * * *");
+  await boss.schedule(QUEUES.retentionTick, "30 3 * * *");
   started = true;
 }
 

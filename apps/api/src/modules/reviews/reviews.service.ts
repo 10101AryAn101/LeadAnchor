@@ -29,6 +29,7 @@ import { audit } from "../compliance/audit";
 import { addLeadEvent } from "../leads/lead-capture";
 import { postalAddress } from "../messaging/email-opt-out";
 import { notifyOwner } from "../notifications/notify";
+import { featureOnFor } from "../billing/access";
 import { listingStatusOf, reviewLinkOf } from "./listing.service";
 
 type ReviewRow = typeof reviews.$inferSelect;
@@ -255,6 +256,8 @@ async function draftFor(tenantId: string, reviewId: string, timeoutMs: number) {
 }
 
 export async function draftReplyJob(data: { tenantId: string; reviewId: string }) {
+  // AI-drafted replies are Pro (C-47); without it the review waits for the owner's own reply.
+  if (!(await featureOnFor(data.tenantId, "review_replies"))) return;
   const result = await draftFor(data.tenantId, data.reviewId, 45_000);
   if (!result || result.row.replyStatus === "posted" || result.row.replyStatus === "posting")
     return;

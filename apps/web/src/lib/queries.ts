@@ -1,6 +1,10 @@
 "use client";
 
 import type {
+  AiVisibility,
+  BillingResponse,
+  NetworkOffersResponse,
+  NetworkResponse,
   AssistantSettings,
   BookingSettingsResponse,
   CampaignDetail,
@@ -62,6 +66,10 @@ export const keys = {
   tags: ["tags"] as const,
   quote: (id: string) => ["quote", id] as const,
   paymentSettings: ["payment-settings"] as const,
+  billing: ["billing"] as const,
+  network: ["network"] as const,
+  networkOffers: ["network-offers"] as const,
+  discovery: ["discovery"] as const,
   bookingSettings: ["booking-settings"] as const,
   waitlist: ["waitlist"] as const,
   reviews: ["reviews"] as const,
@@ -129,6 +137,19 @@ export const useSettings = () => useQuery({ queryKey: keys.settings, queryFn: ()
 export const useQuote = (id: string) => useQuery({ queryKey: keys.quote(id), queryFn: () => api<QuoteDetail>(`/quotes/${id}`) });
 
 export const usePaymentSettings = () => useQuery({ queryKey: keys.paymentSettings, queryFn: () => api<PaymentSettings>("/payments/settings") });
+
+/** LeadAnchor's own subscription: the tier, the trial and any referral credit. */
+/** The trusted pros network (C-24) and referral credits (C-25). */
+export const useNetwork = () => useQuery({ queryKey: keys.network, queryFn: () => api<NetworkResponse>("/network") });
+
+/** Found by AI (C-42): the latest check, the trend and what would help. */
+export const useDiscovery = () => useQuery({ queryKey: keys.discovery, queryFn: () => api<AiVisibility>("/discovery") });
+
+/** Jobs other pros offered this business. */
+export const useNetworkOffers = () =>
+  useQuery({ queryKey: keys.networkOffers, queryFn: () => api<NetworkOffersResponse>("/network/offers") });
+
+export const useBilling = () => useQuery({ queryKey: keys.billing, queryFn: () => api<BillingResponse>("/billing") });
 
 export const useBookingSettings = () => useQuery({ queryKey: keys.bookingSettings, queryFn: () => api<BookingSettingsResponse>("/booking/settings") });
 

@@ -13,6 +13,9 @@ type RealtimeEvent =
   | { type: "message.created"; messageId: string; leadId: string | null }
   | { type: "registration.updated" }
   | { type: "settings.updated" }
+  | { type: "account.updated" }
+  | { type: "network.updated" }
+  | { type: "discovery.updated" }
   | { type: "payments.updated" }
   | { type: "waitlist.updated" }
   | { type: "reviews.updated" }
@@ -110,6 +113,19 @@ export function useRealtime(onNotification?: (event: { title: string; body: stri
               if (delayMs !== null && event.tag === "test") toast.success(`Test alert shown ${(delayMs / 1000).toFixed(1)} s after it was sent.`);
             });
             void queryClient.invalidateQueries({ queryKey: keys.pushDevices });
+            break;
+          case "account.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.me });
+            void queryClient.invalidateQueries({ queryKey: keys.billing });
+            void queryClient.invalidateQueries({ queryKey: keys.network });
+            void queryClient.invalidateQueries({ queryKey: keys.discovery });
+            break;
+          case "discovery.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.discovery });
+            break;
+          case "network.updated":
+            void queryClient.invalidateQueries({ queryKey: keys.network });
+            void queryClient.invalidateQueries({ queryKey: keys.networkOffers });
             break;
           case "registration.updated":
             void queryClient.invalidateQueries({ queryKey: keys.registration });

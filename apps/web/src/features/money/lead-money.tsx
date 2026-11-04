@@ -38,6 +38,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { useFeature } from "@/features/billing/upgrade-notice";
 import { api, isApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { amount, money, timeAgo, visitTime } from "@/lib/format";
@@ -176,6 +177,7 @@ function NewQuoteButton({
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
+  const allowed = useFeature("ai_quotes");
   const draft = useMutation({
     mutationFn: () => api<QuoteDetail>(`/leads/${lead.id}/quotes`, { method: "POST" }),
     onSuccess: (quote) => {
@@ -187,6 +189,13 @@ function NewQuoteButton({
       toast.error(isApiError(error) ? error.message : "Couldn't draft the quote."),
   });
 
+  // Photo-to-quote (C-45) is Pro: point at the plans instead of a button that would be refused.
+  if (!allowed)
+    return (
+      <Button variant="ghost" nativeButton={false} render={<Link href="/settings#plan" />}>
+        <IconLock /> {label}: part of Pro
+      </Button>
+    );
   return (
     <Button variant={variant} onClick={() => draft.mutate()} disabled={draft.isPending}>
       {draft.isPending ? <Spinner /> : variant === "default" ? <IconSparkles /> : <IconPlus />}

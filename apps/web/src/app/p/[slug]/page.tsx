@@ -4,12 +4,34 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
+import { DiscoverySections } from "@/features/profile/discovery-sections";
 import { Stars } from "@/features/reviews/stars";
 import { formatPhone, smsHref, telHref } from "@/lib/format";
 
-export const metadata: Metadata = { title: "Pro profile" };
-
 const API_URL = process.env.API_INTERNAL_URL ?? "http://127.0.0.1:4000";
+
+/** The same request as the page's: React shares one fetch between the two during a render. */
+async function loadProfile(slug: string): Promise<PublicProfile | null> {
+  try {
+    const response = await fetch(`${API_URL}/api/public/profile/${encodeURIComponent(slug)}`, { cache: "no-store" });
+    return response.ok ? ((await response.json()) as PublicProfile) : null;
+  } catch {
+    return null;
+  }
+}
+
+/** C-42: a title and description that say who, what and where, for search engines and AI assistants. */
+export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+  const profile = await loadProfile((await params).slug);
+  if (!profile) return { title: "Pro profile" };
+  const place = [profile.city, profile.state].filter(Boolean).join(", ");
+  return {
+    title: `${profile.name}: ${TRADE_LABELS[profile.trade]}${place ? ` in ${place}` : ""}`,
+    description:
+      profile.discovery?.answers[0]?.text ??
+      `${profile.name}, ${TRADE_LABELS[profile.trade].toLowerCase()}${place ? ` in ${place}` : ""}. Call, text or book online.`,
+  };
+}
 
 /** C-41: the business's public profile, linked from the first text a new customer gets. No login. */
 export default function ProfilePage({ params }: { params: Promise<{ slug: string }> }) {
@@ -24,13 +46,7 @@ export default function ProfilePage({ params }: { params: Promise<{ slug: string
 
 async function ProfileLoader({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
-  let profile: PublicProfile | null = null;
-  try {
-    const response = await fetch(`${API_URL}/api/public/profile/${encodeURIComponent(slug)}`, { cache: "no-store" });
-    if (response.ok) profile = (await response.json()) as PublicProfile;
-  } catch {
-    profile = null;
-  }
+  const profile = await loadProfile(slug);
 
   if (!profile) {
     return (
@@ -54,6 +70,13 @@ function ProfileView({ slug, profile }: { slug: string; profile: PublicProfile }
 
   return (
     <div className="mx-auto max-w-2xl space-y-8 px-5 py-8 sm:py-12">
+      {profile.discovery && (
+        <script
+          type="application/ld+json"
+          // C-42: structured data built from real records; "<" escaped so the JSON can't close the tag.
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(profile.discovery.jsonLd).replace(/</g, "\\u003c") }}
+        />
+      )}
       <header className="space-y-3">
         <p className="text-[15px] text-muted-foreground">
           {TRADE_LABELS[profile.trade]}
@@ -185,6 +208,8 @@ function ProfileView({ slug, profile }: { slug: string; profile: PublicProfile }
           </ul>
         </section>
       )}
+
+      {profile.discovery && <DiscoverySections discovery={profile.discovery} name={profile.name} />}
 
       {(profile.googleProfileUrl || profile.website) && (
         <section className="flex flex-wrap gap-2">

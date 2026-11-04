@@ -17,6 +17,7 @@ import { ApiError } from "@/lib/api";
 import { onAlertLink } from "@/lib/push";
 import { useLeads, useMe } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { AccountBanner } from "./account-banner";
 import { CommandMenu, openCommandMenu } from "./command-menu";
 import { type NavItem, PRIMARY_NAV, SECONDARY_NAV } from "./nav-items";
 import { NotificationsButton } from "./notifications-button";
@@ -47,6 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <MobileHeader me={me.data} />
         <DesktopTopBar />
         <main className="mx-auto w-full max-w-[1360px] flex-1 px-4 pt-5 pb-28 sm:px-6 lg:px-10 lg:pt-2 lg:pb-16">
+          {me.data?.tenant && <AccountBanner account={me.data.tenant.account} />}
           {needsOnboarding ? <MainSkeleton /> : children}
         </main>
       </div>
@@ -172,7 +174,7 @@ function Sidebar({ me }: { me: MeResponse | undefined }) {
         <Nav items={SECONDARY_NAV} label="Business" />
       </div>
       <div className="border-t border-sidebar-border pt-3">
-        {me?.tenant ? <UserMenu name={me.user.name} email={me.user.email} business={me.tenant.name} /> : <Skeleton className="h-12 w-full" />}
+        {me?.tenant ? <UserMenu name={me.user.name} email={me.user.email} business={me.tenant.name} operator={me.operator} /> : <Skeleton className="h-12 w-full" />}
       </div>
     </aside>
   );
@@ -220,7 +222,7 @@ function MobileHeader({ me }: { me: MeResponse | undefined }) {
               <Nav items={SECONDARY_NAV} label="Business" />
               {me?.tenant && (
                 <div className="border-t pt-3">
-                  <UserMenu name={me.user.name} email={me.user.email} business={me.tenant.name} />
+                  <UserMenu name={me.user.name} email={me.user.email} business={me.tenant.name} operator={me.operator} />
                 </div>
               )}
             </div>

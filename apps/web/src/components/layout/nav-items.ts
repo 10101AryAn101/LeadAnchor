@@ -1,5 +1,6 @@
 import {
   type Icon,
+  IconChartBar,
   IconFlask,
   IconHome,
   IconHomeFilled,
@@ -17,6 +18,7 @@ import {
   IconSpeakerphone,
   IconStar,
   IconUsers,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 
 export interface NavItem {
@@ -40,8 +42,10 @@ export const PRIMARY_NAV: NavItem[] = [
 export const SECONDARY_NAV: NavItem[] = [
   { href: "/chats", label: "Chats", icon: IconMessages },
   { href: "/reviews", label: "Reviews", icon: IconStar },
+  { href: "/reports", label: "Reports", icon: IconChartBar },
   { href: "/campaigns", label: "Campaigns", icon: IconSpeakerphone },
   { href: "/memberships", label: "Memberships", icon: IconRepeat },
+  { href: "/network", label: "Trusted pros", icon: IconUsersGroup },
   { href: "/compliance", label: "Texting and consent", icon: IconShieldCheck },
   { href: "/integrations", label: "Integrations", icon: IconPlug },
   { href: "/simulator", label: "Call simulator", icon: IconFlask, badge: "dev" },

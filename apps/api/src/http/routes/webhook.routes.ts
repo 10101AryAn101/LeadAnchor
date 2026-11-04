@@ -7,7 +7,8 @@ import { webhookInbox } from "../../db/schema";
 import { HttpError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { serial } from "../../lib/serial";
-import { payments, telephony } from "../../container";
+import { billing, payments, telephony } from "../../container";
+import { StripeBilling } from "../../integrations/billing/stripe";
 import { verifyResendSignature } from "../../integrations/messaging/resend";
 import { StripePayments } from "../../integrations/payments/stripe";
 import { TelnyxTelephony, type TelnyxWebhook, verifyTelnyxSignature } from "../../integrations/telephony/telnyx";
@@ -15,6 +16,7 @@ import { callEngine } from "../../modules/calls";
 import { applyEmailReport } from "../../modules/messaging/email-feedback";
 import { handleInboundMessage, whatsappTestBusinessNumber } from "../../modules/messaging/inbound";
 import { receivePaymentEvent } from "../../modules/payments/payment.service";
+import { receiveBillingEvent } from "../../modules/billing/billing.service";
 
 /**
  * Provider webhooks. Each delivery is verified, stored once in webhook_inbox
@@ -72,6 +74,30 @@ export async function webhookRoutes(app: FastifyInstance) {
         logger.error({ err: error, eventId: event.id }, "stripe event failed"),
       );
     }
+    return reply.status(200).send({ received: true });
+  });
+
+  /**
+   * Stripe, LeadAnchor's own account: businesses' subscriptions to their tier. A separate endpoint
+   * because Stripe signs "your account" events with a different secret from connected accounts'.
+   */
+  app.post("/api/webhooks/stripe-billing", async (req, reply) => {
+    if (!(billing instanceof StripeBilling)) throw new HttpError(503, "not_configured", "Stripe is not connected.");
+    if (!env.STRIPE_BILLING_WEBHOOK_SECRET) throw new HttpError(503, "not_configured", "Stripe billing webhooks aren't set up.");
+    const stripe = billing;
+    const event = (() => {
+      try {
+        return stripe.verifyWebhook(req.rawBody ?? "", header(req.headers["stripe-signature"]) ?? "");
+      } catch {
+        return null;
+      }
+    })();
+    if (!event) throw new HttpError(400, "invalid_signature", "Webhook signature check failed.");
+    await receiveBillingEvent(
+      event,
+      () => stripe.subscriptionFrom(event),
+      () => stripe.addonFrom(event),
+    );
     return reply.status(200).send({ received: true });
   });
 
