@@ -3,6 +3,7 @@ import {
   INTAKE_CONSENT_VERSION,
   INTAKE_MARKETING_CONSENT_VERSION,
   type IntakeContext,
+  type MessageChannel,
   type RequestSource,
   intakeMarketingConsentText,
   type intakeSubmitFields,
@@ -40,15 +41,24 @@ const SOURCE_PHRASE: Record<RequestSource, string> = { website: "your website", 
 /** Creates a fresh no-login request link for a lead (C-07). Only the token hash is stored. */
 export async function createIntakeLink(tx: Tx, input: { tenantId: string; leadId: string; customerId: string }) {
   const token = randomToken();
-  await tx.insert(intakeRequests).values({
-    tenantId: input.tenantId,
-    leadId: input.leadId,
-    customerId: input.customerId,
-    tokenHash: sha256(token),
-    expiresAt: addDays(new Date(), LINK_TTL_DAYS),
-  });
+  const [request] = await tx
+    .insert(intakeRequests)
+    .values({
+      tenantId: input.tenantId,
+      leadId: input.leadId,
+      customerId: input.customerId,
+      tokenHash: sha256(token),
+      expiresAt: addDays(new Date(), LINK_TTL_DAYS),
+    })
+    .returning({ id: intakeRequests.id });
   await tx.update(leads).set({ intakeStatus: "link_sent" }).where(eq(leads.id, input.leadId));
-  return `${linkBaseUrl}/i/${token}`;
+  return { url: `${linkBaseUrl}/i/${token}`, id: request!.id };
+}
+
+/** Notes how a request link went out, once its message is allowed to send (C-07: opens per channel). */
+export async function noteLinkChannel(tx: Tx, requestId: string, message: { status: string; channel: MessageChannel }) {
+  if (message.status === "blocked") return;
+  await tx.update(intakeRequests).set({ channel: message.channel }).where(eq(intakeRequests.id, requestId));
 }
 
 /** Looks a token up across businesses (system role): the token itself is the credential. */
@@ -102,7 +112,7 @@ export async function getIntakeContext(token: string): Promise<IntakeContext> {
     if (status === "open" && request.status === "sent") {
       await tx.update(intakeRequests).set({ status: "opened", openedAt: new Date() }).where(eq(intakeRequests.id, request.id));
       await tx.update(leads).set({ intakeStatus: "opened" }).where(and(eq(leads.id, request.leadId), eq(leads.intakeStatus, "link_sent")));
-      await addLeadEvent(tx, { tenantId: request.tenantId, leadId: request.leadId, type: "intake.opened", actor: "customer" });
+      await addLeadEvent(tx, { tenantId: request.tenantId, leadId: request.leadId, type: "intake.opened", actor: "customer", data: { channel: request.channel } });
       fx.publish({ type: "lead.updated", leadId: request.leadId });
     }
 
@@ -120,7 +130,7 @@ export interface UploadedPhoto {
   buffer: Buffer;
 }
 
-interface StoredPhoto {
+export interface StoredPhoto {
   id: string;
   storageKey: string;
   thumbKey: string;
@@ -128,7 +138,7 @@ interface StoredPhoto {
 }
 
 /** Resizes and stores photos before any transaction opens: slow work stays outside the database. */
-async function storePhotos(tenantId: string, photos: UploadedPhoto[]) {
+export async function storePhotos(tenantId: string, photos: UploadedPhoto[]) {
   const stored: StoredPhoto[] = [];
   for (const photo of photos.slice(0, MAX_PHOTOS)) {
     const processed = await processPhoto(photo.buffer);
@@ -222,18 +232,8 @@ export async function submitPublicRequest(
   return { ok: true as const, photos: stored.length };
 }
 
-/** Saves a sent form on its lead: photos, answers, the consent boxes, the owner's alert and AI triage. */
-async function recordSubmission(
-  tx: Tx,
-  fx: Effects,
-  target: { tenantId: string; leadId: string; customerId: string; requestId: string },
-  fields: SubmitFields,
-  stored: StoredPhoto[],
-  meta: { ipAddress: string | null },
-  alertTitle: string,
-) {
-  const [service] = fields.serviceId ? await tx.select({ name: services.name }).from(services).where(eq(services.id, fields.serviceId)).limit(1) : [];
-
+/** Puts stored photos on a job and queues their AI triage (C-09). Used by the request form and WhatsApp (C-11). */
+export async function addPhotos(tx: Tx, fx: Effects, target: { tenantId: string; leadId: string }, stored: StoredPhoto[]) {
   for (const item of stored) {
     await tx.insert(mediaAssets).values({
       id: item.id,
@@ -250,6 +250,21 @@ async function recordSubmission(
     });
     fx.enqueue(QUEUES.triagePhoto, { tenantId: target.tenantId, mediaId: item.id });
   }
+}
+
+/** Saves a sent form on its lead: photos, answers, the consent boxes, the owner's alert and AI triage. */
+async function recordSubmission(
+  tx: Tx,
+  fx: Effects,
+  target: { tenantId: string; leadId: string; customerId: string; requestId: string },
+  fields: SubmitFields,
+  stored: StoredPhoto[],
+  meta: { ipAddress: string | null },
+  alertTitle: string,
+) {
+  const [service] = fields.serviceId ? await tx.select({ name: services.name }).from(services).where(eq(services.id, fields.serviceId)).limit(1) : [];
+
+  await addPhotos(tx, fx, target, stored);
 
   const submission = {
     service: service?.name ?? null,

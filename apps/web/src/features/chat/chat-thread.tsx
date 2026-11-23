@@ -13,6 +13,7 @@ import {
   IconArrowLeft,
   IconArrowRight,
   IconBrandWhatsapp,
+  IconId,
   IconMessage,
   IconPhone,
   IconRobot,
@@ -175,6 +176,21 @@ function Thread({ chat, onBack }: { chat: ChatDetail; onBack?: () => void }) {
         }}
       >
         {chat.replyNote && <p className="text-sm text-muted-foreground">{chat.replyNote}</p>}
+        {/* C-41: the profile card (licence claim and profile link) goes into any reply in one tap. */}
+        {chat.canReply && !text.includes(chat.profileCard) && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() =>
+              setText((current) =>
+                current.trim() ? `${current.trimEnd()}\n${chat.profileCard}` : chat.profileCard,
+              )
+            }
+          >
+            <IconId /> Add my profile
+          </Button>
+        )}
         <div className="flex items-end gap-2">
           <label htmlFor={`reply-${chat.id}`} className="sr-only">
             Your reply

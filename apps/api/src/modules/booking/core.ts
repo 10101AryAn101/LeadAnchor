@@ -16,6 +16,7 @@ import {
   calendarEvents,
   customers,
   leads,
+  paymentRequests,
   services,
   type tenants,
   waitlistEntries,
@@ -359,6 +360,13 @@ export async function cancelBooking(
     .update(waitlistEntries)
     .set({ status: "removed" })
     .where(and(eq(waitlistEntries.bookingId, booking.id), eq(waitlistEntries.status, "waiting")));
+  // C-15: a deposit taken for this visit is let go, through the payments provider once this commits.
+  const [deposit] = await tx
+    .select({ id: paymentRequests.id })
+    .from(paymentRequests)
+    .where(and(eq(paymentRequests.bookingId, booking.id), inArray(paymentRequests.status, ["held", "open"])))
+    .limit(1);
+  if (deposit) fx.enqueue(QUEUES.bookingDepositRelease, { tenantId: input.tenant.id, bookingId: booking.id });
   await addLeadEvent(tx, {
     tenantId: input.tenant.id,
     leadId: booking.leadId,

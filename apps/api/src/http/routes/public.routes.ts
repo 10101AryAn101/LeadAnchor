@@ -4,7 +4,6 @@ import {
   intakeSubmitFields,
   paymentReportInput,
   planJoinInput,
-  privateFeedbackInput,
   publicChatInput,
   publicRequestFields,
   quoteDeclineInput,
@@ -32,10 +31,10 @@ import { MAX_PHOTOS, getIntakeContext, getRequestContext, submitIntake, submitPu
 import { getPublicPayment, reportPayment, startCheckout, syncPublicPayment } from "../../modules/payments/payment.service";
 import { findShowcasePhoto, getPublicProfile } from "../../modules/profile/profile";
 import { acceptQuote, declineQuote, getPublicQuote, publicQuotePdf } from "../../modules/quotes/quote.service";
-import { getFeedbackContext, getUnsubscribe, submitFeedback, unsubscribe } from "../../modules/reviews/review-requests";
+import { getFeedbackContext, getFeedbackThread, getUnsubscribe, postFeedbackMessage, unsubscribe } from "../../modules/reviews/review-requests";
 import { getChatContext, getChatThread, postChatMessage } from "../../modules/chat/web-chat";
 import { getCampaignOffer, openCampaignLink } from "../../modules/campaigns/links";
-import { getPublicMembership, getPublicPlan, joinPlan, joinedStatus, openPortal, resendManageLink } from "../../modules/memberships/public";
+import { getPublicMembership, getPublicPlan, joinPlan, joinedStatus, openPortal, requestManageLink, resendManageLink } from "../../modules/memberships/public";
 import { publicHandoffView, stayWithBusiness } from "../../modules/network/network.service";
 import { sitemapProfiles } from "../../modules/discovery/discovery.service";
 
@@ -143,6 +142,13 @@ export async function publicRoutes(app: FastifyInstance) {
     const { token, membershipId } = parseInput(z.object({ token: z.string().min(20).max(64), membershipId: z.string().max(40) }), req.params);
     reply.header("Cache-Control", "no-store");
     return joinedStatus(token, membershipId);
+  });
+
+  /** C-52: "Already a member?" on the plan's page: a fresh link to the email they joined with. */
+  app.post("/api/public/membership-plans/:token/manage-link", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    const { email } = parseInput(z.object({ email: z.email("Enter the email you joined with").max(200) }), req.body);
+    return requestManageLink(token, email);
   });
 
   app.get("/api/public/memberships/:token", async (req, reply) => {
@@ -302,9 +308,15 @@ export async function publicRoutes(app: FastifyInstance) {
     return getFeedbackContext(token);
   });
 
-  app.post("/api/public/feedback/:token", async (req) => {
+  app.get("/api/public/feedback/:token/thread", async (req, reply) => {
     const { token } = parseInput(tokenParam, req.params);
-    return submitFeedback(token, parseInput(privateFeedbackInput, req.body));
+    reply.header("Cache-Control", "no-store");
+    return getFeedbackThread(token);
+  });
+
+  app.post("/api/public/feedback/:token/messages", async (req) => {
+    const { token } = parseInput(tokenParam, req.params);
+    return postFeedbackMessage(token, parseInput(publicChatInput, req.body));
   });
 
   /** The token is the business and the address, sealed: longer than the other links. */

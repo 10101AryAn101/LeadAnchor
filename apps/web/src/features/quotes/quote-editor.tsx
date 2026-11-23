@@ -57,7 +57,7 @@ import { QuoteStatusChip, quoteState } from "@/features/money/quote-status";
 import { api, isApiError } from "@/lib/api";
 import { copyText } from "@/lib/clipboard";
 import { amount, fullDate, money, timeAgo } from "@/lib/format";
-import { keys, useQuote, useServices } from "@/lib/queries";
+import { keys, useMe, useQuote, useServices } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 interface EditableLine {
@@ -893,6 +893,9 @@ function SendSheet({
   const queryClient = useQueryClient();
   const [text, setText] = useState(Boolean(quote.customer.phone));
   const [email, setEmail] = useState(quote.customer.email ?? "");
+  // C-45 AC 1: the team can draft it, but only the owner approves and sends it.
+  const { data: me } = useMe();
+  const isOwner = me?.role === "owner";
 
   const send = useMutation({
     mutationFn: async () => {
@@ -917,12 +920,12 @@ function SendSheet({
       open={open}
       onOpenChange={(next) => !next && onClose()}
       title={quote.status === "draft" ? `Send the quote to ${first}` : "Send the quote again"}
-      description={`${amount(quote.totalCents)}${quote.depositCents != null ? `, with a ${amount(quote.depositCents)} deposit to book` : ""}. They get a link to see it, download the PDF and accept it.`}
+      description={`${amount(quote.totalCents)}${quote.depositCents != null ? `, with a ${amount(quote.depositCents)} deposit to book` : ""}. They get a link to see it, download the PDF and accept it${quote.depositCents != null ? ", then pay the deposit" : ""}.`}
       footer={
         <Button
           size="lg"
           className="w-full"
-          disabled={send.isPending}
+          disabled={send.isPending || !isOwner}
           onClick={() => send.mutate()}
         >
           {send.isPending ? <Spinner /> : <IconSend />}{" "}
@@ -951,6 +954,11 @@ function SendSheet({
         <p className="text-sm text-muted-foreground">
           Sending moves the job to Quoted and makes this total the job&apos;s price.
         </p>
+        {me && !isOwner && (
+          <p className="text-sm font-medium text-signal-strong">
+            Only the owner can send a quote. Ask them to check it and send it.
+          </p>
+        )}
       </div>
     </ResponsiveSheet>
   );

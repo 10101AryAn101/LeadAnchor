@@ -141,7 +141,10 @@ function ProfileView({ slug, profile }: { slug: string; profile: PublicProfile }
           <dl className="grid gap-3 text-[15px] sm:grid-cols-2">
             {profile.licenseNumber && (
               <div>
-                <dt className="text-sm text-muted-foreground">Licence number{profile.state ? ` (${profile.state})` : ""}</dt>
+                <dt className="text-sm text-muted-foreground">
+                  {/* C-41: what the licence is for and where, when the owner gave them. */}
+                  {[profile.licenseState ?? profile.state, profile.licenseTrade].filter(Boolean).join(" ") || "Licence"} licence number
+                </dt>
                 <dd className="font-semibold">{profile.licenseNumber}</dd>
               </div>
             )}

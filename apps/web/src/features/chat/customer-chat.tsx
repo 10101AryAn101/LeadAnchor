@@ -66,10 +66,13 @@ export function CustomerChat({
   slug,
   context,
   source,
+  embedded = false,
 }: {
   slug: string;
   context: PublicChatContext;
   source: RequestSource;
+  /** Inside the website's chat widget (C-33): fills the widget instead of the whole page. */
+  embedded?: boolean;
 }) {
   const queryClient = useQueryClient();
   const [token, setToken] = useState<string | null>(null);
@@ -127,8 +130,8 @@ export function CustomerChat({
 
   const business = context.business;
   return (
-    <div className="mx-auto flex h-dvh max-w-xl flex-col">
-      <header className="border-b px-5 pt-4 pb-3">
+    <div className={cn("flex flex-col", embedded ? "h-full min-h-0" : "mx-auto h-dvh max-w-xl")}>
+      <header className={cn("border-b px-5 pt-4 pb-3", embedded && "pr-14")}>
         <p className="text-sm text-muted-foreground">Chat with</p>
         <h1 className="font-display text-[22px] leading-tight font-semibold">{business.name}</h1>
         <p className="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
@@ -191,7 +194,16 @@ export function CustomerChat({
   );
 }
 
-function Bubble({ from, text, at }: { from: "customer" | "business"; text: string; at?: string }) {
+/** One message in a customer-facing chat (the website chat, and a review request's private line). */
+export function Bubble({
+  from,
+  text,
+  at,
+}: {
+  from: "customer" | "business";
+  text: string;
+  at?: string;
+}) {
   const mine = from === "customer";
   return (
     <div className={cn("flex flex-col", mine ? "items-end" : "items-start")}>

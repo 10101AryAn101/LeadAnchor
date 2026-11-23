@@ -111,7 +111,7 @@ function DashboardContent() {
               <Tile
                 label="Open jobs (est.)"
                 value={money(data.pipelineCents)}
-                detail={`${data.leadsCreated} new lead${data.leadsCreated === 1 ? "" : "s"}, ${data.leadsWon} won in the last ${RANGE_LABEL[range]}`}
+                detail={`${data.leadsCreated} new lead${data.leadsCreated === 1 ? "" : "s"}, ${data.leadsWon} won${data.convertedCents > 0 ? ` (${money(data.convertedCents)})` : ""} in the last ${RANGE_LABEL[range]}`}
               />
             </div>
           </div>
@@ -138,6 +138,7 @@ function DashboardContent() {
           </p>
           <p>We never count estimates there. Open jobs use your typical job value until you set a real amount, and they&apos;re always labelled “est.”</p>
           <p>Calls you answered yourself are not counted as recovered.</p>
+          <p>The jobs won under Open jobs count every lead you won, wherever it came from, with the values you entered.</p>
         </div>
       </ResponsiveSheet>
     </div>
@@ -153,8 +154,8 @@ function HeroCard({ data, range, onExplain }: { data: DashboardSummary; range: D
         <NumberFlow value={data.recoveredCents / 100} format={{ style: "currency", currency: "USD", maximumFractionDigits: 0 }} />
       </div>
       <p className="mt-2 text-[15px] text-muted-foreground">
-        {data.leadsWon > 0
-          ? `${data.leadsWon} job${data.leadsWon === 1 ? "" : "s"} won from calls you would have missed.`
+        {data.wonFromCalls > 0
+          ? `${data.wonFromCalls} job${data.wonFromCalls === 1 ? "" : "s"} won from calls you would have missed.`
           : "Mark a lead as won with its value and it shows up here."}
       </p>
       <button type="button" onClick={onExplain} className="mt-1 inline-flex min-h-11 items-center gap-1 self-start text-[15px] font-semibold text-primary">

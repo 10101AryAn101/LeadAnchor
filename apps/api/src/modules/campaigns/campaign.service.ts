@@ -9,6 +9,7 @@ import {
   type CampaignStats,
   type CampaignSummary,
   type CampaignsResponse,
+  DEFAULT_SEND_RATE,
   campaignProblems,
   type campaignSendInput,
   type campaignUpdateInput,
@@ -225,6 +226,7 @@ export async function getCampaign(tenantId: string, id: string): Promise<Campaig
       serviceId: row.serviceId,
       approvedAt: iso(row.approvedAt),
       approvedBy: row.approvedBy,
+      sendsPerMinute: row.sendsPerMinute,
       problems: EDITABLE.has(row.status)
         ? problemsOf(row, tenant, (await postalAddress(tx, tenant)) !== null)
         : [],
@@ -467,6 +469,7 @@ export async function approveCampaign(
         approvedAt: new Date(now),
         approvedBy: owner.name,
         replyTo: owner.email,
+        sendsPerMinute: input.perMinute ?? DEFAULT_SEND_RATE,
         suggestedUntil: null,
       })
       .where(eq(campaigns.id, id));
@@ -476,7 +479,12 @@ export async function approveCampaign(
       action: "campaign.approved",
       entityType: "campaign",
       entityId: id,
-      data: { audience: audienceLabel(row.audience), reachable, sendAt: sendAt.toISOString() },
+      data: {
+        audience: audienceLabel(row.audience),
+        reachable,
+        sendAt: sendAt.toISOString(),
+        perMinute: input.perMinute ?? DEFAULT_SEND_RATE,
+      },
     });
     fx.enqueue(
       QUEUES.campaignSend,
@@ -501,7 +509,13 @@ export async function unscheduleCampaign(tenantId: string, id: string, owner: { 
       );
     await tx
       .update(campaigns)
-      .set({ status: "draft", scheduledFor: null, approvedAt: null, approvedBy: null })
+      .set({
+        status: "draft",
+        scheduledFor: null,
+        approvedAt: null,
+        approvedBy: null,
+        sendsPerMinute: null,
+      })
       .where(eq(campaigns.id, id));
     await audit(tx, {
       tenantId,

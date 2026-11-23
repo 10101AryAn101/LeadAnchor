@@ -20,6 +20,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import { bookings } from "./booking";
 import { createdAt, pk, tsz, updatedAt } from "./columns";
 import { customers, leads, services } from "./crm";
 import { tenantRef } from "./tenancy";
@@ -141,6 +142,8 @@ export const paymentRequests = pgTable(
       .notNull()
       .references(() => customers.id, { onDelete: "cascade" }),
     quoteId: uuid("quote_id").references(() => quotes.id, { onDelete: "set null" }),
+    /** The online booking this deposit secures (C-15), so cancelling the visit lets the hold go. */
+    bookingId: uuid("booking_id").references(() => bookings.id, { onDelete: "set null" }),
     kind: text("kind", { enum: PAYMENT_KINDS }).notNull(),
     capture: text("capture", { enum: PAYMENT_CAPTURES }).notNull(),
     status: text("status", { enum: PAYMENT_STATUSES }).notNull().default("open"),

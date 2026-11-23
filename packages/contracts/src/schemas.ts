@@ -67,6 +67,7 @@ import {
   type LeadStage,
   type Track,
 } from "./domain";
+import { CAMPAIGN_SEND_RATES } from "./campaigns";
 import { HANDOFF_OFFER_STATUSES, HANDOFF_STATUSES } from "./network";
 import { toUsE164 } from "./phone";
 import { ACCOUNT_STATUSES, TIERS, WEBSITE_STATUSES } from "./tiers";
@@ -170,6 +171,8 @@ export const leadCard = z.object({
   tags: z.array(z.string()),
   photoCount: z.number().int(),
   coverPhotoId: z.string().nullable(),
+  /** The brand and model the AI read off the customer's photos (C-09), e.g. "Rheem XG40T06 water heater". */
+  equipment: z.string().nullable(),
   position: z.number(),
   createdAt: isoDate,
   updatedAt: isoDate,
@@ -228,6 +231,8 @@ export const publicProfile = z.object({
   phone: z.string().nullable(),
   /** All self-attested by the owner — labelled "Licensed & Insured", never "Verified". */
   licenseNumber: z.string().nullable(),
+  licenseTrade: z.string().nullable(),
+  licenseState: z.string().nullable(),
   insuranceCarrier: z.string().nullable(),
   yearsInBusiness: z.number().int().nullable(),
   googleProfileUrl: z.string().nullable(),
@@ -545,6 +550,18 @@ export const customerDetail = z.object({
   payments: z.array(paymentItem),
   calls: z.array(callItem),
   photos: z.array(z.object({ id, leadId: z.string(), issue: z.string().nullable(), createdAt: isoDate })),
+  /** Their plan memberships (C-50), newest first: is this a member, and are they paid up. */
+  memberships: z.array(
+    z.object({
+      id,
+      plan: z.string(),
+      status: z.enum(MEMBERSHIP_STATUSES),
+      priceCents: z.number().int(),
+      interval: z.enum(PLAN_INTERVALS),
+      nextBillAt: isoDate.nullable(),
+      startedAt: isoDate.nullable(),
+    }),
+  ),
 });
 export type CustomerDetail = z.infer<typeof customerDetail>;
 
@@ -574,6 +591,10 @@ export const dashboardSummary = z.object({
   voicemails: z.number().int(),
   leadsCreated: z.number().int(),
   leadsWon: z.number().int(),
+  /** Won leads that started as a missed call, a voicemail or an AI Dispatcher call: the jobs behind recoveredCents (C-14). */
+  wonFromCalls: z.number().int(),
+  /** Job values the owner entered on every lead won in the period, whatever its source (C-14 "$ converted"). */
+  convertedCents: z.number().int(),
   winRate: z.number(),
   needsCallback: z.number().int(),
   series: z.array(z.object({ date: z.string(), captured: z.number().int(), won: z.number().int() })),
@@ -708,6 +729,8 @@ export const settingsResponse = z.object({
   postalCode: z.string().nullable(),
   timezone: z.string(),
   licenseNumber: z.string().nullable(),
+  licenseTrade: z.string().nullable(),
+  licenseState: z.string().nullable(),
   insuranceCarrier: z.string().nullable(),
   insurancePolicyNumber: z.string().nullable(),
   yearsInBusiness: z.number().int().nullable(),
@@ -747,6 +770,11 @@ export const settingsUpdateInput = z.object({
     .optional(),
   timezone: z.string().trim().refine(isTimeZone, "Pick your time zone").optional(),
   licenseNumber: z.string().trim().max(40).nullable().optional(),
+  licenseTrade: z.string().trim().max(60).nullable().optional(),
+  licenseState: z
+    .union([z.literal(""), z.string().trim().regex(/^[A-Za-z]{2}$/, "Use the two-letter state, like TX")])
+    .nullable()
+    .optional(),
   insuranceCarrier: z.string().trim().max(80).nullable().optional(),
   insurancePolicyNumber: z.string().trim().max(60).nullable().optional(),
   yearsInBusiness: z.number().int().min(0).max(150).nullable().optional(),
@@ -1116,6 +1144,8 @@ export const bookingSettings = z.object({
   windowDays: z.number().int().min(1).max(60),
   /** Kept free after each job, e.g. to drive to the next one. */
   bufferMins: z.number().int().min(0).max(120),
+  /** A deposit held on the customer's card when they book online (C-15). Needs card payments; none when unset. */
+  depositCents: z.number().int().min(100, "At least $1").max(MAX_PAYMENT_CENTS, "Up to $50,000").nullable().optional(),
 });
 export type BookingSettings = z.infer<typeof bookingSettings>;
 
@@ -1155,6 +1185,8 @@ export const bookingSettingsResponse = z.object({
   calendar: calendarStatus,
   /** Services with no time on the price list use an hour. */
   servicesWithoutTime: z.number().int(),
+  /** Card payments are on, so a deposit can be held when customers book (C-15). */
+  cardPayments: z.boolean(),
 });
 export type BookingSettingsResponse = z.infer<typeof bookingSettingsResponse>;
 
@@ -1181,6 +1213,8 @@ export const publicBookingContext = z.object({
   ),
   /** For jobs that need a look first: the request form instead. */
   requestUrl: z.string(),
+  /** A deposit held on the customer's card to book (C-15), so they know before they pick a time. */
+  depositCents: z.number().int().nullable(),
 });
 export type PublicBookingContext = z.infer<typeof publicBookingContext>;
 
@@ -1234,7 +1268,12 @@ export const publicBooking = z.object({
 });
 export type PublicBooking = z.infer<typeof publicBooking>;
 
-export const bookingCreated = z.object({ manageUrl: z.string(), booking: publicBooking });
+export const bookingCreated = z.object({
+  manageUrl: z.string(),
+  booking: publicBooking,
+  /** With a deposit to hold, the card checkout to go on to (C-15); null when there's nothing to pay. */
+  checkoutUrl: z.string().nullable(),
+});
 export type BookingCreated = z.infer<typeof bookingCreated>;
 
 export const rescheduleInput = z.object({ startsAt: isoDate });
@@ -1468,12 +1507,6 @@ export const publicFeedbackContext = z.object({
 });
 export type PublicFeedbackContext = z.infer<typeof publicFeedbackContext>;
 
-export const privateFeedbackInput = z.object({
-  message: z.string().trim().min(2, "Tell them what happened").max(2000),
-  /** Hidden from people; only bots fill it in. */
-  company: z.string().max(200).optional().default(""),
-});
-
 /** The unsubscribe page for marketing-type emails such as review requests (CAN-SPAM). */
 export const publicUnsubscribe = z.object({
   businessName: z.string(),
@@ -1523,6 +1556,8 @@ export const chatDetail = chatSummary.extend({
   replyNote: z.string().nullable(),
   /** The assistant is writing a reply. */
   typing: z.boolean(),
+  /** The profile card the owner can drop into a reply (C-41): the licence claim and the profile link. */
+  profileCard: z.string(),
 });
 export type ChatDetail = z.infer<typeof chatDetail>;
 
@@ -1600,12 +1635,16 @@ export const simWhatsAppThread = z.object({
 });
 export type SimWhatsAppThread = z.infer<typeof simWhatsAppThread>;
 
-export const simWhatsAppInput = z.object({
-  from: usPhone,
-  /** The customer's WhatsApp profile name. */
-  name: z.string().trim().max(60).optional().default(""),
-  text: z.string().trim().min(1).max(1000),
-});
+export const simWhatsAppInput = z
+  .object({
+    from: usPhone,
+    /** The customer's WhatsApp profile name. */
+    name: z.string().trim().max(60).optional().default(""),
+    text: z.string().trim().max(1000).optional().default(""),
+    /** A photo the customer sends, as a data: URL (C-11). */
+    photo: z.string().startsWith("data:image/").max(12_000_000).optional(),
+  })
+  .refine((input) => input.text.length > 0 || Boolean(input.photo), "Write a message or add a photo.");
 
 /* ----------------------------------------------------------------------------
  * Simulated Google listing (development only): the business's page and "write a review"
@@ -1683,11 +1722,15 @@ export type SimRedirect = z.infer<typeof simRedirect>;
 export const simulatorScenarioInput = z.object({
   callerPhone: usPhone,
   callerName: z.string().trim().max(80).optional(),
-  ownerBehavior: z.enum(["no_answer", "answers", "carrier_voicemail"]),
-  callerBehavior: z.enum(["hangs_up_while_ringing", "talks_to_dispatcher", "hangs_up_during_greeting"]),
+  /** How the call reaches LeadAnchor: dialled to the LeadAnchor number (C-02), or missed on the owner's own cell and forwarded (C-01). */
+  route: z.enum(["direct", "forwarded"]).default("direct"),
+  /** `forwards_back`: the owner's phone is off or busy and forwards calls to the LeadAnchor number, so LeadAnchor's ring comes straight back (C-01). */
+  ownerBehavior: z.enum(["no_answer", "answers", "carrier_voicemail", "forwards_back"]),
+  /** `talks_too_long`: still talking when the AI Dispatcher stops listening, so it cuts in once (C-39). */
+  callerBehavior: z.enum(["hangs_up_while_ringing", "talks_to_dispatcher", "talks_too_long", "hangs_up_during_greeting"]),
   utterance: z.string().trim().max(500).optional().default(""),
-  /** How the caller answers "can we text you?": by voice, or by pressing 1 on the keypad (C-06). */
-  consent: z.enum(["yes", "no", "press1"]).default("yes"),
+  /** How the caller answers "can we text you?": by voice, by pressing 1 on the keypad (C-06), or by hanging up (C-05). */
+  consent: z.enum(["yes", "no", "press1", "hangs_up"]).default("yes"),
   voicemailText: z.string().trim().max(1000).optional().default(""),
 });
 export type SimulatorScenarioInput = z.input<typeof simulatorScenarioInput>;
@@ -1751,9 +1794,11 @@ export const campaignUpdateInput = z
 export type CampaignUpdateInput = z.input<typeof campaignUpdateInput>;
 
 /** The owner's approval: send now, or at a time in the business's time zone. */
+/** The approved throughput (C-44 AC 5): emails a minute. */
+const sendRate = z.literal(CAMPAIGN_SEND_RATES).optional();
 export const campaignSendInput = z.discriminatedUnion("when", [
-  z.object({ when: z.literal("now") }),
-  z.object({ when: z.literal("later"), date: dayOnly, time: z.string().regex(/^\d{2}:\d{2}$/, "Pick a time") }),
+  z.object({ when: z.literal("now"), perMinute: sendRate }),
+  z.object({ when: z.literal("later"), date: dayOnly, time: z.string().regex(/^\d{2}:\d{2}$/, "Pick a time"), perMinute: sendRate }),
 ]);
 export type CampaignSendInput = z.input<typeof campaignSendInput>;
 
@@ -1836,6 +1881,8 @@ export const campaignDetail = campaignSummary.extend({
   serviceId: z.string().nullable(),
   approvedAt: isoDate.nullable(),
   approvedBy: z.string().nullable(),
+  /** The send rate approved with it (C-44): emails a minute. Null until it's approved. */
+  sendsPerMinute: z.number().int().nullable(),
   /** What stops it going out: the copy checks and the missing postal address. */
   problems: z.array(z.string()),
   recipients: z.array(campaignRecipient),
@@ -1929,6 +1976,8 @@ export const planItem = z.object({
     pastDue: z.number().int(),
     paused: z.number().int(),
     olderPrice: z.number().int(),
+    /** Told about a move to the current price, which starts at their next renewal after the notice. */
+    moving: z.number().int(),
   }),
   createdAt: isoDate,
 });
@@ -1964,14 +2013,17 @@ export const membershipItem = z.object({
   lifetimeCents: z.number().int(),
   billsPaid: z.number().int(),
   issue: membershipIssue.nullable(),
+  /** A move to the plan's newer price the member has been told about (C-48): the price, and the renewal it bills from. */
+  priceChange: z.object({ priceCents: z.number().int(), at: isoDate }).nullable(),
 });
 export type MembershipItem = z.infer<typeof membershipItem>;
 
 export const membershipsSummary = z.object({
   /** Active members only: past due and paused don't count (C-50 AC 2). */
   mrrCents: z.number().int(),
-  /** Joined minus cancelled in the last 30 days. */
+  /** Against last month's closing figure; until a month has been recorded, joined minus cancelled in the last 30 days. */
   mrrChangeCents: z.number().int(),
+  mrrChangeBasis: z.enum(["last_month", "last_30_days"]),
   active: z.number().int(),
   pastDue: z.number().int(),
   paused: z.number().int(),
@@ -1983,6 +2035,10 @@ export type MembershipsSummary = z.infer<typeof membershipsSummary>;
 export const membershipsResponse = z.object({
   memberships: z.array(membershipItem),
   summary: membershipsSummary,
+  /** C-50: the last 12 months, oldest first: what members paid, and recurring income at the month's end. */
+  income: z.array(
+    z.object({ month: z.string(), collectedCents: z.number().int(), mrrCents: z.number().int().nullable() }),
+  ),
   cardsReady: z.boolean(),
 });
 export type MembershipsResponse = z.infer<typeof membershipsResponse>;
@@ -2288,7 +2344,7 @@ export type PublicHandoff = z.infer<typeof publicHandoff>;
  * Found by AI (C-42)
  * ------------------------------------------------------------------------- */
 
-export const AI_MISMATCH_FIELDS = ["name", "phone", "address", "website"] as const;
+export const AI_MISMATCH_FIELDS = ["name", "phone", "address", "website", "services"] as const;
 
 export const aiVisibility = z.object({
   /** The plan includes it and the owner hasn't opted out. */

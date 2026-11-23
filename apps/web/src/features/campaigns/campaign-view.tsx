@@ -263,6 +263,15 @@ function AboutCard({ campaign }: { campaign: CampaignDetail }) {
         : "—",
     ],
     ["Sent", campaign.sentAt ? zonedWhen(campaign.sentAt, campaign.timezone) : "Not yet"],
+    // C-44: the send rate approved with it, and quiet hours by each customer's own clock.
+    ...(campaign.sendsPerMinute
+      ? [
+          [
+            "Pace",
+            `${campaign.sendsPerMinute} emails a minute, none between 9 pm and 8 am their time`,
+          ],
+        ]
+      : []),
   ];
   return (
     <section className="rounded-lg border bg-card p-4">

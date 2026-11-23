@@ -41,6 +41,8 @@ import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
 import { ForwardingGuide } from "@/features/settings/forwarding-guide";
+import { ProfileSetup } from "./profile-setup";
+import { TextingSetup } from "./texting-setup";
 import { api } from "@/lib/api";
 import { formatPhone } from "@/lib/format";
 import { showFormError } from "@/lib/forms";
@@ -267,11 +269,21 @@ export function OnboardingWizard() {
             <p className="text-sm text-muted-foreground">Your LeadAnchor line</p>
             <p className="tabular mt-1 font-display text-4xl font-semibold">{formatPhone(tenant.trackingNumber)}</p>
             <p className="mt-2 text-sm text-muted-foreground">Rings your cell at {formatPhone(tenant.ownerCell)} first</p>
+            {/* C-02: no number was free in their area code, so the nearest one was taken instead. */}
+            {tenant.trackingNumber && tenant.ownerCell && tenant.trackingNumber.slice(2, 5) !== tenant.ownerCell.slice(2, 5) && (
+              <p className="mt-2 text-sm text-muted-foreground">
+                No {tenant.ownerCell.slice(2, 5)} numbers were free, so this is the nearest one we could get.
+              </p>
+            )}
           </div>
           <div className="space-y-3">
             <h2 className="text-[17px] font-bold">Catch calls to your current number too</h2>
             <ForwardingGuide trackingNumber={tenant.trackingNumber ?? ""} />
           </div>
+          {/* C-43: texting needs the carriers' approval, and it takes a while, so it's offered straight away. */}
+          <TextingSetup />
+          {/* C-41: the pro profile is set up here, once, rather than hunted for in Settings later. */}
+          <ProfileSetup state={state || null} />
           <div className="flex flex-col gap-3 sm:flex-row">
             <Button size="lg" className="flex-1" onClick={() => router.replace("/dashboard")}>
               Go to my dashboard

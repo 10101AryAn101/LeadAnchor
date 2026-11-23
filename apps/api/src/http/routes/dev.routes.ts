@@ -71,11 +71,18 @@ export async function devRoutes(app: FastifyInstance) {
     return number.e164;
   }
 
+  /** The owner's own cell: a forwarded call (C-01) is one they missed there. */
+  async function ownerCell(tenantId: string) {
+    const [tenant] = await withTenant(tenantId, (tx) => tx.select({ cell: tenants.ownerCellE164 }).from(tenants).where(eq(tenants.id, tenantId)));
+    return tenant?.cell ?? undefined;
+  }
+
   app.post("/api/dev/simulator/calls", async (req, reply) => {
     const ctx = await tenantContext(req);
     if (telephony.name !== "simulator") throw new HttpError(409, "not_simulated", "The simulator is off because Telnyx is connected.");
     const scenario = parseInput(simulatorScenarioInput, req.body);
-    const handle = simulatorTelephony.startCall(await trackingNumber(ctx.tenantId), scenario);
+    const forwardedFrom = scenario.route === "forwarded" ? await ownerCell(ctx.tenantId) : undefined;
+    const handle = simulatorTelephony.startCall(await trackingNumber(ctx.tenantId), scenario, forwardedFrom);
     return reply.status(202).send({ sessionId: handle.sessionId });
   });
 
@@ -492,7 +499,8 @@ export async function devRoutes(app: FastifyInstance) {
   });
 
   /** The simulated customer writes to the business on WhatsApp, as Meta's webhook would deliver it. */
-  app.post("/api/dev/simulator/whatsapp/:business/messages", async (req) => {
+  // A photo comes in as a data: URL, so the body can be larger than the default 1 MB.
+  app.post("/api/dev/simulator/whatsapp/:business/messages", { bodyLimit: 16 * 1024 * 1024 }, async (req) => {
     const { business } = parseInput(whatsappBusiness, req.params);
     const input = parseInput(simWhatsAppInput, req.body);
     await handleInboundMessage({
@@ -503,6 +511,7 @@ export async function devRoutes(app: FastifyInstance) {
       provider: "simulator",
       providerMessageId: null,
       profileName: input.name || null,
+      photos: input.photo ? [{ buffer: Buffer.from(input.photo.slice(input.photo.indexOf(",") + 1), "base64") }] : undefined,
     });
     return simWhatsApp(`+${business}`, input.from);
   });

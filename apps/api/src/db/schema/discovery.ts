@@ -9,9 +9,9 @@ export interface AskedQuestion {
   named: string[];
 }
 
-/** Where the business's name, phone, address or website disagree between LeadAnchor, Google and its site. */
+/** Where the business's name, phone, address, website or services disagree between LeadAnchor, Google and its site. */
 export interface Mismatch {
-  field: "name" | "phone" | "address" | "website";
+  field: "name" | "phone" | "address" | "website" | "services";
   detail: string;
 }
 

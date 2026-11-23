@@ -64,7 +64,7 @@ function CustomerRow({ customer }: { customer: CustomerListItem }) {
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-2">
             <span className="truncate font-semibold">{name}</span>
-            {customer.jobs >= 2 && <Badge variant="outline">Repeat</Badge>}
+            {customer.openJobs + customer.wonJobs >= 2 && <Badge variant="outline">Repeat</Badge>}
           </span>
           <span className="block truncate text-sm text-muted-foreground">
             {customer.name && <span className="tabular">{formatPhone(customer.phone)}. </span>}

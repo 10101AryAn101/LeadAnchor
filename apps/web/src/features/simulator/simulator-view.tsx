@@ -22,6 +22,7 @@ import { SimulatedCampaigns } from "./sim-campaigns";
 
 type OwnerBehavior = SimulatorScenarioInput["ownerBehavior"];
 type CallerBehavior = SimulatorScenarioInput["callerBehavior"];
+type Route = NonNullable<SimulatorScenarioInput["route"]>;
 
 const EXAMPLES = [
   "Hi, my water heater is leaking all over the garage floor. Can someone come out today? This is Dana.",
@@ -65,6 +66,7 @@ export function SimulatorView() {
     if (/^1\d{10}$/.test(digits)) setCustomerPhone(`+${digits}`);
   }, []);
   const [callerName, setCallerName] = useState("");
+  const [route, setRoute] = useState<Route>("direct");
   const [ownerBehavior, setOwnerBehavior] = useState<OwnerBehavior>("no_answer");
   const [callerBehavior, setCallerBehavior] = useState<CallerBehavior>("talks_to_dispatcher");
   const [utterance, setUtterance] = useState(EXAMPLES[0]!);
@@ -137,18 +139,42 @@ export function SimulatorView() {
           </div>
 
           <Field>
-            <FieldLabel>When your cell rings</FieldLabel>
+            <FieldLabel>How the call reaches you</FieldLabel>
             <Segmented
-              label="Owner"
-              value={ownerBehavior}
-              onChange={setOwnerBehavior}
+              label="Route"
+              value={route}
+              onChange={setRoute}
               options={[
-                { value: "no_answer", label: "No answer" },
-                { value: "answers", label: "I pick up" },
-                { value: "carrier_voicemail", label: "My voicemail" },
+                { value: "direct", label: "Calls my LeadAnchor line" },
+                { value: "forwarded", label: "Forwarded from my cell" },
               ]}
             />
+            {route === "forwarded" && (
+              <FieldDescription>They called your own cell and you missed it, so your phone company sent it on. LeadAnchor answers straight away.</FieldDescription>
+            )}
           </Field>
+
+          {route === "direct" && (
+            <Field>
+              <FieldLabel>When your cell rings</FieldLabel>
+              <Segmented
+                label="Owner"
+                value={ownerBehavior}
+                onChange={setOwnerBehavior}
+                options={[
+                  { value: "no_answer", label: "No answer" },
+                  { value: "answers", label: "I pick up" },
+                  { value: "carrier_voicemail", label: "My voicemail" },
+                  { value: "forwards_back", label: "Sends it back" },
+                ]}
+              />
+              {ownerBehavior === "forwards_back" && (
+                <FieldDescription>
+                  Your phone is off or busy and forwards calls to your LeadAnchor line, so LeadAnchor&apos;s ring comes straight back.
+                </FieldDescription>
+              )}
+            </Field>
+          )}
 
           <Field>
             <FieldLabel>The caller</FieldLabel>
@@ -158,6 +184,7 @@ export function SimulatorView() {
               onChange={setCallerBehavior}
               options={[
                 { value: "talks_to_dispatcher", label: "Stays on" },
+                { value: "talks_too_long", label: "Talks too long" },
                 { value: "hangs_up_while_ringing", label: "Hangs up ringing" },
                 { value: "hangs_up_during_greeting", label: "Hangs up on AI" },
               ]}
@@ -165,7 +192,7 @@ export function SimulatorView() {
             <FieldDescription>New callers meet the AI Dispatcher. Callers you already know get your voicemail instead.</FieldDescription>
           </Field>
 
-          {callerBehavior === "talks_to_dispatcher" && (
+          {(callerBehavior === "talks_to_dispatcher" || callerBehavior === "talks_too_long") && (
             <>
               <Field>
                 <FieldLabel htmlFor="utterance">What they tell the AI Dispatcher</FieldLabel>
@@ -193,6 +220,7 @@ export function SimulatorView() {
                     { value: "yes", label: "They say yes" },
                     { value: "press1", label: "They press 1" },
                     { value: "no", label: "They say no" },
+                    { value: "hangs_up", label: "They hang up" },
                   ]}
                 />
               </Field>
@@ -211,6 +239,7 @@ export function SimulatorView() {
               place.mutate({
                 callerPhone,
                 callerName: callerName || undefined,
+                route,
                 ownerBehavior,
                 callerBehavior,
                 utterance,

@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { BrokenLink } from "@/features/money/business-header";
-import { PrivateFeedback } from "@/features/reviews/customer-pages";
+import { PrivateChat } from "@/features/reviews/customer-pages";
 
 export const metadata: Metadata = {
   title: "Message the business",
@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 
 const API_URL = process.env.API_INTERNAL_URL ?? "http://127.0.0.1:4000";
 
-/** C-46: the private line in a review request. No login: the link is the key. */
+/** C-46: the private line in a review request, a chat with the owner. No login: the link is the key. */
 export default function FeedbackPage({ params }: { params: Promise<{ token: string }> }) {
   return (
     <main className="min-h-dvh bg-background">
@@ -41,7 +41,7 @@ async function Loader({ params }: { params: Promise<{ token: string }> }) {
         body="It may be mistyped. Please call or text the business instead."
       />
     );
-  return <PrivateFeedback token={token} initial={context} />;
+  return <PrivateChat token={token} initial={context} />;
 }
 
 function Loading() {

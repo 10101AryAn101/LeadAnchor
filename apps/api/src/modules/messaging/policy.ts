@@ -38,8 +38,8 @@ export interface PolicyDecision {
   checks: PolicyCheck[];
 }
 
-const QUIET_START = 21; // 9 pm
-const QUIET_END = 8; // 8 am
+export const QUIET_START = 21; // 9 pm
+export const QUIET_END = 8; // 8 am
 
 export function decide(facts: PolicyFacts): PolicyDecision {
   const checks: PolicyCheck[] = [];
@@ -110,6 +110,12 @@ export function decide(facts: PolicyFacts): PolicyDecision {
     }
 
     if (channel === "whatsapp") {
+      // An opt-out covers WhatsApp too (C-27, and WhatsApp's own rules), whichever channel it came on.
+      // Only the reply confirming it still goes, as with texts.
+      if (facts.smsConsent === "REVOKED" && facts.purpose !== "keyword_reply") {
+        checks.push({ check: "whatsapp_opt_out", passed: false, detail: "Customer opted out (STOP)." });
+        continue;
+      }
       const ok = facts.whatsappConfigured && facts.whatsappWindowOpen;
       checks.push({
         check: "whatsapp_window",

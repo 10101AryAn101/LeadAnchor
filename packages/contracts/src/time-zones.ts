@@ -134,6 +134,22 @@ export function usTimeZoneLike(zone: string): UsTimeZone | null {
  * two zones and the browser is in one of them. With no state, the browser's if it keeps US time,
  * else Central. Someone setting up from abroad still gets their business's clock, not their own.
  */
+/** The main time zone of a US state ("TX" is Central), or null for anything else. */
+export function stateTimeZone(state: string | null | undefined): UsTimeZone | null {
+  return STATE_TIME_ZONES[(state ?? "").trim().toUpperCase()]?.[0] ?? null;
+}
+
+/**
+ * The time zone of a typed US address, from its state ("12 Oak St, Austin, TX 78704"), or null
+ * when it names none. Campaigns use it for the customer's quiet hours (C-44).
+ */
+export function addressTimeZone(address: string | null | undefined): UsTimeZone | null {
+  const state =
+    address?.match(/\b([A-Za-z]{2})\s+\d{5}(?:-\d{4})?\b/)?.[1] ??
+    address?.match(/,\s*([A-Za-z]{2})\s*$/)?.[1];
+  return stateTimeZone(state);
+}
+
 export function suggestTimeZone(
   state: string | null | undefined,
   browserZone?: string | null,

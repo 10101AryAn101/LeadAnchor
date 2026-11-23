@@ -1,5 +1,5 @@
 import { type MembershipStatus, formatPhone, planPrice, workDue } from "@leadanchor/contracts";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { payments } from "../../container";
 import type { Tx } from "../../db/client";
 import {
@@ -38,14 +38,14 @@ export const statusOf = (state: SubscriptionState): MembershipStatus =>
 export const dayOf = (date: Date, timeZone: string) =>
   date.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone });
 
-interface Party {
+export interface Party {
   tenant: Tenant;
   membership: Membership;
   plan: Plan;
   customer: Customer;
 }
 
-async function partyOf(tx: Tx, membership: Membership): Promise<Party> {
+export async function partyOf(tx: Tx, membership: Membership): Promise<Party> {
   const [[tenant], [plan], [customer]] = await Promise.all([
     tx.select().from(tenants).where(eq(tenants.id, membership.tenantId)),
     tx.select().from(membershipPlans).where(eq(membershipPlans.id, membership.planId)),
@@ -77,7 +77,13 @@ async function membershipFor(tx: Tx, subscriptionId: string, reference: string) 
 }
 
 /** An email to the member: receipts, notices, confirmations. Account email, so no opt-in needed. */
-async function tellMember(tx: Tx, fx: Effects, party: Party, subject: string, lines: string[]) {
+export async function tellMember(
+  tx: Tx,
+  fx: Effects,
+  party: Party,
+  subject: string,
+  lines: string[],
+) {
   const first = firstNameOf(party.customer.name);
   await requestEmail(tx, fx, {
     tenant: party.tenant,
@@ -141,7 +147,8 @@ export async function applySubscriptionState(tenantId: string, state: Subscripti
         ...(status === "canceled" &&
           !membership.canceledAt && {
             canceledAt: now,
-            canceledBy: membership.canceledBy ?? "customer",
+            // Ended by failed payments: nobody chose it.
+            canceledBy: membership.canceledBy ?? (state.lapsed ? null : "customer"),
           }),
       })
       .where(eq(planMemberships.id, membership.id))
@@ -155,7 +162,12 @@ export async function applySubscriptionState(tenantId: string, state: Subscripti
       action: "membership.status_changed",
       entityType: "membership",
       entityId: membership.id,
-      data: { from: before, to: status, subscription: state.subscriptionId },
+      data: {
+        from: before,
+        to: status,
+        subscription: state.subscriptionId,
+        ...(state.lapsed && { reason: "payment_failed" }),
+      },
     });
     const party = await partyOf(tx, updated!);
     const timeZone = party.tenant.timezone;
@@ -180,6 +192,10 @@ export async function applySubscriptionState(tenantId: string, state: Subscripti
         callbackPhone: party.customer.phoneE164,
         path: `/memberships?m=${membership.id}`,
       });
+      return;
+    }
+    if (status === "canceled" && state.lapsed && !membership.canceledBy) {
+      await lapsed(tx, fx, party);
       return;
     }
     if (status === "canceled") {
@@ -355,6 +371,41 @@ export async function applyInvoiceState(tenantId: string, state: InvoiceState) {
         .where(eq(membershipInvoices.id, invoice!.id));
     }
   });
+}
+
+/**
+ * C-49 AC 2: every retry failed and the business's own Stripe settings ended the plan instead of
+ * leaving it past due. Never a silent lapse: the member hears it ended, and the owner is alerted.
+ */
+async function lapsed(tx: Tx, fx: Effects, party: Party) {
+  const [unpaid] = await tx
+    .select()
+    .from(membershipInvoices)
+    .where(
+      and(
+        eq(membershipInvoices.membershipId, party.membership.id),
+        ne(membershipInvoices.status, "paid"),
+      ),
+    )
+    .orderBy(desc(membershipInvoices.createdAt))
+    .limit(1);
+  await tellMember(tx, fx, party, `Your ${party.plan.name} has ended`, [
+    `We couldn't take your ${party.plan.name} payment${unpaid ? ` of ${dollars(unpaid.amountCents)}` : ""} after several tries, so your membership has ended and you won't be charged again.`,
+    "Want to keep it? Just reply and we'll set you up again.",
+  ]);
+  await notifyOwner(tx, fx, {
+    tenantId: party.tenant.id,
+    kind: "membership",
+    title: `${memberName(party)}'s ${party.plan.name} ended: payments failed`,
+    body: `Their card was declined${unpaid?.attempts ? ` ${unpaid.attempts} times` : ""}, and your Stripe settings ended the plan after the last retry. Call them to set it up again.`,
+    callbackPhone: party.customer.phoneE164,
+    path: `/memberships?m=${party.membership.id}`,
+  });
+  if (unpaid && !unpaid.ownerAlertedAt)
+    await tx
+      .update(membershipInvoices)
+      .set({ ownerAlertedAt: new Date() })
+      .where(eq(membershipInvoices.id, unpaid.id));
 }
 
 /** C-49 AC 3: a receipt for every successful charge, with the link to manage or cancel (C-52). */

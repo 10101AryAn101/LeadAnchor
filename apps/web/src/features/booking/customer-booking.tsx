@@ -194,6 +194,8 @@ export function CustomerBooking({
             setStep("time");
           }}
           onBooked={(result) => {
+            // With a deposit to hold (C-15), the customer goes straight on to the card checkout.
+            if (result.checkoutUrl) return window.location.assign(result.checkoutUrl);
             setBooked(result);
             setStep("done");
           }}
@@ -519,8 +521,14 @@ function Details({
           </span>
         </label>
         <LegalNote>Neither box is needed to book.</LegalNote>
+        {context.depositCents ? (
+          <p className="rounded-lg bg-muted p-3.5 text-[15px] leading-6">
+            <span className="font-semibold">A {money(context.depositCents)} deposit holds this time.</span> Next you put a hold on your card.
+            You&apos;re only charged if {context.business.name} collects it, for example if nobody&apos;s home. Cancel the visit and the hold is let go.
+          </p>
+        ) : null}
         <Button type="submit" size="lg" className="w-full" disabled={book.isPending}>
-          {book.isPending && <Spinner />} Book it
+          {book.isPending && <Spinner />} {context.depositCents ? "Book and hold the deposit" : "Book it"}
         </Button>
       </form>
     </section>

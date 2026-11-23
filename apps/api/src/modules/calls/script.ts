@@ -10,6 +10,10 @@ export const CONSENT_LISTEN_SECS = 8;
 export const VOICEMAIL_MAX_SECS = 120;
 /** Server-side ceiling for the whole AI conversation (C-39: hard stop at 60s). */
 export const DISPATCHER_HARD_STOP_SECS = 60;
+/** A voicemail shorter than this is a hang-up at the beep: alerted like any other hang-up (C-05). */
+export const VOICEMAIL_MIN_SECS = 3;
+/** A voicemail still without a transcript by then is alerted anyway (C-13). */
+export const VOICEMAIL_ALERT_FALLBACK_SECS = 180;
 
 export const greeting = (business: string) =>
   `Hi, you've reached ${business}. Sorry we couldn't pick up — this is ${business}'s automated assistant. ` +
@@ -18,6 +22,9 @@ export const greeting = (business: string) =>
 export const CONSENT_QUESTION =
   "Thanks. Can we text you a link at this number so you can send details and photos? " +
   "Message and data rates may apply. To agree, say yes or press 1. Otherwise, say no.";
+
+/** Said once, before the consent question, when the caller is still talking as listening ends (C-39). */
+export const INTERRUPT = "Sorry to cut in, I've got the main points.";
 
 export const goodbyeAfterYes = (business: string) =>
   `Great — the text is on its way. Someone from ${business} will be in touch soon. Goodbye!`;

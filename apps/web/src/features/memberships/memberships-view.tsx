@@ -4,6 +4,7 @@ import {
   type MembershipItem,
   type MembershipStatus,
   type MembershipsResponse,
+  PRICE_MOVE_NOTICE_DAYS,
   type PlanItem,
   type PlansResponse,
   cadenceLabel,
@@ -29,6 +30,7 @@ import { parseAsString, parseAsStringLiteral, useQueryState } from "nuqs";
 import { useState } from "react";
 import { toast } from "sonner";
 import { PageHeader } from "@/components/layout/page-header";
+import { ResponsiveSheet } from "@/components/responsive-sheet";
 import { Button } from "@/components/ui/button";
 import {
   Empty,
@@ -67,6 +69,8 @@ export function MembershipsView() {
     parseAsStringLiteral(TABS).withDefault("members").withOptions({ history: "replace" }),
   );
   const [memberId, setMemberId] = useQueryState("m", parseAsString);
+  // A job paid for by a plan links here with the bill that paid for it (C-51).
+  const [billId, setBillId] = useQueryState("bill", parseAsString);
   const [editing, setEditing] = useState<PlanItem | "new" | null>(null);
   const members = useMemberships();
   const plans = usePlans();
@@ -147,8 +151,12 @@ export function MembershipsView() {
       </Tabs>
       <MemberSheet
         id={memberId}
+        bill={billId}
         plans={plans.data?.plans ?? []}
-        onClose={() => void setMemberId(null)}
+        onClose={() => {
+          void setMemberId(null);
+          void setBillId(null);
+        }}
       />
       <PlanEditor
         open={editing !== null}
@@ -169,10 +177,13 @@ function ListSkeleton() {
   );
 }
 
-/** C-50: the headline income (active members only) and its movement over the last 30 days. */
+/** C-50: the headline income (active members only) and its movement since last month. */
 function Summary({ summary }: { summary: MembershipsResponse["summary"] }) {
   const up = summary.mrrChangeCents >= 0;
   const Trend = up ? IconTrendingUp : IconTrendingDown;
+  // Against last month's close once it's on record; a 30-day estimate until then.
+  const since =
+    summary.mrrChangeBasis === "last_month" ? "since last month" : "in the last 30 days";
   return (
     <section className="rounded-lg border bg-card p-5">
       <p className="text-sm text-muted-foreground">Recurring income</p>
@@ -191,12 +202,12 @@ function Summary({ summary }: { summary: MembershipsResponse["summary"] }) {
         )}
       >
         {summary.mrrChangeCents === 0 ? (
-          "No change in the last 30 days"
+          `No change ${since}`
         ) : (
           <>
             <Trend className="size-4" />
             {up ? "+" : "−"}
-            {money(Math.abs(summary.mrrChangeCents))} in the last 30 days
+            {money(Math.abs(summary.mrrChangeCents))} {since}
           </>
         )}
         <span className="text-muted-foreground">
@@ -220,6 +231,51 @@ function Summary({ summary }: { summary: MembershipsResponse["summary"] }) {
       </div>
       <p className="mt-3 text-sm text-muted-foreground">
         Counts active members only: past due and paused members aren&apos;t counted until they pay.
+      </p>
+    </section>
+  );
+}
+
+const monthName = (month: string) =>
+  new Date(`${month}-15T12:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+
+/** C-50: month by month, what members paid and the recurring income at each month's end. */
+function IncomeHistory({ income }: { income: MembershipsResponse["income"] }) {
+  const months = [...income].reverse().slice(0, 6);
+  if (!months.some((row) => row.collectedCents > 0 || row.mrrCents !== null)) return null;
+  return (
+    <section className="rounded-lg border bg-card p-5">
+      <h2 className="text-[17px] font-bold">Income by month</h2>
+      <table className="mt-3 w-full text-[15px]">
+        <thead>
+          <tr className="text-left text-sm text-muted-foreground">
+            <th className="pb-2 font-medium">Month</th>
+            <th className="pb-2 text-right font-medium">Members paid</th>
+            <th className="pb-2 text-right font-medium">Recurring</th>
+          </tr>
+        </thead>
+        <tbody className="divide-y">
+          {months.map((row, index) => (
+            <tr key={row.month}>
+              <td className="py-2">
+                {monthName(row.month)}
+                {index === 0 && <span className="text-sm text-muted-foreground"> · so far</span>}
+              </td>
+              <td className="tabular py-2 text-right">{money(row.collectedCents)}</td>
+              <td className="tabular py-2 text-right">
+                {row.mrrCents === null ? "—" : `${money(row.mrrCents)}/mo`}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="mt-2 text-sm text-muted-foreground">
+        Recurring is the month&apos;s closing figure, active members only. Months before LeadAnchor
+        kept the record show —.
       </p>
     </section>
   );
@@ -265,6 +321,7 @@ function Members({
   return (
     <div className="space-y-4">
       <Summary summary={data.summary} />
+      <IncomeHistory income={data.income} />
       <div className="scrollbar-none flex gap-2 overflow-x-auto" role="tablist" aria-label="Show">
         {FILTERS.map((item) => (
           <button
@@ -408,6 +465,25 @@ function PlanCard({
     onError: (error) => toast.error(isApiError(error) ? error.message : "Couldn't change it."),
   });
   const members = plan.members.active + plan.members.pastDue + plan.members.paused;
+  // C-48 AC 2: members on an older price move only when the owner says so, with notice.
+  const [moving, setMoving] = useState(false);
+  const move = useMutation({
+    mutationFn: () =>
+      api<{ moving: number; otherSchedule: number }>(`/membership-plans/${plan.id}/move-members`, {
+        method: "POST",
+      }),
+    onSuccess: (result) => {
+      setMoving(false);
+      void queryClient.invalidateQueries({ queryKey: keys.plans });
+      void queryClient.invalidateQueries({ queryKey: keys.memberships });
+      toast.success(
+        result.moving > 0
+          ? `${result.moving} ${result.moving === 1 ? "member has" : "members have"} been told. The new price starts at their first renewal after ${PRICE_MOVE_NOTICE_DAYS} days.${result.otherSchedule > 0 ? ` ${result.otherSchedule} on another billing schedule kept theirs.` : ""}`
+          : "Nobody to move: everyone on another schedule keeps their price. Change them one by one.",
+      );
+    },
+    onError: (error) => toast.error(isApiError(error) ? error.message : "Couldn't move them."),
+  });
   return (
     <article
       className={cn("flex flex-col gap-4 rounded-lg border bg-card p-5", archived && "opacity-75")}
@@ -452,7 +528,34 @@ function PlanCard({
             · {plan.members.olderPrice} on an earlier price
           </span>
         )}
+        {plan.members.moving > 0 && (
+          <span className="text-muted-foreground">
+            {" "}
+            · {plan.members.moving} moving to this price
+          </span>
+        )}
       </p>
+      {owner && cardsReady && plan.members.olderPrice > 0 && (
+        <Button size="sm" variant="outline" className="self-start" onClick={() => setMoving(true)}>
+          Move them to {planPrice(plan.priceCents, plan.interval)}
+        </Button>
+      )}
+      <ResponsiveSheet
+        open={moving}
+        onOpenChange={setMoving}
+        title={`Move members to ${planPrice(plan.priceCents, plan.interval)}?`}
+        description={`They're told by email now. Each keeps their price for at least ${PRICE_MOVE_NOTICE_DAYS} days, and the new price starts at their first renewal after that. They can cancel before then.`}
+        footer={
+          <Button disabled={move.isPending} onClick={() => move.mutate()}>
+            {move.isPending && <Spinner />} Tell them and move them
+          </Button>
+        }
+      >
+        <p className="pb-2 text-[15px] text-muted-foreground">
+          Members billed on another schedule (monthly against yearly) keep their price. You can move
+          them one by one from their membership.
+        </p>
+      </ResponsiveSheet>
       {!archived && cardsReady && (
         <div className="space-y-2">
           <p className="rounded-md bg-muted px-3 py-2 text-sm break-all">{plan.signupUrl}</p>

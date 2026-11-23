@@ -147,6 +147,7 @@ describe("Stripe subscription → SubscriptionState", () => {
       endsAt: null,
       cardBrand: "mastercard",
       cardLast4: "4444",
+      lapsed: false,
     });
   });
 
@@ -166,7 +167,17 @@ describe("Stripe subscription → SubscriptionState", () => {
       status: "canceled",
       currentPeriodEnd: null,
       endsAt: new Date((T0 - 100) * 1000),
+      lapsed: false,
     });
+  });
+
+  it("tells a plan that ended after every retry failed from one the member cancelled (C-49)", () => {
+    const ended = (reason: string) =>
+      subscriptionStateOf(
+        subscription({ status: "canceled", ended_at: T0, cancellation_details: { reason } }),
+      ).lapsed;
+    expect(ended("payment_failed")).toBe(true);
+    expect(ended("cancellation_requested")).toBe(false);
   });
 });
 

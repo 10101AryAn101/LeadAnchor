@@ -32,19 +32,26 @@ describe("value-proof summary timing", () => {
 
 describe("value-proof summary wording", () => {
   it("states real numbers and never claims money without won jobs", () => {
-    const { title, body } = summaryText("weekly", { caught: 23, dispatcher: 14, leads: 15, wonFromCalls: 0, recoveredCents: 0 });
+    const { title, body } = summaryText("weekly", { caught: 23, dispatcher: 14, leads: 15, booked: 0, wonFromCalls: 0, recoveredCents: 0 });
     expect(title).toBe("Your week with LeadAnchor");
     expect(body).toContain("caught 23 missed calls (14 answered by the AI Dispatcher) and put 15 leads on your board");
     expect(body).not.toContain("$");
+    expect(body).not.toContain("booked");
+  });
+
+  it("counts the jobs booked in the period (C-40)", () => {
+    const { body } = summaryText("weekly", { caught: 5, dispatcher: 2, leads: 6, booked: 3, wonFromCalls: 0, recoveredCents: 0 });
+    expect(body).toContain("3 jobs were booked in.");
+    expect(summaryText("daily", { caught: 1, dispatcher: 0, leads: 1, booked: 1, wonFromCalls: 0, recoveredCents: 0 }).body).toContain("1 job was booked in.");
   });
 
   it("includes recovered money only from won jobs", () => {
-    const { body } = summaryText("daily", { caught: 1, dispatcher: 0, leads: 1, wonFromCalls: 1, recoveredCents: 45_000 });
+    const { body } = summaryText("daily", { caught: 1, dispatcher: 0, leads: 1, booked: 0, wonFromCalls: 1, recoveredCents: 45_000 });
     expect(body).toContain("In the last 24 hours");
     expect(body).toContain("You won 1 job worth $450");
   });
 
   it("says plainly when nothing happened", () => {
-    expect(summaryText("daily", { caught: 0, dispatcher: 0, leads: 0, wonFromCalls: 0, recoveredCents: 0 }).body).toContain("no missed calls to catch");
+    expect(summaryText("daily", { caught: 0, dispatcher: 0, leads: 0, booked: 0, wonFromCalls: 0, recoveredCents: 0 }).body).toContain("no missed calls to catch");
   });
 });

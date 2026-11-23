@@ -40,9 +40,10 @@ import { featureOn } from "../billing/access";
 import { audit } from "../compliance/audit";
 import { upsertCustomerByPhone } from "../customers/customer.repo";
 import { addLeadEvent, topPosition } from "../leads/lead-capture";
-import { requestEmail, requestMessage } from "../messaging/send-path";
+import { emailBlockedReason, requestEmail, requestMessage, textPolicy } from "../messaging/send-path";
 import { notifyOwner } from "../notifications/notify";
 import { areaOf, zipOf } from "./area";
+import { customerNotice } from "./customer-notice";
 import { recordReferral } from "./referrals";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -300,6 +301,15 @@ export async function passLead(tenantId: string, userId: string, leadId: string,
   if (!sender.state) {
     throw new HttpError(409, "no_area", "Add your city and state in Settings, so we can find pros near this customer.");
   }
+  const notice = await noticeFor(sender, job.customer);
+  if (!notice.via) {
+    throw new HttpError(
+      409,
+      "cant_tell_customer",
+      `We can't tell ${firstName(job.customer.name) ?? "the customer"} who's taking the job: ${notice.problem}. ` +
+        `${job.customer.email ? "Correct their email address" : "Add their email address"}, then pass it on.`,
+    );
+  }
   const zip = zipOf(job.customer.address) ?? sender.postalCode;
   const partners = await findPartners(sender, input.trade, zip);
   if (partners.length === 0) {
@@ -474,6 +484,32 @@ export async function acceptOffer(tenantId: string, userId: string, offerId: str
     realtime.publish(tenantId, { type: "network.updated" });
     throw new HttpError(409, "offer_closed", `${offer.fromBusiness} has kept this job after all.`);
   }
+  // Guardrail 1 again: they may have opted out since it was offered. Nobody can tell them, so nothing moves.
+  const notice = await noticeFor(source.sender, source.customer);
+  if (!notice.via) {
+    await systemDb.update(leadHandoffs).set({ status: "withdrawn", partnerTenantId: null, acceptedAt: null, sharedFields: [], closedAt: new Date() }).where(eq(leadHandoffs.id, claimed.id));
+    await closeOffers(claimed.id);
+    await systemDb.update(handoffOffers).set({ status: "closed", respondedAt: new Date() }).where(eq(handoffOffers.id, offerId));
+    await tenantWork(claimed.tenantId, async (tx, fx) => {
+      await addLeadEvent(tx, {
+        tenantId: claimed.tenantId,
+        leadId: claimed.leadId,
+        type: "network.withdrawn",
+        data: { reason: "cant_tell_customer", problem: notice.problem },
+      });
+      await notifyOwner(tx, fx, {
+        tenantId: claimed.tenantId,
+        kind: "network",
+        title: `“${source.lead.title}” came back to you`,
+        body: `A pro said yes, but we can't tell ${firstName(source.customer.name) ?? "the customer"} who's taking it: ${notice.problem}. The job is still yours.`,
+        leadId: claimed.leadId,
+      });
+      fx.publish({ type: "lead.updated", leadId: claimed.leadId });
+      fx.publish({ type: "network.updated" });
+    });
+    realtime.publish(tenantId, { type: "network.updated" });
+    throw new HttpError(409, "offer_closed", `${offer.fromBusiness} can't pass this job on after all.`);
+  }
 
   let partnerLeadId: string;
   try {
@@ -540,11 +576,12 @@ export async function acceptOffer(tenantId: string, userId: string, offerId: str
       .update(leads)
       .set({ stage: "lost", lostReason: `Passed to ${partnerName}`, stageChangedAt: new Date(), needsCallback: false })
       .where(eq(leads.id, claimed.leadId));
+    const toldBy = await tellCustomer(tx, fx, sender, source.customer, claimed.leadId, { name: partnerName, phone: partnerPhone }, token);
     await addLeadEvent(tx, {
       tenantId: sender.id,
       leadId: claimed.leadId,
       type: "network.passed",
-      data: { partner: partnerName, partnerPhone, fields: [...HANDOFF_SHARED_FIELDS] },
+      data: { partner: partnerName, partnerPhone, fields: [...HANDOFF_SHARED_FIELDS], toldBy },
     });
     await audit(tx, {
       tenantId: sender.id,
@@ -552,23 +589,44 @@ export async function acceptOffer(tenantId: string, userId: string, offerId: str
       action: "network.job_passed",
       entityType: "lead",
       entityId: claimed.leadId,
-      data: { handoffId: claimed.id, to: tenantId, toName: partnerName, fields: [...HANDOFF_SHARED_FIELDS] },
+      data: { handoffId: claimed.id, to: tenantId, toName: partnerName, fields: [...HANDOFF_SHARED_FIELDS], toldBy },
     });
+    const who = firstName(source.customer.name);
     await notifyOwner(tx, fx, {
       tenantId: sender.id,
       kind: "network",
       title: `${partnerName} took “${source.lead.title}”`,
-      body: `${firstName(source.customer.name) ?? "The customer"} gets a text saying so, and can choose to stay with you.`,
+      // Checked just before, so a failed send here is a rare race; the owner then makes the call.
+      body: toldBy.length
+        ? `${who ?? "The customer"} gets ${toldBy.map((via) => TOLD_BY[via]).join(" and ")} saying so, and can choose to stay with you.`
+        : `We couldn't text or email ${who ?? "the customer"} just now, so call them to say ${partnerName} has their job.`,
       leadId: claimed.leadId,
     });
-    await tellCustomer(tx, fx, sender, source.customer, claimed.leadId, { name: partnerName, phone: partnerPhone }, token);
     fx.publish({ type: "lead.updated", leadId: claimed.leadId });
     fx.publish({ type: "network.updated" });
   });
   return { leadId: partnerLeadId };
 }
 
-/** Guardrail 1: no silent transfer. The customer hears who has their request, and can stay instead. */
+const TOLD_BY = { text: "a text", whatsapp: "a WhatsApp message", email: "an email" } as const;
+type ToldBy = keyof typeof TOLD_BY;
+
+/**
+ * Guardrail 1, no silent transfer: a job only moves when the customer can be told who has it. The
+ * send path's own checks, made before anything moves: a text they agreed to (or an open WhatsApp
+ * chat), or an email that works.
+ */
+async function noticeFor(tenant: Tenant, customer: Customer) {
+  return withTenant(tenant.id, async (tx) => {
+    const text = customer.phoneE164
+      ? (await textPolicy(tx, { tenant, to: customer.phoneE164, purpose: "transactional" })).decision
+      : null;
+    const emailBlocked = customer.email ? await emailBlockedReason(tx, customer.email) : undefined;
+    return customerNotice(text, emailBlocked);
+  });
+}
+
+/** Guardrail 1: no silent transfer. The customer hears who has their request, and can stay instead. Says how they heard. */
 async function tellCustomer(
   tx: Tx,
   fx: Effects,
@@ -577,14 +635,15 @@ async function tellCustomer(
   leadId: string,
   partner: { name: string; phone: string | null },
   token: string,
-) {
+): Promise<ToldBy[]> {
+  const told: ToldBy[] = [];
   const first = firstName(customer.name);
   const line =
     `${first ? `Hi ${first}` : "Hi"}, it's ${tenant.name}. We're fully booked, so we've asked ${partner.name}, ` +
     `a local pro we trust, to take care of your request. They'll be in touch soon` +
     `${partner.phone ? ` from ${formatPhone(partner.phone)}` : ""}. Prefer to stay with us? Tap here: ${handoffStayUrl(token)}`;
   if (customer.phoneE164) {
-    await requestMessage(tx, fx, {
+    const text = await requestMessage(tx, fx, {
       tenant,
       customerId: customer.id,
       leadId,
@@ -592,9 +651,10 @@ async function tellCustomer(
       purpose: "transactional",
       body: `${line}\nReply STOP to opt out.`,
     });
+    if (text.status !== "blocked") told.push(text.channel === "whatsapp" ? "whatsapp" : "text");
   }
   if (customer.email) {
-    await requestEmail(tx, fx, {
+    const email = await requestEmail(tx, fx, {
       tenant,
       customerId: customer.id,
       leadId,
@@ -603,7 +663,9 @@ async function tellCustomer(
       subject: `${partner.name} will take care of your request`,
       body: `${line}\n\n${tenant.name}`,
     });
+    if (email.status !== "blocked") told.push("email");
   }
+  return told;
 }
 
 /** Not this one. When every pro has said no, the job comes back to the business straight away. */

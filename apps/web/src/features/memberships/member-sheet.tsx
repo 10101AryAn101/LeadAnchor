@@ -39,10 +39,13 @@ const DONE: Record<MembershipActionInput["action"], string> = {
 /** C-50: one member, with the owner's actions; each goes to Stripe and is logged. */
 export function MemberSheet({
   id,
+  bill = null,
   plans,
   onClose,
 }: {
   id: string | null;
+  /** A bill to point out, when a job paid for by it links here (C-51). */
+  bill?: string | null;
   plans: PlanItem[];
   onClose: () => void;
 }) {
@@ -58,7 +61,7 @@ export function MemberSheet({
       className="sm:max-w-lg"
     >
       {data && data.id === id ? (
-        <MemberBody member={data} plans={plans} />
+        <MemberBody member={data} plans={plans} bill={bill} />
       ) : (
         <Skeleton className="mb-4 h-72 rounded-lg" />
       )}
@@ -66,7 +69,15 @@ export function MemberSheet({
   );
 }
 
-function MemberBody({ member, plans }: { member: MembershipDetail; plans: PlanItem[] }) {
+function MemberBody({
+  member,
+  plans,
+  bill,
+}: {
+  member: MembershipDetail;
+  plans: PlanItem[];
+  bill: string | null;
+}) {
   const queryClient = useQueryClient();
   const { data: me } = useMe();
   const owner = me?.role === "owner";
@@ -109,10 +120,9 @@ function MemberBody({ member, plans }: { member: MembershipDetail; plans: PlanIt
 
   const live =
     member.status === "active" || member.status === "past_due" || member.status === "paused";
-  const others = plans.filter(
-    (plan) =>
-      plan.status === "active" && plan.id !== member.plan.id && plan.interval === member.interval,
-  );
+  // C-50: any active plan, monthly or yearly; a new schedule starts today, with credit for the rest.
+  const others = plans.filter((plan) => plan.status === "active" && plan.id !== member.plan.id);
+  const target = others.find((plan) => plan.id === moveTo);
   const facts: Array<[string, string]> = [
     ["Member since", member.startedAt ? shortDate(member.startedAt) : "—"],
     member.status === "canceled"
@@ -123,6 +133,15 @@ function MemberBody({ member, plans }: { member: MembershipDetail; plans: PlanIt
             ? `${shortDate(member.nextBillAt)} · ${amount(member.priceCents)}`
             : "—",
         ],
+    // C-48: a move to the plan's newer price they've been told about.
+    ...(member.priceChange
+      ? ([
+          [
+            "New price",
+            `${amount(member.priceChange.priceCents)} from ${shortDate(member.priceChange.at)}`,
+          ],
+        ] as Array<[string, string]>)
+      : []),
     [
       "Card",
       member.card
@@ -263,10 +282,11 @@ function MemberBody({ member, plans }: { member: MembershipDetail; plans: PlanIt
               >
                 {act.isPending && act.variables?.action === "change_plan" && <Spinner />} Move
               </Button>
-              {moveTo && (
+              {target && (
                 <p className="w-full text-sm text-muted-foreground">
-                  Stripe works out the difference for the rest of this {member.interval} and emails
-                  them.
+                  {target.interval === member.interval
+                    ? `Stripe works out the difference for the rest of this ${member.interval} and emails them.`
+                    : `Billed every ${target.interval} from today. Stripe credits the unused part of this ${member.interval} against the first bill and emails them.`}
                 </p>
               )}
             </div>
@@ -278,7 +298,14 @@ function MemberBody({ member, plans }: { member: MembershipDetail; plans: PlanIt
         <h3 className="font-semibold">Bills</h3>
         <ul className="divide-y rounded-lg border text-[15px]">
           {member.invoices.map((invoice) => (
-            <li key={invoice.id} className="flex items-center gap-3 px-3 py-2.5">
+            <li
+              key={invoice.id}
+              aria-current={invoice.id === bill || undefined}
+              className={cn(
+                "flex items-center gap-3 px-3 py-2.5",
+                invoice.id === bill && "bg-primary-subtle",
+              )}
+            >
               <span className="min-w-0 flex-1">
                 <span className="block">
                   {shortDate(invoice.paidAt ?? invoice.createdAt)}

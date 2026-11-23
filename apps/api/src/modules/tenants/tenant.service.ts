@@ -33,7 +33,7 @@ export async function onboardTenant(userId: string, input: OnboardingData) {
   if (await findMembership(userId)) throw new HttpError(409, "already_onboarded", "Your business is already set up.");
 
   const areaCode = input.ownerCell.slice(2, 5);
-  const number = await telephony.provisionNumber({ areaCode });
+  const number = await telephony.provisionNumber({ areaCode, state: input.state || null });
   const tenantId = uuidv7();
   const slug = `${slugify(input.businessName)}-${tenantId.slice(-4)}`;
   // C-25: the business whose link this one came from earns when it starts paying.
@@ -115,6 +115,8 @@ export async function getSettings(tenantId: string): Promise<SettingsResponse> {
       postalCode: tenant.postalCode,
       timezone: tenant.timezone,
       licenseNumber: tenant.licenseNumber,
+      licenseTrade: tenant.licenseTrade,
+      licenseState: tenant.licenseState,
       insuranceCarrier: tenant.insuranceCarrier,
       insurancePolicyNumber: tenant.insurancePolicyNumber,
       yearsInBusiness: tenant.yearsInBusiness,
@@ -149,6 +151,8 @@ export async function updateSettings(tenantId: string, userId: string, input: Se
         ...(input.state !== undefined && { state: input.state ? input.state.toUpperCase() : null }),
         ...(input.timezone !== undefined && { timezone: input.timezone }),
         ...(input.licenseNumber !== undefined && { licenseNumber: input.licenseNumber || null }),
+        ...(input.licenseTrade !== undefined && { licenseTrade: input.licenseTrade || null }),
+        ...(input.licenseState !== undefined && { licenseState: input.licenseState ? input.licenseState.toUpperCase() : null }),
         ...(input.insuranceCarrier !== undefined && { insuranceCarrier: input.insuranceCarrier || null }),
         ...(input.insurancePolicyNumber !== undefined && { insurancePolicyNumber: input.insurancePolicyNumber || null }),
         ...(input.yearsInBusiness !== undefined && { yearsInBusiness: input.yearsInBusiness }),

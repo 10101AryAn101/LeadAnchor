@@ -1,5 +1,6 @@
-import { and, eq } from "drizzle-orm";
-import { campaignRecipients, campaigns, tenants } from "../../db/schema";
+import { DEFAULT_SEND_RATE } from "@leadanchor/contracts";
+import { and, eq, inArray } from "drizzle-orm";
+import { campaignRecipients, campaigns, customers, tenants } from "../../db/schema";
 import { tenantWork } from "../../db/unit-of-work";
 import { randomToken, sha256 } from "../../lib/crypto";
 import { featureOn } from "../billing/access";
@@ -10,10 +11,14 @@ import { firstNameOf } from "../reviews/reviews.service";
 import { audienceLabel, resolveAudience } from "./audience";
 import { emailFor } from "./campaign.service";
 import { campaignLinkUrl } from "./links";
+import { quietUntil, recipientZone } from "./quiet-hours";
 import { campaignHtml, campaignText } from "./render";
 
-/** Sending is spread out: this many emails a minute (module 11: rate-limited sends). */
-export const SENDS_PER_MINUTE = 60;
+/**
+ * Sending is spread out (module 11: rate-limited sends) at the rate the owner approved with the
+ * campaign (C-44 AC 5); campaigns approved before that choice existed go at this rate.
+ */
+export const SENDS_PER_MINUTE = DEFAULT_SEND_RATE;
 
 /**
  * Job: a scheduled campaign's time has come. The audience is worked out again now, everyone it
@@ -43,7 +48,13 @@ export async function campaignSendJob({
     if (!featureOn(tenant, "campaigns")) {
       await tx
         .update(campaigns)
-        .set({ status: "draft", scheduledFor: null, approvedAt: null, approvedBy: null })
+        .set({
+          status: "draft",
+          scheduledFor: null,
+          approvedAt: null,
+          approvedBy: null,
+          sendsPerMinute: null,
+        })
         .where(eq(campaigns.id, campaignId));
       await audit(tx, {
         tenantId,
@@ -81,7 +92,26 @@ export async function campaignSendJob({
         .onConflictDoNothing();
     }
 
+    // C-44 AC 4: each email waits out the recipient's own quiet hours (9 pm to 8 am their time).
+    const addresses = new Map(
+      audience.reachable.length === 0
+        ? []
+        : (
+            await tx
+              .select({ id: customers.id, address: customers.address })
+              .from(customers)
+              .where(
+                inArray(
+                  customers.id,
+                  audience.reachable.map((person) => person.customerId),
+                ),
+              )
+          ).map((row) => [row.id, row.address]),
+    );
+    const perMinute = campaign.sendsPerMinute ?? SENDS_PER_MINUTE;
+    const start = Date.now();
     let sent = 0;
+    let heldForMorning = 0;
     for (const person of audience.reachable) {
       const token = randomToken();
       const [recipient] = await tx
@@ -105,6 +135,11 @@ export async function campaignSendJob({
         firstNameOf(person.name),
         campaignLinkUrl(token),
       );
+      const due = new Date(start + Math.floor(sent / perMinute) * 60_000);
+      const morning = quietUntil(
+        due,
+        recipientZone(addresses.get(person.customerId), tenant.timezone),
+      );
       const message = await requestEmail(tx, fx, {
         tenant,
         customerId: person.customerId,
@@ -116,7 +151,7 @@ export async function campaignSendJob({
         purpose: "marketing",
         replyTo: campaign.replyTo,
         footer: { reason: person.reason, advertisement: true },
-        sendAfterSecs: Math.floor(sent / SENDS_PER_MINUTE) * 60,
+        sendAfterSecs: Math.max(0, Math.round(((morning ?? due).getTime() - start) / 1000)),
       });
       await tx
         .update(campaignRecipients)
@@ -136,7 +171,10 @@ export async function campaignSendJob({
             eq(campaignRecipients.campaignId, campaignId),
           ),
         );
-      if (message.status !== "blocked") sent += 1;
+      if (message.status !== "blocked") {
+        sent += 1;
+        if (morning) heldForMorning += 1;
+      }
     }
 
     await tx
@@ -149,7 +187,13 @@ export async function campaignSendJob({
       action: "campaign.sent",
       entityType: "campaign",
       entityId: campaignId,
-      data: { audience: audienceLabel(campaign.audience), sent, leftOut: audience.leftOut.length },
+      data: {
+        audience: audienceLabel(campaign.audience),
+        sent,
+        leftOut: audience.leftOut.length,
+        perMinute,
+        heldForMorning,
+      },
     });
     await notifyOwner(tx, fx, {
       tenantId,
@@ -157,7 +201,7 @@ export async function campaignSendJob({
       title: `“${campaign.name}” is on its way`,
       body:
         sent > 0
-          ? `Going to ${sent} ${sent === 1 ? "person" : "people"}. Taps and bookings show on the campaign as they come in.`
+          ? `Going to ${sent} ${sent === 1 ? "person" : "people"}.${heldForMorning > 0 ? ` ${heldForMorning} of them ${heldForMorning === 1 ? "gets" : "get"} it at 8 am their time, after quiet hours.` : ""} Taps and bookings show on the campaign as they come in.`
           : "Nobody on the list could get it by the time it went out. Open it to see why.",
       path: `/campaigns/${campaignId}`,
     });

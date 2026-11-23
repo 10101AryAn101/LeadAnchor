@@ -1,7 +1,13 @@
 "use client";
 
 import { type SimWhatsAppThread, formatPhone } from "@leadanchor/contracts";
-import { IconArrowUp, IconBrandWhatsapp, IconFlask, IconRefresh } from "@tabler/icons-react";
+import {
+  IconArrowUp,
+  IconBrandWhatsapp,
+  IconFlask,
+  IconPhoto,
+  IconRefresh,
+} from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -81,10 +87,11 @@ export function SimulatedWhatsApp({ business, prefill }: { business: string; pre
     refetchInterval: (query) => (query.state.data?.typing ? 1500 : 4000),
   });
   const send = useMutation({
-    mutationFn: () =>
+    // A photo goes as a data: URL, with whatever is typed as its caption (C-11).
+    mutationFn: (photo?: string) =>
       api<SimWhatsAppThread>(`/dev/simulator/whatsapp/${business}/messages`, {
         method: "POST",
-        body: { from: phone, name, text: text.trim() },
+        body: { from: phone, name, text: text.trim(), ...(photo && { photo }) },
       }),
     onSuccess: (data) => {
       setText("");
@@ -183,9 +190,31 @@ export function SimulatedWhatsApp({ business, prefill }: { business: string; pre
           className="flex items-center gap-2 border-t p-2.5"
           onSubmit={(event) => {
             event.preventDefault();
-            if (text.trim()) send.mutate();
+            if (text.trim()) send.mutate(undefined);
           }}
         >
+          <label
+            className={cn(
+              "flex size-11 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground hover:bg-muted",
+              (send.isPending || !phone) && "pointer-events-none opacity-40",
+            )}
+            aria-label="Send a photo"
+          >
+            <IconPhoto className="size-5" />
+            <input
+              type="file"
+              accept="image/*"
+              className="sr-only"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                event.target.value = "";
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onload = () => send.mutate(String(reader.result));
+                reader.readAsDataURL(file);
+              }}
+            />
+          </label>
           <input
             value={text}
             onChange={(event) => setText(event.target.value)}

@@ -8,7 +8,9 @@ import {
   tierAllows,
 } from "@leadanchor/contracts";
 import { describe, expect, it } from "vitest";
+import { decide } from "../messaging/policy";
 import { areaOf, zipOf } from "./area";
+import { customerNotice } from "./customer-notice";
 
 describe("where a passed job is (C-24, guardrail 2)", () => {
   it("finds the ZIP in a typed address", () => {
@@ -62,5 +64,40 @@ describe("referral credits (C-25)", () => {
     };
     expect(onboardingInput.parse(input).referralCode).toBe("ab12cd34");
     expect(onboardingInput.parse({ ...input, referralCode: undefined }).referralCode).toBeUndefined();
+  });
+});
+
+describe("no silent transfer (C-24, guardrail 1)", () => {
+  // The send path's real decision for the handoff text, with the facts varied.
+  const text = (facts: { consent?: "GRANTED" | "REVOKED" | null; approved?: boolean }) =>
+    decide({
+      purpose: "transactional",
+      preferredChannels: ["sms", "whatsapp"],
+      smsConsent: facts.consent === undefined ? "GRANTED" : facts.consent,
+      carrierApproved: facts.approved ?? true,
+      whatsappWindowOpen: false,
+      whatsappConfigured: false,
+      recipientLocalHour: 12,
+      waitlistTextsCleared: false,
+    });
+
+  it("tells them by text when a text would go", () => {
+    expect(customerNotice(text({}), undefined)).toEqual({ via: "text", problem: null });
+  });
+
+  it("tells them by email when texting can't reach them", () => {
+    expect(customerNotice(text({ consent: null }), null)).toEqual({ via: "email", problem: null });
+    expect(customerNotice(null, null)).toEqual({ via: "email", problem: null });
+  });
+
+  it("won't move the job when neither would reach them, and says why", () => {
+    expect(customerNotice(text({ approved: false }), undefined)).toEqual({
+      via: null,
+      problem: "texting is blocked until carriers approve the business (10DLC), and there's no email address for them",
+    });
+    expect(customerNotice(text({ consent: "REVOKED" }), "Emails to this address bounce. Check it in the customer's details.").problem).toBe(
+      "customer opted out (STOP), and emails to this address bounce",
+    );
+    expect(customerNotice(null, undefined).problem).toBe("there's no phone number for them, and there's no email address for them");
   });
 });

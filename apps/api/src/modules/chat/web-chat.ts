@@ -35,7 +35,8 @@ export async function getChatContext(slug: string): Promise<PublicChatContext> {
   };
 }
 
-async function thread(conversationId: string): Promise<Omit<PublicChatThread, "token">> {
+/** A web chat as the customer sees it: both sides' messages, and whether the assistant is writing. */
+export async function chatThread(conversationId: string): Promise<Omit<PublicChatThread, "token">> {
   const [conversation] = await systemDb
     .select()
     .from(conversations)
@@ -84,7 +85,7 @@ export async function getChatThread(
     throw new HttpError(404, "chat_not_found", "That chat has ended. Start a new one.");
   const tenant = await tenantBySlug(slug);
   const conversation = await resolve(tenant.id, token!);
-  return { token: null, ...(await thread(conversation.id)) };
+  return { token: null, ...(await chatThread(conversation.id)) };
 }
 
 /** C-10, C-16: the visitor writes in the website chat. The first message starts the chat and its token. */
@@ -156,5 +157,5 @@ export async function postChatMessage(
     if (conversation!.leadId) fx.publish({ type: "lead.updated", leadId: conversation!.leadId });
     return conversation!.id;
   });
-  return { token: fresh, ...(await thread(conversationId)) };
+  return { token: fresh, ...(await chatThread(conversationId)) };
 }

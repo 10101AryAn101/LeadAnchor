@@ -12,6 +12,7 @@ import { logger } from "../../lib/logger";
 import { audit } from "../compliance/audit";
 import { applyReferralCredits, recordReferral } from "../network/referrals";
 import { siteUrl } from "../profile/links";
+import { ensureNumber } from "../tenants/numbers";
 
 type Tenant = typeof tenants.$inferSelect;
 
@@ -233,6 +234,8 @@ export async function applyTierSubscription(state: TierSubscription, actor: stri
     }
     fx.publish({ type: "account.updated" });
     if (status === "active" || status === "past_due") {
+      // Back after leaving, and the old number was released: a new one.
+      if (tenant.status === "cancelled") fx.afterCommit(() => ensureNumber(tenant.id));
       // C-25: a business that joined with another's link and now pays is that business's referral.
       const referrer = tenant.referredByTenantId;
       if (referrer) fx.afterCommit(() => recordReferral(referrer, "signup", tenant.id));

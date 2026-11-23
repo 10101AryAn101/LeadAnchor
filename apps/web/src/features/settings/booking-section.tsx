@@ -86,6 +86,7 @@ const same = (a: BookingSettings, b: BookingSettings) =>
   a.noticeHours === b.noticeHours &&
   a.windowDays === b.windowDays &&
   a.bufferMins === b.bufferMins &&
+  (a.depositCents ?? null) === (b.depositCents ?? null) &&
   WEEKDAY_KEYS.every(
     (day) =>
       a.hours[day].open === b.hours[day].open &&
@@ -271,6 +272,12 @@ function BookingForm({ data }: { data: BookingSettingsResponse }) {
         />
       </div>
 
+      <DepositField
+        cents={draft.depositCents ?? null}
+        cardPayments={data.cardPayments}
+        onChange={(cents) => set("depositCents", cents)}
+      />
+
       {data.servicesWithoutTime > 0 && (
         <p className="rounded-md bg-muted p-3 text-[15px] text-muted-foreground">
           {data.servicesWithoutTime === 1
@@ -296,6 +303,73 @@ function BookingForm({ data }: { data: BookingSettingsResponse }) {
 
       <LinkRow url={data.bookingUrl} on={data.settings.enabled} />
     </form>
+  );
+}
+
+/** C-15: a deposit held on the customer's card when they book online, so fewer people don't show. */
+function DepositField({
+  cents,
+  cardPayments,
+  onChange,
+}: {
+  cents: number | null;
+  cardPayments: boolean;
+  onChange: (cents: number | null) => void;
+}) {
+  const on = cents !== null;
+  return (
+    <div className="space-y-3 rounded-lg border bg-background p-4">
+      <Field orientation="horizontal" className="items-start justify-between gap-4">
+        <div className="space-y-1">
+          <FieldLabel htmlFor="booking-deposit">Hold a deposit when they book</FieldLabel>
+          <FieldDescription>
+            Customers put a hold on their card to book. Nothing is charged unless you collect it,
+            for example after a no-show. If the visit is cancelled, the hold is let go.
+          </FieldDescription>
+        </div>
+        <Switch
+          id="booking-deposit"
+          checked={on}
+          disabled={!on && !cardPayments}
+          onCheckedChange={(checked) => onChange(checked ? 5000 : null)}
+        />
+      </Field>
+      {!cardPayments && (
+        <p className="text-[15px] text-muted-foreground">
+          {on ? "Card payments are off, so customers aren't asked for it right now. " : ""}
+          <a href="#payments" className="font-semibold text-primary">
+            Turn on card payments
+          </a>{" "}
+          to hold deposits.
+        </p>
+      )}
+      {on && (
+        <Field>
+          <FieldLabel htmlFor="booking-deposit-amount">Deposit</FieldLabel>
+          <InputGroup className="sm:w-48">
+            <InputGroupAddon>
+              <InputGroupText>$</InputGroupText>
+            </InputGroupAddon>
+            <InputGroupInput
+              id="booking-deposit-amount"
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={50000}
+              value={cents / 100}
+              onChange={(event) => {
+                const dollars = Math.round(Number(event.target.value));
+                if (Number.isFinite(dollars)) onChange(Math.min(50000, Math.max(1, dollars)) * 100);
+              }}
+            />
+          </InputGroup>
+          <FieldDescription>
+            A card hold lasts about a week. For visits further out, you&apos;re told the day before
+            it ends, so you can collect it or let it go.
+          </FieldDescription>
+        </Field>
+      )}
+    </div>
   );
 }
 

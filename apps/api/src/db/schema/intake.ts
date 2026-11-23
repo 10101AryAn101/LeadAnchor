@@ -1,3 +1,4 @@
+import { MESSAGE_CHANNELS } from "@leadanchor/contracts";
 import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { createdAt, pk, tsz } from "./columns";
 import { customers, leads } from "./crm";
@@ -17,6 +18,8 @@ export const intakeRequests = pgTable(
       .references(() => customers.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull(),
     status: text("status", { enum: ["sent", "opened", "submitted", "expired"] }).notNull().default("sent"),
+    /** How the link reached the customer, so opens are counted per channel (C-07). Null until it's sent. */
+    channel: text("channel", { enum: MESSAGE_CHANNELS }),
     expiresAt: tsz("expires_at").notNull(),
     openedAt: tsz("opened_at"),
     submittedAt: tsz("submitted_at"),

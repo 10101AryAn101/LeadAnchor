@@ -5,16 +5,18 @@ import { and, count, desc, eq, gte, inArray, isNotNull, max, sql } from "drizzle
 import { linkBaseUrl } from "../../config/env";
 import { ai, listingProviders } from "../../container";
 import { systemDb } from "../../db/client";
-import { type AskedQuestion, type Mismatch, aiVisibilityChecks, bookings, customers, leads, listingConnections, mediaAssets, phoneNumbers, reviews, services, tenants } from "../../db/schema";
+import { type AskedQuestion, type Mismatch, aiVisibilityChecks, bookings, carrierRegistrations, customers, leads, listingConnections, mediaAssets, phoneNumbers, reviews, services, tenants } from "../../db/schema";
 import { tenantWork } from "../../db/unit-of-work";
 import { HttpError, notFound } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { featureOn } from "../billing/access";
 import { bookingOpen, bookingUrl, settingsOf } from "../booking/core";
 import { audit } from "../compliance/audit";
+import { approvedForTexting } from "../compliance/registration.service";
 import { zipOf } from "../network/area";
 import { profileUrl, siteUrl, websiteLive } from "../profile/links";
 import { type AiProfileFacts, aiProfileOf } from "./ai-profile";
+import { missingServices, serviceList } from "./consistency";
 import { mentions, normalizeName, panelQuestions } from "./panel";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -30,7 +32,7 @@ export const discoveryOn = (tenant: Tenant) => !tenant.aiDiscoveryOptOut && feat
 /** The real records behind the page: the last year's work, asks, ZIPs, and the business's own settings. */
 async function factsOf(tenant: Tenant, extras: { phone: string | null; rating: AiProfileFacts["rating"]; photoIds: string[] }): Promise<AiProfileFacts> {
   const since = new Date(Date.now() - 365 * DAY_MS);
-  const [won, booked, asks, catalog, [latestReview]] = await Promise.all([
+  const [won, booked, asks, catalog, [latestReview], [registration]] = await Promise.all([
     systemDb
       .select({ category: leads.serviceCategory, address: customers.address, wonAt: leads.wonAt })
       .from(leads)
@@ -55,6 +57,11 @@ async function factsOf(tenant: Tenant, extras: { phone: string | null; rating: A
       .where(and(eq(services.tenantId, tenant.id), eq(services.active, true)))
       .orderBy(services.sortOrder),
     systemDb.select({ at: max(reviews.publishedAt) }).from(reviews).where(eq(reviews.tenantId, tenant.id)),
+    systemDb
+      .select({ status: carrierRegistrations.status, provider: carrierRegistrations.provider })
+      .from(carrierRegistrations)
+      .where(eq(carrierRegistrations.tenantId, tenant.id))
+      .limit(1),
   ]);
 
   // Services it really did (won jobs and finished bookings); its own price list until it has any.
@@ -83,9 +90,13 @@ async function factsOf(tenant: Tenant, extras: { phone: string | null; rating: A
     pageUrl: page,
     bookingUrl: bookingOpen(tenant) ? bookingUrl(tenant.slug) : null,
     licenseNumber: tenant.licenseNumber,
+    licenseTrade: tenant.licenseTrade,
+    licenseState: tenant.licenseState,
     insuranceCarrier: tenant.insuranceCarrier,
     yearsInBusiness: tenant.yearsInBusiness,
     googleProfileUrl: tenant.googleProfileUrl,
+    // Only claimed while it's true: the Dispatcher is on and the business may text (AC d).
+    textsBack: tenant.dispatcherEnabled && Boolean(registration && approvedForTexting(registration)),
     website: tenant.website,
     rating: extras.rating,
     services: performed.length > 0 ? performed.slice(0, 8) : catalog.slice(0, 8).map((service) => ({ name: service.name, jobs: 0 })),
@@ -167,9 +178,16 @@ async function readSite(url: string): Promise<string | null> {
   return null;
 }
 
-/** C-42 point 5: where the name, phone, address or website disagree between LeadAnchor, Google and the owner's site. */
+/** C-42 point 5: where the name, phone, address, website or services disagree between LeadAnchor, Google and the owner's site. */
 async function mismatchesOf(tenant: Tenant, line: string | null): Promise<Mismatch[]> {
   const found: Mismatch[] = [];
+  const offered = (
+    await systemDb
+      .select({ name: services.name })
+      .from(services)
+      .where(and(eq(services.tenantId, tenant.id), eq(services.active, true)))
+      .orderBy(services.sortOrder)
+  ).map((service) => service.name);
   const [connection] = await systemDb.select().from(listingConnections).where(eq(listingConnections.tenantId, tenant.id)).limit(1);
   const adapter = connection ? listingProviders[connection.provider] : undefined;
   if (connection && adapter) {
@@ -185,6 +203,11 @@ async function mismatchesOf(tenant: Tenant, line: string | null): Promise<Mismat
       if (googleZip && tenant.postalCode && googleZip !== tenant.postalCode) {
         found.push({ field: "address", detail: `Google has ZIP ${googleZip}; your LeadAnchor profile has ${tenant.postalCode}.` });
       }
+      // Only when Google reports its service list; a listing that doesn't say isn't a mismatch.
+      const missingOnGoogle = listing.details.services ? missingServices(offered, listing.details.services.join(" | ")) : [];
+      if (missingOnGoogle.length > 0) {
+        found.push({ field: "services", detail: `Google doesn't list ${serviceList(missingOnGoogle)} from your price list.` });
+      }
     }
   }
   if (tenant.website) {
@@ -197,6 +220,10 @@ async function mismatchesOf(tenant: Tenant, line: string | null): Promise<Mismat
       }
       if (line && !digits(site).includes(digits(line).slice(-10))) {
         found.push({ field: "phone", detail: `Your website doesn't show your LeadAnchor line ${formatPhone(line)}.` });
+      }
+      const missingOnSite = missingServices(offered, site);
+      if (missingOnSite.length > 0) {
+        found.push({ field: "services", detail: `Your website doesn't mention ${serviceList(missingOnSite)} from your price list.` });
       }
     }
   }

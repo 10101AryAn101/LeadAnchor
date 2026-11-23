@@ -169,6 +169,48 @@
       "when": 1793699445786,
       "tag": "0023_ops",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1793860311776,
+      "tag": "0024_intake_link_channel",
+      "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1793861349932,
+      "tag": "0025_payment_booking",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1793862401235,
+      "tag": "0026_license_trade_state",
+      "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1793862809426,
+      "tag": "0027_campaign_send_rate",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1793875330800,
+      "tag": "0028_membership_price_moves",
+      "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1793875660500,
+      "tag": "0029_income_months_event_retries",
+      "breakpoints": true
     }
   ]
 }

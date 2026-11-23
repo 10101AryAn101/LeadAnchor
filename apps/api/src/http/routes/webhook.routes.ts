@@ -7,7 +7,7 @@ import { webhookInbox } from "../../db/schema";
 import { HttpError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { serial } from "../../lib/serial";
-import { billing, payments, telephony } from "../../container";
+import { billing, channels, payments, telephony } from "../../container";
 import { StripeBilling } from "../../integrations/billing/stripe";
 import { verifyResendSignature } from "../../integrations/messaging/resend";
 import { StripePayments } from "../../integrations/payments/stripe";
@@ -151,16 +151,22 @@ export async function webhookRoutes(app: FastifyInstance) {
         const businessNumber = testNumber ?? change.value?.metadata?.display_phone_number;
         const profiles = new Map((change.value?.contacts ?? []).map((contact) => [contact.wa_id, contact.profile?.name ?? null]));
         for (const message of change.value?.messages ?? []) {
-          if (message.type !== "text" || !businessNumber) continue;
-          void handleInboundMessage({
-            from: `+${message.from}`,
-            to: `+${businessNumber.replace(/\D/g, "")}`,
-            text: message.text?.body ?? "",
-            channel: "whatsapp",
-            provider: "meta",
-            providerMessageId: message.id,
-            profileName: profiles.get(message.from) ?? null,
-          }).catch((error) => logger.error({ err: error }, "whatsapp inbound failed"));
+          // Texts and photos (C-11); other kinds (voice notes, stickers…) aren't read yet.
+          if ((message.type !== "text" && message.type !== "image") || !businessNumber) continue;
+          void (async () => {
+            const photo = message.type === "image" && message.image?.id ? await channels.whatsapp?.downloadMedia?.(message.image.id) : null;
+            await handleInboundMessage({
+              from: `+${message.from}`,
+              to: `+${businessNumber.replace(/\D/g, "")}`,
+              // A photo whose download failed still arrives, so the owner knows to ask again.
+              text: message.type === "image" ? (message.image?.caption ?? "") || (photo ? "" : "Sent a photo") : (message.text?.body ?? ""),
+              channel: "whatsapp",
+              provider: "meta",
+              providerMessageId: message.id,
+              profileName: profiles.get(message.from) ?? null,
+              photos: photo ? [{ buffer: photo }] : undefined,
+            });
+          })().catch((error) => logger.error({ err: error }, "whatsapp inbound failed"));
         }
       }
     }
@@ -200,7 +206,7 @@ interface WhatsAppWebhook {
       value?: {
         metadata?: { display_phone_number?: string };
         contacts?: Array<{ wa_id: string; profile?: { name?: string } }>;
-        messages?: Array<{ id: string; from: string; type: string; text?: { body?: string } }>;
+        messages?: Array<{ id: string; from: string; type: string; text?: { body?: string }; image?: { id?: string; caption?: string } }>;
       };
     }>;
   }>;

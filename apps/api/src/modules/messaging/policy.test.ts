@@ -41,6 +41,15 @@ describe("send policy (governed send path)", () => {
     expect(decide({ ...facts, whatsappWindowOpen: false }).allowed).toBe(false);
   });
 
+  it("stops WhatsApp too once the customer opts out, except the reply confirming it (C-27)", () => {
+    const facts = { ...base, preferredChannels: ["whatsapp" as const], smsConsent: "REVOKED" as const, whatsappConfigured: true, whatsappWindowOpen: true };
+    const reply = decide({ ...facts, purpose: "conversational" });
+    expect(reply.allowed).toBe(false);
+    expect(reply.reason).toBe("Customer opted out (STOP).");
+    expect(decide({ ...facts, purpose: "transactional", preferredChannels: ["sms", "whatsapp"] }).allowed).toBe(false);
+    expect(decide({ ...facts, purpose: "keyword_reply" }).channel).toBe("whatsapp");
+  });
+
   it("sends review requests by email only: they count as marketing (C-46)", () => {
     const decision = decide({ ...base, purpose: "review_request" });
     expect(decision.allowed).toBe(false);

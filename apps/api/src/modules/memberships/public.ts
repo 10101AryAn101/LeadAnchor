@@ -7,7 +7,7 @@ import {
   membershipTerms,
   type planJoinInput,
 } from "@leadanchor/contracts";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { payments } from "../../container";
 import { systemDb, withTenant } from "../../db/client";
@@ -304,8 +304,50 @@ export async function openPortal(token: string, returnUrl: string): Promise<{ ur
 /** An expired link can still ask for a fresh one, sent to the email the member signed up with. */
 export async function resendManageLink(token: string): Promise<{ sent: true }> {
   const { membership, tenant, planName, customerName } = await membershipByLink(token);
+  await sendManageLink({ membership, tenant, planName, customerName });
+  return { sent: true };
+}
+
+/**
+ * C-52: a member who lost every receipt asks for a fresh link from the plan's own page, with the
+ * email they joined with. The answer is the same whether or not they're a member, so the page
+ * can't be used to find out who is; a member gets a link for each of their plans here.
+ */
+export async function requestManageLink(planToken: string, email: string): Promise<{ sent: true }> {
+  const { tenant } = await planByToken(planToken);
+  const rows = await systemDb
+    .select({
+      membership: planMemberships,
+      planName: membershipPlans.name,
+      customerName: customers.name,
+    })
+    .from(planMemberships)
+    .innerJoin(membershipPlans, eq(membershipPlans.id, planMemberships.planId))
+    .innerJoin(customers, eq(customers.id, planMemberships.customerId))
+    .where(
+      and(
+        eq(planMemberships.tenantId, tenant.id),
+        sql`lower(${planMemberships.email}) = ${email.trim().toLowerCase()}`,
+        ne(planMemberships.status, "pending"),
+      ),
+    )
+    .orderBy(desc(planMemberships.createdAt))
+    .limit(3);
+  for (const row of rows) await sendManageLink({ ...row, tenant });
+  return { sent: true };
+}
+
+/** The fresh link, by email to the address the member joined with; at most one every 10 minutes. */
+async function sendManageLink(input: {
+  membership: typeof planMemberships.$inferSelect;
+  tenant: Tenant;
+  planName: string;
+  customerName: string | null;
+}) {
+  const { membership, tenant, planName, customerName } = input;
   const last = recentResends.get(membership.id) ?? 0;
-  if (Date.now() - last < 10 * 60_000) return { sent: true };
+  if (Date.now() - last < 10 * 60_000) return;
+  if (recentResends.size > 10_000) recentResends.clear();
   recentResends.set(membership.id, Date.now());
   await tenantWork(tenant.id, async (tx, fx) => {
     await requestEmail(tx, fx, {
@@ -325,5 +367,4 @@ export async function resendManageLink(token: string): Promise<{ sent: true }> {
       ].join("\n\n"),
     });
   });
-  return { sent: true };
 }

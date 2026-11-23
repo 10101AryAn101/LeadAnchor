@@ -1,0 +1,58 @@
+# Checks every push and pull request: types across the workspace, the web app's lint rules, and
+# the API's tests. Nothing here deploys, and no real keys are used: the two values the API insists
+# on are made up fresh for each run.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Typecheck, lint and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      # The pnpm version comes from "packageManager" in package.json.
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Throwaway values for the API's required settings
+        run: |
+          echo "BETTER_AUTH_SECRET=$(openssl rand -hex 32)" >> "$GITHUB_ENV"
+          echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+
+      # next-env.d.ts and the route types are generated (and git-ignored), so make them first.
+      - name: Generate Next.js types
+        working-directory: apps/web
+        run: |
+          pnpm exec next typegen
+          test -f next-env.d.ts || printf '/// <reference types="next" />\n/// <reference types="next/image-types/global" />\n' > next-env.d.ts
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Lint the web app
+        run: pnpm --filter @leadanchor/web lint
+
+      - name: Test
+        run: pnpm test
+        env:
+          NODE_ENV: test

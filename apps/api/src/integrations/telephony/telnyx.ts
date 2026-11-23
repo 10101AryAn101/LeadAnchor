@@ -1,5 +1,6 @@
 import { createPublicKey, verify as verifySignature } from "node:crypto";
 import { randomUUID } from "node:crypto";
+import { toE164 } from "@leadanchor/contracts";
 import { logger } from "../../lib/logger";
 import type { CallHandle, ProvisionedNumber, TelephonyEvent, TelephonyProvider } from "./types";
 
@@ -63,23 +64,35 @@ export interface TelnyxWebhook {
 export class TelnyxTelephony implements TelephonyProvider {
   readonly name = "telnyx" as const;
   private readonly listenTimers = new Map<string, NodeJS.Timeout>();
+  /** What the caller has said so far while listening, from unfinished transcripts (C-39). */
+  private readonly listenPartials = new Map<string, string>();
   private readonly answered = new Set<string>();
 
   constructor(private readonly config: TelnyxConfig) {}
 
   /* ── Commands ──────────────────────────────────────────────────────────── */
 
-  async provisionNumber({ areaCode }: { areaCode: string | null }): Promise<ProvisionedNumber> {
-    const params = new URLSearchParams({
-      "filter[country_code]": "US",
-      "filter[features][]": "voice",
-      "filter[limit]": "1",
-      ...(areaCode ? { "filter[national_destination_code]": areaCode } : {}),
-    });
-    params.append("filter[features][]", "sms");
-    const search = await this.request<{ data: Array<{ phone_number: string }> }>("GET", `/available_phone_numbers?${params}`);
-    const candidate = search.data[0]?.phone_number;
-    if (!candidate) throw new Error(`No Telnyx numbers available${areaCode ? ` in area code ${areaCode}` : ""}.`);
+  async provisionNumber({ areaCode, state }: { areaCode: string | null; state?: string | null }): Promise<ProvisionedNumber> {
+    // The owner's area code first; then the rest of their state; then anywhere in the US (C-02).
+    const tries: Array<Record<string, string>> = [
+      ...(areaCode ? [{ "filter[national_destination_code]": areaCode }] : []),
+      ...(state ? [{ "filter[administrative_area]": state.toUpperCase() }] : []),
+      {},
+    ];
+    let candidate: string | undefined;
+    for (const where of tries) {
+      const params = new URLSearchParams({
+        "filter[country_code]": "US",
+        "filter[features][]": "voice",
+        "filter[limit]": "1",
+        ...where,
+      });
+      params.append("filter[features][]", "sms");
+      const search = await this.request<{ data: Array<{ phone_number: string }> }>("GET", `/available_phone_numbers?${params}`);
+      candidate = search.data[0]?.phone_number;
+      if (candidate) break;
+    }
+    if (!candidate) throw new Error("No Telnyx numbers are available right now.");
 
     const order = await this.request<{ data: { id: string } }>("POST", "/number_orders", {
       phone_numbers: [{ phone_number: candidate }],
@@ -87,6 +100,16 @@ export class TelnyxTelephony implements TelephonyProvider {
       ...(this.config.messagingProfileId ? { messaging_profile_id: this.config.messagingProfileId } : {}),
     });
     return { e164: candidate, providerNumberId: order.data.id };
+  }
+
+  async releaseNumber({ e164 }: { e164: string; providerNumberId: string | null }) {
+    // The stored id is the order's; the number itself is found by its digits.
+    const found = await this.request<{ data: Array<{ id: string }> }>(
+      "GET",
+      `/phone_numbers?${new URLSearchParams({ "filter[phone_number]": e164 })}`,
+    );
+    const id = found.data[0]?.id;
+    if (id) await this.request("DELETE", `/phone_numbers/${id}`);
   }
 
   async ringOwner(call: CallHandle, input: { ownerE164: string; fromE164: string; timeoutSecs: number }) {
@@ -132,14 +155,24 @@ export class TelnyxTelephony implements TelephonyProvider {
       },
       { role: "caller", tag: input.tag },
     );
-    // The webhook handler turns the first final transcript into speech.result; this timer covers silence.
+    // The webhook handler turns the first final transcript into speech.result; this timer covers
+    // silence, and a caller still talking (it passes on what they've said so far).
     const timer = setTimeout(() => {
       this.listenTimers.delete(call.callControlId);
+      const partial = this.listenPartials.get(call.callControlId);
+      this.listenPartials.delete(call.callControlId);
       void this.command(call.callControlId, "transcription_stop", {}, { role: "caller", tag: input.tag }).catch(() => {});
-      this.timeoutSink?.({ kind: "speech.timeout", tag: input.tag, ...call, eventId: randomUUID(), occurredAt: new Date() });
+      this.timeoutSink?.({ kind: "speech.timeout", tag: input.tag, ...(partial && { partial }), ...call, eventId: randomUUID(), occurredAt: new Date() });
     }, input.maxSecs * 1000);
     timer.unref();
     this.listenTimers.set(call.callControlId, timer);
+  }
+
+  async reject(call: CallHandle) {
+    // 486 Busy: the owner's carrier then ends our ring to them as busy, and the first call moves on (C-01).
+    await this.command(call.callControlId, "reject", { cause: "USER_BUSY" }, { role: "caller" }).catch((error) => {
+      logger.warn({ err: error }, "telnyx reject failed");
+    });
   }
 
   async placeTestCall(input: { from: string; to: string; ringSecs: number }) {
@@ -158,6 +191,7 @@ export class TelnyxTelephony implements TelephonyProvider {
     if (!timer) return;
     clearTimeout(timer);
     this.listenTimers.delete(call.callControlId);
+    this.listenPartials.delete(call.callControlId);
     await this.command(call.callControlId, "transcription_stop", {}, { role: "caller" }).catch(() => {});
   }
 
@@ -247,18 +281,26 @@ export class TelnyxTelephony implements TelephonyProvider {
     const handle = { ...base, callControlId };
 
     switch (data.event_type) {
-      case "call.initiated":
+      case "call.initiated": {
         if (p.direction !== "incoming") return [];
-        return [{ kind: "call.incoming", from: String(p.from ?? ""), to: String(p.to ?? ""), ...handle }];
+        const forwardedFrom = diversionNumber(p.sip_headers);
+        return [{ kind: "call.incoming", from: String(p.from ?? ""), to: String(p.to ?? ""), ...(forwardedFrom && { forwardedFrom }), ...handle }];
+      }
       case "call.speak.ended":
         return [{ kind: "playback.finished", tag: state?.tag ?? "", ...handle }];
       case "call.transcription": {
         const td = (p as { transcription_data?: { transcript?: string; is_final?: boolean; confidence?: number } }).transcription_data;
-        if (!td?.is_final || !td.transcript?.trim()) return [];
+        if (!td?.transcript?.trim()) return [];
         const timer = this.listenTimers.get(callControlId);
         if (!timer) return []; // already resolved
+        if (!td.is_final) {
+          // Still mid-sentence: remembered in case listening runs out before they finish.
+          this.listenPartials.set(callControlId, td.transcript.trim());
+          return [];
+        }
         clearTimeout(timer);
         this.listenTimers.delete(callControlId);
+        this.listenPartials.delete(callControlId);
         await this.command(callControlId, "transcription_stop", {}, state ?? { role: "caller" }).catch(() => {});
         return [{ kind: "speech.result", tag: state?.tag ?? "", transcript: td.transcript.trim(), confidence: td.confidence ?? null, ...handle }];
       }
@@ -295,7 +337,7 @@ export class TelnyxTelephony implements TelephonyProvider {
     });
   }
 
-  private async request<T = unknown>(method: "GET" | "POST", path: string, body?: unknown): Promise<T> {
+  private async request<T = unknown>(method: "GET" | "POST" | "DELETE", path: string, body?: unknown): Promise<T> {
     const response = await fetch(`${API}${path}`, {
       method,
       headers: { Authorization: `Bearer ${this.config.apiKey}`, "Content-Type": "application/json" },
@@ -331,4 +373,21 @@ export function verifyTelnyxSignature(input: {
   const spki = Buffer.concat([Buffer.from("302a300506032b6570032100", "hex"), raw]);
   const key = createPublicKey({ key: spki, format: "der", type: "spki" });
   return verifySignature(null, Buffer.from(`${timestamp}|${rawBody}`), key, Buffer.from(signature, "base64"));
+}
+
+/**
+ * C-01: the number a forwarded call was first dialled to, read from the SIP Diversion header that
+ * Telnyx passes on in `sip_headers` on call.initiated, e.g. `<sip:+15125550199@carrier.example>;reason=no-answer`.
+ * Undefined when the call wasn't forwarded or the header holds no phone number.
+ */
+export function diversionNumber(sipHeaders: unknown): string | undefined {
+  if (!Array.isArray(sipHeaders)) return undefined;
+  for (const header of sipHeaders) {
+    const { name, value } = (header ?? {}) as { name?: unknown; value?: unknown };
+    if (typeof name !== "string" || name.toLowerCase() !== "diversion" || typeof value !== "string") continue;
+    const digits = /(?:sips?|tel):\+?(\d{10,15})/i.exec(value)?.[1];
+    const e164 = digits ? toE164(digits.length > 10 ? `+${digits}` : digits) : null;
+    if (e164) return e164;
+  }
+  return undefined;
 }

@@ -12,7 +12,7 @@ import {
   type paymentSettingsInput,
   formatPhone,
 } from "@leadanchor/contracts";
-import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from "drizzle-orm";
 import type { z } from "zod";
 import { linkBaseUrl } from "../../config/env";
 import { payments } from "../../container";
@@ -305,6 +305,7 @@ export async function insertPaymentRequest(
     leadId: string;
     customerId: string;
     quoteId?: string | null;
+    bookingId?: string | null;
     kind: PaymentKind;
     capture: PaymentCapture;
     amountCents: number;
@@ -318,6 +319,7 @@ export async function insertPaymentRequest(
     .values({
       ...input,
       quoteId: input.quoteId ?? null,
+      bookingId: input.bookingId ?? null,
       status: "open",
       tokenHash: sha256(token),
       tokenSealed: encryptSecret(token),
@@ -501,6 +503,47 @@ async function providerAccountFor(tenantId: string, row: PaymentRow) {
   return account.providerAccountId;
 }
 
+/**
+ * C-15: an online booking's deposit only secures that visit. Once the visit is cancelled (by the
+ * customer, the owner, or the job being lost), a hold is released and an unpaid link is closed.
+ */
+export async function releaseBookingDepositsJob({
+  tenantId,
+  bookingId,
+}: {
+  tenantId: string;
+  bookingId: string;
+}) {
+  const rows = await withTenant(tenantId, (tx) =>
+    tx
+      .select({ id: paymentRequests.id, status: paymentRequests.status })
+      .from(paymentRequests)
+      .where(
+        and(
+          eq(paymentRequests.bookingId, bookingId),
+          inArray(paymentRequests.status, ["held", "open"]),
+        ),
+      ),
+  );
+  const options = { actor: "system", reason: "booking_canceled" };
+  for (const row of rows) {
+    try {
+      if (row.status === "held") await releaseHold(tenantId, row.id, options);
+      else await closePayLink(tenantId, row.id, options);
+    } catch (error) {
+      // They put the hold on at that very moment: let that go too.
+      if (error instanceof HttpError && error.code === "just_paid") {
+        await releaseHold(tenantId, row.id, options).catch((err) =>
+          logger.warn({ err, paymentId: row.id }, "booking deposit not released"),
+        );
+      } else {
+        // E.g. the payments account changed: the owner still sees it on the job and can release it.
+        logger.warn({ err: error, paymentId: row.id }, "booking deposit not released");
+      }
+    }
+  }
+}
+
 /** C-15: collect a deposit that is on hold. */
 export async function capturePayment(
   tenantId: string,
@@ -539,6 +582,14 @@ export async function releasePayment(
   userId: string,
   paymentId: string,
 ): Promise<PaymentItem> {
+  return releaseHold(tenantId, paymentId, { actor: `user:${userId}` });
+}
+
+async function releaseHold(
+  tenantId: string,
+  paymentId: string,
+  options: { actor: string; reason?: string },
+): Promise<PaymentItem> {
   const row = await withTenant(tenantId, (tx) => rowOf(tx, paymentId));
   if (row.status === "released") return toPaymentItem(row);
   if (row.status !== "held" || !row.providerPaymentId)
@@ -555,7 +606,7 @@ export async function releasePayment(
       tenantId,
       row.id,
       await payments.release(accountId, row.providerPaymentId),
-      { actor: `user:${userId}` },
+      options,
     );
   } catch (error) {
     if (!(error instanceof PaymentRefused)) throw error;
@@ -570,6 +621,15 @@ export async function cancelPaymentRequest(
   userId: string,
   paymentId: string,
 ): Promise<PaymentItem> {
+  return closePayLink(tenantId, paymentId, { actor: `user:${userId}` });
+}
+
+async function closePayLink(
+  tenantId: string,
+  paymentId: string,
+  options: { actor: string; reason?: string },
+): Promise<PaymentItem> {
+  const actor = options.actor;
   const row = await withTenant(tenantId, (tx) => rowOf(tx, paymentId));
   if (row.status === "canceled") return toPaymentItem(row);
   if (row.status === "held")
@@ -605,12 +665,16 @@ export async function cancelPaymentRequest(
       tenantId,
       leadId: locked.leadId,
       type: "payment.canceled",
-      actor: `user:${userId}`,
-      data: { paymentId, amountCents: locked.amountCents },
+      actor,
+      data: {
+        paymentId,
+        amountCents: locked.amountCents,
+        ...(options.reason && { reason: options.reason }),
+      },
     });
     await audit(tx, {
       tenantId,
-      actor: `user:${userId}`,
+      actor,
       action: "payment.canceled",
       entityType: "payment",
       entityId: paymentId,
@@ -713,7 +777,7 @@ export async function applyPaymentState(
   tenantId: string,
   paymentId: string,
   state: PaymentState,
-  options: { actor?: string } = {},
+  options: { actor?: string; reason?: string } = {},
 ): Promise<PaymentItem> {
   return tenantWork(tenantId, async (tx, fx) => {
     const row = await rowOf(tx, paymentId, true);
@@ -812,7 +876,7 @@ export async function applyPaymentState(
             data: {
               paymentId,
               amountCents: row.amountCents,
-              reason: byOwner ? "owner" : "expired",
+              reason: options.reason ?? (byOwner ? "owner" : "expired"),
             },
           };
         }
@@ -865,7 +929,7 @@ export async function applyPaymentState(
         body: `${row.description}, by card.`,
         leadId: row.leadId,
       });
-    } else if (!byOwner && event.type === "payment.released") {
+    } else if (!byOwner && event.type === "payment.released" && !options.reason) {
       await notifyOwner(tx, fx, {
         tenantId,
         kind: "payment",
@@ -901,7 +965,86 @@ export async function receivePaymentEvent(event: PaymentEvent) {
     .onConflictDoNothing()
     .returning({ id: webhookInbox.id });
   if (!stored) return;
+  await handlePaymentEvent(stored.id, event);
+}
 
+/** Up to this many tries in all, spaced out, while the event is under three days old (C-50). */
+const EVENT_TRIES = 5;
+
+/**
+ * Every 15 minutes: provider events that failed are tried again (C-50: "a failed Stripe update
+ * isn't retried"). The stored copy may be out of date by now, so the object is read again from the
+ * provider and its current state applied, never the old one.
+ */
+export async function retryFailedPaymentEvents(now = new Date()) {
+  const failed = await systemDb
+    .select()
+    .from(webhookInbox)
+    .where(
+      and(
+        eq(webhookInbox.provider, `payments.${payments.name}`),
+        eq(webhookInbox.status, "failed"),
+        lt(webhookInbox.attempts, EVENT_TRIES),
+        gt(webhookInbox.receivedAt, new Date(now.getTime() - 3 * 86_400_000)),
+      ),
+    )
+    .limit(50);
+  for (const row of failed) {
+    // 2, 4, 8, 16 minutes after the last try.
+    const wait = 2 ** row.attempts * 60_000;
+    if (row.processedAt && now.getTime() - row.processedAt.getTime() < wait) continue;
+    const event = row.payload as PaymentEvent;
+    const fresh = await currentEvent(event).catch((error: unknown) => {
+      logger.warn(
+        { err: error, eventId: row.eventId },
+        "payment event retry: provider unavailable",
+      );
+      return undefined;
+    });
+    if (fresh === undefined) {
+      await systemDb
+        .update(webhookInbox)
+        .set({ attempts: row.attempts + 1, processedAt: now })
+        .where(eq(webhookInbox.id, row.id));
+      continue;
+    }
+    if (fresh === null) {
+      await systemDb
+        .update(webhookInbox)
+        .set({ status: "ignored", processedAt: now })
+        .where(eq(webhookInbox.id, row.id));
+      continue;
+    }
+    await handlePaymentEvent(row.id, fresh).catch(() => undefined);
+  }
+}
+
+/** The event's object as the provider has it now. */
+async function currentEvent(event: PaymentEvent): Promise<PaymentEvent | null> {
+  switch (event.type) {
+    case "account":
+      return { ...event, account: await payments.getAccount(event.accountId) };
+    case "payment":
+      return {
+        ...event,
+        state: await payments.getPayment(event.accountId, event.state.checkoutId),
+      };
+    case "subscription":
+      return {
+        ...event,
+        subscription: await payments.getSubscription(
+          event.accountId,
+          event.subscription.subscriptionId,
+        ),
+      };
+    case "invoice": {
+      const invoice = await payments.getInvoice(event.accountId, event.invoice.invoiceId);
+      return invoice ? { ...event, invoice } : null;
+    }
+  }
+}
+
+async function handlePaymentEvent(inboxId: string, event: PaymentEvent) {
   const [account] = await systemDb
     .select({ id: paymentAccounts.id, tenantId: paymentAccounts.tenantId })
     .from(paymentAccounts)
@@ -917,7 +1060,7 @@ export async function receivePaymentEvent(event: PaymentEvent) {
       await systemDb
         .update(webhookInbox)
         .set({ status: "ignored", processedAt: new Date() })
-        .where(eq(webhookInbox.id, stored.id));
+        .where(eq(webhookInbox.id, inboxId));
       return;
     }
     if (event.type === "account")
@@ -930,8 +1073,13 @@ export async function receivePaymentEvent(event: PaymentEvent) {
     else await applyInvoiceState(account.tenantId, event.invoice);
     await systemDb
       .update(webhookInbox)
-      .set({ status: "processed", processedAt: new Date(), tenantId: account.tenantId })
-      .where(eq(webhookInbox.id, stored.id));
+      .set({
+        status: "processed",
+        processedAt: new Date(),
+        tenantId: account.tenantId,
+        error: null,
+      })
+      .where(eq(webhookInbox.id, inboxId));
   } catch (error) {
     logger.error({ err: error, eventId: event.id }, "payment event failed");
     await systemDb
@@ -940,8 +1088,10 @@ export async function receivePaymentEvent(event: PaymentEvent) {
         status: "failed",
         error: (error as Error).message.slice(0, 1000),
         tenantId: account?.tenantId ?? null,
+        attempts: sql`${webhookInbox.attempts} + 1`,
+        processedAt: new Date(),
       })
-      .where(eq(webhookInbox.id, stored.id));
+      .where(eq(webhookInbox.id, inboxId));
     throw error;
   }
 }
@@ -1196,6 +1346,7 @@ const RECHECK_MS = 10 * 60_000;
  * the provider in case a webhook was missed, and warn the owner a day before a hold runs out.
  */
 export async function paymentsTickJob() {
+  await retryFailedPaymentEvents();
   const now = Date.now();
   const stale = await systemDb
     .select({ id: paymentRequests.id, tenantId: paymentRequests.tenantId })

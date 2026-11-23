@@ -64,6 +64,14 @@ export const planMemberships = pgTable(
     priceCents: integer("price_cents").notNull(),
     interval: text("interval", { enum: PLAN_INTERVALS }).notNull(),
     providerPriceId: text("provider_price_id"),
+    /**
+     * A move to the plan's newer price the owner asked for (C-48 AC 2): the member was told on
+     * `priceNoticeAt`, and the new price bills from the renewal at `pendingPriceAt`.
+     */
+    pendingPriceCents: integer("pending_price_cents"),
+    pendingPriceId: text("pending_price_id"),
+    pendingPriceAt: tsz("pending_price_at"),
+    priceNoticeAt: tsz("price_notice_at"),
     /** Receipts and the manage link go here. */
     email: text("email").notNull(),
     provider: text("provider", { enum: PAYMENT_PROVIDERS }),
@@ -127,4 +135,23 @@ export const membershipInvoices = pgTable(
     uniqueIndex("membership_invoices_provider_uq").on(t.tenantId, t.providerInvoiceId),
     index("membership_invoices_membership_idx").on(t.membershipId, t.createdAt),
   ],
+);
+
+/**
+ * C-50: recurring income month by month, in the business's time zone. The current month keeps
+ * updating until it's over; then its row is that month's closing figure.
+ */
+export const membershipIncomeMonths = pgTable(
+  "membership_income_months",
+  {
+    id: pk(),
+    tenantId: tenantRef(),
+    /** "2026-11". */
+    month: text("month").notNull(),
+    /** Active members only, as the headline counts them (C-50 AC 2). */
+    mrrCents: integer("mrr_cents").notNull(),
+    activeMembers: integer("active_members").notNull(),
+    updatedAt: updatedAt(),
+  },
+  (t) => [uniqueIndex("membership_income_months_uq").on(t.tenantId, t.month)],
 );

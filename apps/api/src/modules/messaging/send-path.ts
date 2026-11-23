@@ -45,6 +45,43 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
     .where(and(eq(phoneNumbers.tenantId, intent.tenant.id), eq(phoneNumbers.status, "active")))
     .limit(1);
 
+  const { decision, consent } = await textPolicy(tx, intent);
+
+  const channel = decision.channel ?? intent.preferredChannels?.[0] ?? "sms";
+  const provider =
+    channel === "whatsapp" ? (channels.whatsapp?.provider ?? "meta") : channel === "web" ? channels.web.provider : channels.sms.provider;
+
+  const [message] = await tx
+    .insert(messages)
+    .values({
+      tenantId: intent.tenant.id,
+      customerId: intent.customerId,
+      leadId: intent.leadId,
+      direction: "outbound",
+      channel,
+      purpose: intent.purpose,
+      status: decision.allowed ? "queued" : "blocked",
+      toAddress: intent.to,
+      fromAddress: number?.e164 ?? "unassigned",
+      body: intent.body,
+      blockedReason: decision.reason,
+      provider,
+      policy: { checks: decision.checks, consentRecordId: consent?.id ?? null },
+      conversationId: intent.conversationId ?? null,
+      author: intent.author ?? null,
+    })
+    .returning();
+
+  if (decision.allowed) fx.enqueue(QUEUES.dispatchMessage, { tenantId: intent.tenant.id, messageId: message!.id });
+  fx.publish({ type: "message.created", messageId: message!.id, leadId: intent.leadId });
+  return message!;
+}
+
+/**
+ * What the policy would decide for this text right now, without writing anything. requestMessage
+ * uses it, and so does code that must know a customer can be reached before it acts (C-24).
+ */
+export async function textPolicy(tx: Tx, intent: Pick<MessageIntent, "tenant" | "to" | "purpose" | "preferredChannels">) {
   const [registration] = await tx
     .select({ status: carrierRegistrations.status, provider: carrierRegistrations.provider })
     .from(carrierRegistrations)
@@ -79,35 +116,15 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
     waitlistTextsCleared: env.WAITLIST_TEXTS_CLEARED,
     webChatOpen: intent.to.startsWith("web:"),
   });
+  return { decision, consent };
+}
 
-  const channel = decision.channel ?? intent.preferredChannels?.[0] ?? "sms";
-  const provider =
-    channel === "whatsapp" ? (channels.whatsapp?.provider ?? "meta") : channel === "web" ? channels.web.provider : channels.sms.provider;
+const VALID_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-  const [message] = await tx
-    .insert(messages)
-    .values({
-      tenantId: intent.tenant.id,
-      customerId: intent.customerId,
-      leadId: intent.leadId,
-      direction: "outbound",
-      channel,
-      purpose: intent.purpose,
-      status: decision.allowed ? "queued" : "blocked",
-      toAddress: intent.to,
-      fromAddress: number?.e164 ?? "unassigned",
-      body: intent.body,
-      blockedReason: decision.reason,
-      provider,
-      policy: { checks: decision.checks, consentRecordId: consent?.id ?? null },
-      conversationId: intent.conversationId ?? null,
-      author: intent.author ?? null,
-    })
-    .returning();
-
-  if (decision.allowed) fx.enqueue(QUEUES.dispatchMessage, { tenantId: intent.tenant.id, messageId: message!.id });
-  fx.publish({ type: "message.created", messageId: message!.id, leadId: intent.leadId });
-  return message!;
+/** Why a job or account email to this address would be blocked right now, or null if it would go. */
+export async function emailBlockedReason(tx: Tx, to: string) {
+  if (!VALID_EMAIL.test(to)) return "That email address doesn't look right.";
+  return (await suppressionOf(tx, to)) === "bounce" ? SUPPRESSION_REASONS.bounce! : null;
 }
 
 export interface EmailIntent {
@@ -142,7 +159,7 @@ function senderFor(business: string) {
  * postal address and an unsubscribe link (CAN-SPAM).
  */
 export async function requestEmail(tx: Tx, fx: Effects, intent: EmailIntent) {
-  const validAddress = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(intent.to);
+  const validAddress = VALID_EMAIL.test(intent.to);
   const checks = [{ check: "email_address", passed: validAddress, detail: validAddress ? "Address looks valid." : "Invalid address." }];
   let blockedReason = validAddress ? null : "That email address doesn't look right.";
   let body = intent.body;

@@ -3,6 +3,7 @@ import { logger } from "../lib/logger";
 import { extractCallerNeedJob, triagePhotoJob } from "../modules/ai/ai-jobs";
 import { advanceRegistrationJob, registrationTickJob } from "../modules/compliance/registration.service";
 import { bookingsTickJob } from "../modules/booking/booking.service";
+import { callEngine } from "../modules/calls";
 import { campaignSendJob } from "../modules/campaigns/send";
 import { campaignSignalsTickJob } from "../modules/campaigns/signals";
 import { assistantReplyJob } from "../modules/chat/assistant";
@@ -12,7 +13,8 @@ import { dispatchMessage } from "../modules/messaging/dispatch";
 import { networkTickJob } from "../modules/network/network.service";
 import { discoveryTickJob } from "../modules/discovery/discovery.service";
 import { healthTickJob, retentionTickJob } from "../modules/monitoring/monitoring.service";
-import { paymentsTickJob } from "../modules/payments/payment.service";
+import { releaseLeftNumbers } from "../modules/tenants/numbers";
+import { paymentsTickJob, releaseBookingDepositsJob } from "../modules/payments/payment.service";
 import { listingPushJob, listingSyncJob, listingSyncTickJob } from "../modules/reviews/listing.service";
 import { reviewRequestsTickJob, sendReviewRequestJob } from "../modules/reviews/review-requests";
 import { draftReplyJob, postReplyJob } from "../modules/reviews/reviews.service";
@@ -52,9 +54,12 @@ export async function startWorkers() {
   await work(QUEUES.dispatchMessage, dispatchMessage);
   await work(QUEUES.valueProofTick, valueProofTickJob);
   await work(QUEUES.forwardingCheckTimeout, forwardingCheckTimeoutJob);
+  await work(QUEUES.dispatcherHardStop, (data) => callEngine.hardStopJob(data));
+  await work(QUEUES.voicemailAlert, (data) => callEngine.voicemailAlertJob(data));
   await work(QUEUES.registrationAdvance, advanceRegistrationJob);
   await work(QUEUES.registrationTick, registrationTickJob);
   await work(QUEUES.paymentsTick, paymentsTickJob);
+  await work(QUEUES.bookingDepositRelease, releaseBookingDepositsJob);
   await work(QUEUES.bookingsTick, bookingsTickJob);
   await work(QUEUES.calendarPush, pushBookingJob);
   await work(QUEUES.calendarSyncTick, calendarSyncTickJob);
@@ -78,5 +83,7 @@ export async function startWorkers() {
   });
   await work(QUEUES.retentionTick, async () => {
     await retentionTickJob();
+    // Businesses that left keep their number for 30 days, then it goes back to the carrier.
+    await releaseLeftNumbers();
   });
 }

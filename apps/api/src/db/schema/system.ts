@@ -16,7 +16,10 @@ export const webhookInbox = pgTable(
     status: text("status", { enum: ["received", "processed", "ignored", "failed"] }).notNull().default("received"),
     error: text("error"),
     payload: jsonb("payload").$type<unknown>().notNull(),
+    /** How many times handling it has failed; failed events are tried again a few times (C-50). */
+    attempts: integer("attempts").notNull().default(0),
     receivedAt: tsz("received_at").notNull().defaultNow(),
+    /** When it was handled, or (while failed) when the last try was. */
     processedAt: tsz("processed_at"),
   },
   (t) => [uniqueIndex("webhook_inbox_event_uq").on(t.provider, t.eventId)],

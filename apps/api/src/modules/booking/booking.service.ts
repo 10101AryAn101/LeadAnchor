@@ -23,6 +23,7 @@ import {
   bookings,
   customers,
   leads,
+  paymentAccounts,
   paymentRequests,
   services,
   tenants,
@@ -41,7 +42,15 @@ import { addLeadEvent } from "../leads/lead-capture";
 import { toMessageItem } from "../messaging/message-item";
 import { creditCampaign } from "../campaigns/links";
 import { notifyOwner } from "../notifications/notify";
-import { capturePayment, publicBusinessOf } from "../payments/payment.service";
+import { dollars } from "../payments/money";
+import {
+  capturePayment,
+  cardsReady,
+  insertPaymentRequest,
+  payUrl,
+  publicBusinessOf,
+  startCheckout,
+} from "../payments/payment.service";
 import { featureOn } from "../billing/access";
 import { availableSlots, isBookable } from "./availability";
 import { calendarFile } from "./calendar-file";
@@ -67,6 +76,7 @@ import {
   toBookingItem,
   wantsEarlier,
 } from "./core";
+import { reminderDue } from "./reminders";
 import { offerFreedSlot, recordWaitlistConsent } from "./waitlist.service";
 
 const DAY_MS = 86_400_000;
@@ -80,12 +90,14 @@ export async function getBookingSettings(tenantId: string): Promise<BookingSetti
       .select({ n: sql<number>`count(*)::int` })
       .from(services)
       .where(and(eq(services.active, true), isNull(services.durationMins)));
+    const [account] = await tx.select().from(paymentAccounts).where(eq(paymentAccounts.tenantId, tenantId));
     return {
       settings: settingsOf(tenant!),
       timezone: tenant!.timezone,
       bookingUrl: bookingUrl(tenant!.slug),
       calendar: await calendarStatusOf(tx),
       servicesWithoutTime: missing?.n ?? 0,
+      cardPayments: cardsReady(account ?? null),
     };
   });
 }
@@ -131,6 +143,7 @@ export async function getPublicBookingContext(slug: string): Promise<PublicBooki
   return {
     business: await publicBusinessOf(tenant),
     enabled: bookingOpen(tenant),
+    depositCents: await bookingDeposit(tenant),
     timezone: tenant.timezone,
     services: rows.map((service) => ({
       id: service.id,
@@ -141,6 +154,14 @@ export async function getPublicBookingContext(slug: string): Promise<PublicBooki
     })),
     requestUrl: requestUrl(tenant.slug),
   };
+}
+
+/** C-15: the deposit held on the customer's card when they book, if the owner asks for one and cards are on. */
+async function bookingDeposit(tenant: typeof tenants.$inferSelect, tx: Pick<Tx, "select"> = systemDb) {
+  const depositCents = settingsOf(tenant).depositCents;
+  if (!depositCents) return null;
+  const [account] = await tx.select().from(paymentAccounts).where(eq(paymentAccounts.tenantId, tenant.id));
+  return cardsReady(account ?? null) ? depositCents : null;
 }
 
 async function slotsFor(
@@ -236,7 +257,7 @@ export async function bookOnline(
   if (Number.isNaN(startsAt.getTime()))
     throw new HttpError(422, "validation_failed", "Pick a time.", { startsAt: ["Pick a time"] });
 
-  const token = await tenantWork(tenant.id, async (tx, fx) => {
+  const { token, depositToken } = await tenantWork(tenant.id, async (tx, fx) => {
     const [service] = await tx
       .select()
       .from(services)
@@ -289,6 +310,36 @@ export async function bookOnline(
         type: "note.added",
         actor: "customer",
         data: { text: input.notes },
+      });
+
+    // C-15: a deposit held on their card secures the visit. They go straight on to the card checkout.
+    const depositCents = await bookingDeposit(tenant, tx);
+    const deposit = depositCents
+      ? await insertPaymentRequest(tx, {
+          tenantId: tenant.id,
+          leadId: lead.id,
+          customerId: customer.id,
+          bookingId: created.row.id,
+          kind: "deposit",
+          capture: "hold",
+          amountCents: depositCents,
+          description: service.name,
+          createdBy: "customer",
+        })
+      : null;
+    if (deposit)
+      await addLeadEvent(tx, {
+        tenantId: tenant.id,
+        leadId: lead.id,
+        type: "payment.requested",
+        actor: "customer",
+        data: {
+          paymentId: deposit.row.id,
+          kind: "deposit",
+          capture: "hold",
+          amountCents: deposit.row.amountCents,
+          description: deposit.row.description,
+        },
       });
 
     if (input.smsConsent) {
@@ -356,13 +407,19 @@ export async function bookOnline(
       tenantId: tenant.id,
       kind: "booking",
       title: `New booking: ${input.name}`,
-      body: `${service.name}, ${friendlyTime(startsAt, tenant.timezone)}. It's on your schedule.`,
+      body: `${service.name}, ${friendlyTime(startsAt, tenant.timezone)}. It's on your schedule.${deposit ? ` They're asked to hold a ${dollars(deposit.row.amountCents)} deposit on their card.` : ""}`,
       leadId: lead.id,
       callbackPhone: input.phone,
     });
-    return created.token;
+    return { token: created.token, depositToken: deposit?.token ?? null };
   });
-  return { manageUrl: manageUrl(token), booking: await getPublicBooking(token) };
+  // If the card checkout can't start right now, the deposit's own page has a Pay button.
+  const checkoutUrl = depositToken
+    ? await startCheckout(depositToken)
+        .then((session) => session.url)
+        .catch(() => payUrl(depositToken))
+    : null;
+  return { manageUrl: manageUrl(token), booking: await getPublicBooking(token), checkoutUrl };
 }
 
 /* ── The customer's own booking page ─────────────────────────────────────── */
@@ -890,20 +947,26 @@ export async function closeBookingsForLead(
 
 export async function bookingsTickJob() {
   const now = Date.now();
-  const due = await systemDb
-    .select({ id: bookings.id, tenantId: bookings.tenantId })
+  // Visits in the next day not yet reminded; reminderDue picks the ones due now (C-20),
+  // including short-notice bookings, which are reminded about 2 hours before.
+  const upcoming = await systemDb
+    .select({
+      id: bookings.id,
+      tenantId: bookings.tenantId,
+      startsAt: bookings.startsAt,
+      createdAt: bookings.createdAt,
+    })
     .from(bookings)
     .where(
       and(
         eq(bookings.status, "booked"),
         isNull(bookings.reminderSentAt),
-        gt(bookings.startsAt, new Date(now + 3_600_000)),
+        gt(bookings.startsAt, new Date(now + 30 * 60_000)),
         lt(bookings.startsAt, new Date(now + 24 * 3_600_000)),
-        // Booked at least half a day ahead: a same-day booking's confirmation is reminder enough.
-        lt(bookings.createdAt, sql`${bookings.startsAt} - interval '12 hours'`),
       ),
     )
-    .limit(200);
+    .limit(500);
+  const due = upcoming.filter((row) => reminderDue(row, new Date(now)));
   for (const row of due) {
     await sendReminder(row.tenantId, row.id).catch((error: unknown) =>
       logger.warn({ err: error, bookingId: row.id }, "booking reminder failed"),

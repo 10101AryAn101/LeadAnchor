@@ -461,6 +461,13 @@ export class SimulatorPayments implements PaymentsProvider {
     return subscriptionState(this.subscription(this.read(), accountId, subscriptionId));
   }
 
+  async getInvoice(accountId: string, invoiceId: string) {
+    const store = this.read();
+    const invoice = store.invoices[invoiceId];
+    if (!invoice || invoice.accountId !== accountId) throw new PaymentRefused("That bill doesn't exist.");
+    return invoiceState(invoice, store.subscriptions[invoice.subscriptionId]!);
+  }
+
   async pauseSubscription(accountId: string, subscriptionId: string) {
     return this.updateSubscription(accountId, subscriptionId, (subscription) => {
       if (subscription.status === "canceled" || subscription.cancelAt) throw new PaymentRefused("This membership is cancelled.");
@@ -490,19 +497,48 @@ export class SimulatorPayments implements PaymentsProvider {
     return state!;
   }
 
-  async changeSubscriptionPrice(accountId: string, subscriptionId: string, priceId: string) {
+  async changeSubscriptionPrice(accountId: string, subscriptionId: string, priceId: string, { prorate = true }: { prorate?: boolean } = {}) {
     let result: { subscription: SubscriptionState; invoice: InvoiceState | null } | null = null;
     this.write((store) => {
       const subscription = this.subscription(store, accountId, subscriptionId);
       const price = store.prices[priceId];
       if (!price || price.accountId !== accountId) throw new PaymentRefused("That plan's price doesn't exist.");
+      if (!prorate) {
+        // An announced price move (C-48): nothing billed now; the next renewal bills the new price.
+        if (subscription.status === "canceled" || subscription.cancelAt) throw new PaymentRefused("This membership is cancelled.");
+        if (price.interval !== subscription.interval) throw new PaymentRefused("A plan on another schedule can only change straight away.");
+        subscription.priceId = price.id;
+        subscription.amountCents = price.amountCents;
+        result = { subscription: subscriptionState(subscription), invoice: null };
+        return;
+      }
       if (subscription.status !== "active" || subscription.cancelAt)
         throw new PaymentRefused("Only an active membership can move to another plan.");
-      if (price.interval !== subscription.interval)
-        throw new PaymentRefused("That plan bills on a different schedule. Cancel this one and have them join it instead.");
       const now = Date.now();
       const start = Date.parse(subscription.periodStart);
       const end = Date.parse(subscription.periodEnd);
+      if (price.interval !== subscription.interval) {
+        // Stripe's way with a new schedule (C-50): the period restarts today, the new price is
+        // billed now, and the unused part of the old period is credited against it.
+        const left = Math.max(0, Math.min(1, (end - now) / Math.max(1, end - start)));
+        const credit = Math.round(subscription.amountCents * left) + subscription.creditCents;
+        const today = new Date(now).toISOString();
+        subscription.priceId = price.id;
+        subscription.amountCents = price.amountCents;
+        subscription.interval = price.interval;
+        subscription.periodStart = today;
+        subscription.periodEnd = addInterval(today, price.interval);
+        const due = price.amountCents - credit;
+        subscription.creditCents = due < 0 ? -due : 0;
+        let invoice: SimInvoice | null = null;
+        if (due > 0) {
+          invoice = newInvoice(subscription, "proration", due, today, subscription.periodEnd);
+          store.invoices[invoice.id] = invoice;
+          attempt(store, subscription, invoice, now);
+        }
+        result = { subscription: subscriptionState(subscription), invoice: invoice ? invoiceState(invoice, subscription) : null };
+        return;
+      }
       // Stripe's proration: the unused part of this period at the new price, less the same at the old.
       const left = Math.max(0, Math.min(1, (end - now) / Math.max(1, end - start)));
       const difference = Math.round((price.amountCents - subscription.amountCents) * left);
@@ -517,6 +553,15 @@ export class SimulatorPayments implements PaymentsProvider {
       result = { subscription: subscriptionState(subscription), invoice: invoice ? invoiceState(invoice, subscription) : null };
     });
     return result!;
+  }
+
+  async renameProduct(accountId: string, productId: string, input: { name: string; description: string }) {
+    this.write((store) => {
+      const product = store.products[productId];
+      if (!product || product.accountId !== accountId) throw new PaymentRefused("That plan isn't set up for card payments.");
+      product.name = input.name;
+      product.description = input.description;
+    });
   }
 
   async retryInvoice(accountId: string, invoiceId: string) {

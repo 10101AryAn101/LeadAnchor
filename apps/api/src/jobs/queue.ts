@@ -14,12 +14,17 @@ export const QUEUES = {
   valueProofTick: "value-proof.tick",
   /** Closes a forwarding test that never came back (C-01). */
   forwardingCheckTimeout: "forwarding.check-timeout",
+  /** Ends an AI Dispatcher call still going after 60 seconds, even if a restart lost its timer (C-39). */
+  dispatcherHardStop: "calls.dispatcher-hard-stop",
+  /** Alerts the owner about a voicemail that never got a transcript (C-13). */
+  voicemailAlert: "calls.voicemail-alert",
   /** Moves one business's carrier registration a step forward (C-43). */
   registrationAdvance: "registration.advance",
   /** Every 15 minutes: re-check registrations under review and delete expired IDs (C-43). */
   registrationTick: "registration.tick",
   /** Every 15 minutes: re-check open checkouts and card holds, and warn before a hold ends (module 7). */
   paymentsTick: "payments.tick",
+  bookingDepositRelease: "payments.booking-deposit-release",
   /** Every 15 minutes: day-before booking reminders (C-20) and expired waitlist offers (C-22). */
   bookingsTick: "bookings.tick",
   /** Writes one booking into the owner's calendar, or takes it out (module 8). */
@@ -66,9 +71,12 @@ export interface JobPayloads {
   [QUEUES.dispatchMessage]: { tenantId: string; messageId: string };
   [QUEUES.valueProofTick]: Record<string, never>;
   [QUEUES.forwardingCheckTimeout]: { tenantId: string; startedAt: string };
+  [QUEUES.dispatcherHardStop]: { sessionId: string; callControlId: string };
+  [QUEUES.voicemailAlert]: { tenantId: string; callId: string };
   [QUEUES.registrationAdvance]: { tenantId: string };
   [QUEUES.registrationTick]: Record<string, never>;
   [QUEUES.paymentsTick]: Record<string, never>;
+  [QUEUES.bookingDepositRelease]: { tenantId: string; bookingId: string };
   [QUEUES.bookingsTick]: Record<string, never>;
   [QUEUES.calendarPush]: { tenantId: string; bookingId: string };
   [QUEUES.calendarSyncTick]: Record<string, never>;

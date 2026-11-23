@@ -29,4 +29,6 @@ export interface ChannelAdapter {
 /** WhatsApp also gives the business a link customers tap to start a chat (C-11). */
 export interface WhatsAppAdapter extends ChannelAdapter {
   chatLink(businessE164: string, prefill: string): string;
+  /** The bytes of a photo a customer sent (C-11), or null if it can't be fetched. */
+  downloadMedia?(mediaId: string): Promise<Buffer | null>;
 }

@@ -550,7 +550,7 @@ async function sendQuoteMessages(
         leadId: quote.leadId,
         to: customer.phoneE164,
         purpose: "transactional",
-        body: `${greeting(customer)}, it's ${tenant.name}. Here's your quote for ${quote.title}: ${dollars(quote.totalCents)}${deposit}. See it and accept it here: ${url}\nReply STOP to opt out.`,
+        body: `${greeting(customer)}, it's ${tenant.name}. Here's your quote for ${quote.title}: ${dollars(quote.totalCents)}${deposit}. See it and accept it${quote.depositCents != null ? ", then pay the deposit," : ""} here: ${url}\nReply STOP to opt out.`,
       }),
     );
   }
@@ -583,7 +583,9 @@ async function sendQuoteMessages(
               ]
             : []),
           "",
-          "See the full quote, download it as a PDF and accept it here:",
+          quote.depositCents != null
+            ? "See the full quote, download it as a PDF, accept it and pay the deposit here:"
+            : "See the full quote, download it as a PDF and accept it here:",
           url,
           ...(valid ? ["", `The quote is valid until ${valid}.`] : []),
           "",
@@ -795,6 +797,8 @@ async function documentOf(db: Tx | typeof systemDb, quote: QuoteRow) {
       state: tenant!.state,
       phone: number?.e164 ?? null,
       licenseNumber: tenant!.licenseNumber,
+      licenseTrade: tenant!.licenseTrade,
+      licenseState: tenant!.licenseState,
       insuranceCarrier: tenant!.insuranceCarrier,
       yearsInBusiness: tenant!.yearsInBusiness,
       googleProfileUrl: tenant!.googleProfileUrl,

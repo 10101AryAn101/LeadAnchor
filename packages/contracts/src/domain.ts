@@ -251,6 +251,8 @@ export const NOTIFICATION_KINDS = [
   "campaign",
   "membership",
   "network",
+  /** The account itself: a new number after coming back, and the like. */
+  "account",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
 

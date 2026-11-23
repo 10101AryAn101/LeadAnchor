@@ -18,6 +18,8 @@ export interface ListingDetails {
   address: { street: string; city: string; state: string; postalCode: string } | null;
   /** The WhatsApp chat link (C-21 "set WA chat link"). */
   chatLink: string | null;
+  /** The services the listing shows, when the provider reports them (C-42 consistency check). */
+  services?: string[] | null;
 }
 
 export interface ListingSnapshot {

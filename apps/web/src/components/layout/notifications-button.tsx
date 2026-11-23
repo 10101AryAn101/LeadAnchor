@@ -36,6 +36,7 @@ import { cn } from "@/lib/utils";
 /** Amber only where someone is waiting on the owner. */
 const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   ghost_call: { icon: IconPhoneX, tone: "bg-signal-subtle text-signal-strong" },
+  account: { icon: IconBell, tone: "bg-info-subtle text-info-strong" },
   voicemail: { icon: IconRecordMail, tone: "bg-signal-subtle text-signal-strong" },
   dispatcher_lead: { icon: IconHeadset, tone: "bg-primary-subtle text-primary-subtle-foreground" },
   intake_submitted: { icon: IconFileText, tone: "bg-primary-subtle text-primary-subtle-foreground" },

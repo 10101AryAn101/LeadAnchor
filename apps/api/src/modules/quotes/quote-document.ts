@@ -1,4 +1,4 @@
-import { formatPhone } from "@leadanchor/contracts";
+import { formatPhone, licenseLabel } from "@leadanchor/contracts";
 import { escapeHtml } from "../../lib/html";
 import { dollars, lineTotal } from "../payments/money";
 
@@ -10,6 +10,8 @@ export interface QuoteDocument {
     state: string | null;
     phone: string | null;
     licenseNumber: string | null;
+    licenseTrade?: string | null;
+    licenseState?: string | null;
     insuranceCarrier: string | null;
     yearsInBusiness: number | null;
     googleProfileUrl: string | null;
@@ -50,7 +52,7 @@ export function quoteHtml(doc: QuoteDocument) {
   const place = [b.city, b.state].filter(Boolean).join(", ");
   const claims = [
     b.licenseNumber && b.insuranceCarrier ? "Licensed &amp; insured" : null,
-    b.licenseNumber ? `Licence ${escape(b.licenseNumber)}` : null,
+    b.licenseNumber ? escape(licenseLabel(b)!) : null,
     b.insuranceCarrier ? `Insured by ${escape(b.insuranceCarrier)}` : null,
     b.yearsInBusiness
       ? `${b.yearsInBusiness} ${b.yearsInBusiness === 1 ? "year" : "years"} in business`

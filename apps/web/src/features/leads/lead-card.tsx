@@ -1,7 +1,7 @@
 "use client";
 
 import type { LeadCard as LeadCardData } from "@leadanchor/contracts";
-import { IconCalendarEvent, IconDots, IconMessage, IconPhone, IconPhoto } from "@tabler/icons-react";
+import { IconCalendarEvent, IconDots, IconHistory, IconMessage, IconPhone, IconPhoto, IconTool } from "@tabler/icons-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { formatPhone, isWithin, money, smsHref, telHref, visitTime } from "@/lib/format";
@@ -46,6 +46,13 @@ export function LeadCard({ lead, onMove, className }: { lead: LeadCardData; onMo
             {lead.photoCount} photo{lead.photoCount === 1 ? "" : "s"}
           </span>
         )}
+        {/* C-09: what the AI read off their photos. */}
+        {lead.equipment && (
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1">
+            <IconTool className="size-4 shrink-0" stroke={1.75} />
+            <span className="truncate">{lead.equipment}</span>
+          </span>
+        )}
         {lead.scheduledFor && lead.stage === "scheduled" && (
           <span className="inline-flex items-center gap-1 font-medium text-foreground">
             <IconCalendarEvent className="size-4" stroke={1.75} />
@@ -53,6 +60,15 @@ export function LeadCard({ lead, onMove, className }: { lead: LeadCardData; onMo
           </span>
         )}
         <UrgencyChip urgency={lead.urgency} />
+        {/* C-34: their whole history, one tap from the board. */}
+        <Link
+          href={`/customers/${lead.customer.id}`}
+          className="-my-1 inline-flex min-h-8 items-center gap-1 font-medium text-primary underline-offset-2 hover:underline"
+          aria-label={`${name}'s history`}
+        >
+          <IconHistory className="size-4" stroke={1.75} />
+          History
+        </Link>
       </div>
       <TagChips tags={lead.tags} max={3} className="mt-2" />
 

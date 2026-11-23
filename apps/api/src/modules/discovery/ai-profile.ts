@@ -58,6 +58,9 @@ export interface AiProfileFacts {
   pageUrl: string;
   bookingUrl: string | null;
   licenseNumber: string | null;
+  /** What the licence is for and the state that issued it (C-41), when the owner gave them. */
+  licenseTrade?: string | null;
+  licenseState?: string | null;
   insuranceCarrier: string | null;
   yearsInBusiness: number | null;
   googleProfileUrl: string | null;
@@ -72,6 +75,8 @@ export interface AiProfileFacts {
   hours: Partial<Record<WeekdayKey, { open: boolean; start: string; end: string }>> | null;
   photoUrls: string[];
   updatedAt: Date;
+  /** The AI Dispatcher answers missed calls and the business may text, so a link can go out (AC d). */
+  textsBack?: boolean;
 }
 
 const words = (text: string) => text.split(/\s+/).filter(Boolean).length;
@@ -79,10 +84,12 @@ const place = (facts: AiProfileFacts) => [facts.city, facts.state].filter(Boolea
 const zipList = (zips: string[]) => (zips.length > 1 ? `${zips.slice(0, -1).join(", ")} and ${zips.at(-1)}` : (zips[0] ?? ""));
 
 function trustLine(facts: AiProfileFacts) {
+  // "TX Master Plumber #M-40231": the licence's own state and trade when given, else the business's state.
+  const licence = [facts.licenseState ?? facts.state, facts.licenseTrade].filter(Boolean).join(" ");
   if (facts.licenseNumber && facts.insuranceCarrier) {
-    return `The owner states they're licensed (${facts.state ? `${facts.state} ` : ""}#${facts.licenseNumber}) and insured with ${facts.insuranceCarrier}.`;
+    return `The owner states they're licensed (${licence ? `${licence} ` : ""}#${facts.licenseNumber}) and insured with ${facts.insuranceCarrier}.`;
   }
-  if (facts.licenseNumber) return `The owner states they're licensed (${facts.state ? `${facts.state} ` : ""}#${facts.licenseNumber}).`;
+  if (facts.licenseNumber) return `The owner states they're licensed (${licence ? `${licence} ` : ""}#${facts.licenseNumber}).`;
   if (facts.insuranceCarrier) return `The owner states they're insured with ${facts.insuranceCarrier}.`;
   return null;
 }
@@ -111,10 +118,12 @@ export function answerFor(facts: AiProfileFacts, service: { name: string; jobs: 
     facts.yearsInBusiness ? `In business for ${facts.yearsInBusiness} ${facts.yearsInBusiness === 1 ? "year" : "years"}.` : null,
   ].filter((line): line is string => line !== null);
   const fixed = [trustLine(facts), contactLine(facts)].filter((line): line is string => line !== null);
+  // Each is true for every business, or only added when its record says so (AC d).
   const filler = [
     "Customers can send photos of the job through a short request form for a quicker, more accurate answer.",
-    "A missed call gets a text back right away.",
-  ];
+    facts.textsBack ? "Missed calls are answered by an assistant that can text a link to send the details." : null,
+    `Its page lists its services${facts.hours ? " and opening hours" : ""}${facts.photoUrls.length > 0 ? ", with photos of recent work" : ""}.`,
+  ].filter((line): line is string => line !== null);
 
   const build = (parts: string[]) => [lead, ...parts, ...fixed].join(" ");
   let extra = [...optional];

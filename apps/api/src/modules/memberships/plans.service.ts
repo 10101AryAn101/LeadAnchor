@@ -8,6 +8,7 @@ import { tenantWork } from "../../db/unit-of-work";
 import { randomToken } from "../../lib/crypto";
 import { HttpError, notFound } from "../../lib/errors";
 import { audit } from "../compliance/audit";
+import { logger } from "../../lib/logger";
 import { cardsReady } from "../payments/payment.service";
 import { signupUrl } from "./links";
 
@@ -73,7 +74,8 @@ export async function listPlans(tenantId: string): Promise<PlansResponse> {
         active: sql<number>`count(*) filter (where ${planMemberships.status} = 'active')::int`,
         pastDue: sql<number>`count(*) filter (where ${planMemberships.status} = 'past_due')::int`,
         paused: sql<number>`count(*) filter (where ${planMemberships.status} = 'paused')::int`,
-        olderPrice: sql<number>`count(*) filter (where ${planMemberships.status} in ('active', 'past_due', 'paused') and (${planMemberships.priceCents} <> ${membershipPlans.priceCents} or ${planMemberships.interval} <> ${membershipPlans.interval}))::int`,
+        olderPrice: sql<number>`count(*) filter (where ${planMemberships.status} in ('active', 'past_due', 'paused') and ${planMemberships.pendingPriceAt} is null and (${planMemberships.priceCents} <> ${membershipPlans.priceCents} or ${planMemberships.interval} <> ${membershipPlans.interval}))::int`,
+        moving: sql<number>`count(*) filter (where ${planMemberships.status} in ('active', 'past_due', 'paused') and ${planMemberships.pendingPriceAt} is not null)::int`,
       })
       .from(planMemberships)
       .innerJoin(membershipPlans, eq(membershipPlans.id, planMemberships.planId))
@@ -119,7 +121,7 @@ function toPlanItem(
     welcomeMessage: plan.welcomeMessage,
     status: plan.status,
     signupUrl: signupUrl(plan.linkToken),
-    members: counts ?? { active: 0, pastDue: 0, paused: 0, olderPrice: 0 },
+    members: counts ?? { active: 0, pastDue: 0, paused: 0, olderPrice: 0, moving: 0 },
     createdAt: plan.createdAt.toISOString(),
   };
 }
@@ -162,7 +164,7 @@ export async function updatePlan(
   actor: string,
 ) {
   checkCadence(input);
-  await tenantWork(tenantId, async (tx) => {
+  await tenantWork(tenantId, async (tx, fx) => {
     const [plan] = await tx
       .select()
       .from(membershipPlans)
@@ -170,6 +172,25 @@ export async function updatePlan(
       .for("update");
     if (!plan) throw notFound("Plan");
     await checkService(tx, input.workServiceId);
+    // C-48: a renamed plan is renamed in Stripe too, so receipts and the billing page match.
+    const renamed = plan.name !== input.name || plan.description !== input.description;
+    const productId = plan.provider === payments.name ? plan.providerProductId : null;
+    if (renamed && productId) {
+      const account = await paymentAccountOf(tx);
+      if (cardsReady(account)) {
+        const accountId = account.providerAccountId;
+        fx.afterCommit(() =>
+          payments
+            .renameProduct(accountId, productId, {
+              name: input.name,
+              description: input.description,
+            })
+            .catch((error: unknown) =>
+              logger.warn({ err: error, planId: id }, "plan rename not sent to Stripe"),
+            ),
+        );
+      }
+    }
     const repriced = plan.priceCents !== input.priceCents || plan.interval !== input.interval;
     const [updated] = await tx
       .update(membershipPlans)

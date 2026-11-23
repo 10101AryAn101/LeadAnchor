@@ -1,91 +1,109 @@
 "use client";
 
-import type { PublicFeedbackContext, PublicUnsubscribe } from "@leadanchor/contracts";
-import { IconCircleCheck, IconLock, IconMailOff } from "@tabler/icons-react";
-import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
+import type {
+  PublicChatThread,
+  PublicFeedbackContext,
+  PublicUnsubscribe,
+} from "@leadanchor/contracts";
+import { IconArrowUp, IconCircleCheck, IconLock, IconMailOff } from "@tabler/icons-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { Textarea } from "@/components/ui/textarea";
-import { BusinessHeader, ContactButtons } from "@/features/money/business-header";
+import { Bubble } from "@/features/chat/customer-chat";
+import { ContactButtons } from "@/features/money/business-header";
 import { api, isApiError } from "@/lib/api";
 
 /**
- * C-46: the private line from the review request. The message goes straight to the owner as a
- * priority alert and a note on the job. It sits beside the review link; it never replaces it.
+ * C-46: the private line from the review request, a chat with the owner. It's tied to the job,
+ * and every message reaches the owner as a priority alert and a note on the job; their replies
+ * show here. It sits beside the review link; it never replaces it.
  */
-export function PrivateFeedback({
-  token,
-  initial,
-}: {
-  token: string;
-  initial: PublicFeedbackContext;
-}) {
-  const [message, setMessage] = useState("");
+export function PrivateChat({ token, initial }: { token: string; initial: PublicFeedbackContext }) {
+  const queryClient = useQueryClient();
+  const [text, setText] = useState("");
   const [company, setCompany] = useState("");
-  const [sent, setSent] = useState(false);
+  const bottom = useRef<HTMLDivElement>(null);
+  const base = `/public/feedback/${encodeURIComponent(token)}`;
+  const thread = useQuery({
+    queryKey: ["private-chat", token],
+    queryFn: () => api<PublicChatThread>(`${base}/thread`),
+    refetchInterval: 4000,
+  });
   const send = useMutation({
     mutationFn: () =>
-      api(`/public/feedback/${encodeURIComponent(token)}`, {
+      api<PublicChatThread>(`${base}/messages`, {
         method: "POST",
-        body: { message, company },
+        body: { text: text.trim(), source: "link", company },
       }),
-    onSuccess: () => {
-      setSent(true);
-      setMessage("");
+    onSuccess: (data) => {
+      setText("");
+      queryClient.setQueryData(["private-chat", token], data);
     },
     onError: (error) =>
       toast.error(isApiError(error) ? error.message : "That didn't go through. Please try again."),
   });
-  const business = initial.business.name;
 
+  const messages = thread.data?.messages ?? [];
+  const count = messages.length;
+  useEffect(() => {
+    bottom.current?.scrollIntoView({ block: "end" });
+  }, [count]);
+
+  const business = initial.business.name;
   return (
-    <div className="mx-auto max-w-xl space-y-6 px-5 py-8 sm:py-12">
-      <BusinessHeader business={initial.business} />
-      {sent ? (
-        <section className="space-y-3 rounded-lg border bg-card p-5">
-          <p className="flex items-center gap-2 text-[17px] font-semibold text-primary">
-            <IconCircleCheck className="size-6" /> Sent to {business}
+    <div className="mx-auto flex h-dvh max-w-xl flex-col">
+      <header className="border-b px-5 pt-4 pb-3">
+        <p className="text-sm text-muted-foreground">Message</p>
+        <h1 className="font-display text-[22px] leading-tight font-semibold">{business}</h1>
+        <p className="mt-1 flex items-center gap-1.5 text-[13px] text-muted-foreground">
+          <IconLock className="size-4" /> Private: this goes straight to the owner, who replies
+          here.
+        </p>
+      </header>
+
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain px-5 py-4">
+        <Bubble
+          from="business"
+          text={`${initial.firstName ? `Hi ${initial.firstName}! ` : "Hi! "}Tell us what happened and how we can put it right. The owner reads every message.`}
+        />
+        {messages.map((message) => (
+          <Bubble key={message.id} from={message.from} text={message.text} at={message.at} />
+        ))}
+        {send.isPending && (
+          <p className="flex items-center gap-2 text-sm text-muted-foreground" aria-live="polite">
+            <Spinner className="size-4" /> Sending…
           </p>
-          <p className="text-[15px] text-muted-foreground">
-            They have your message and will be in touch. Thank you for telling them.
-          </p>
-          <Button variant="ghost" onClick={() => setSent(false)}>
-            Add something else
-          </Button>
-        </section>
-      ) : (
+        )}
+        <div ref={bottom} />
+      </div>
+
+      <div className="space-y-3 border-t px-4 pt-3 pb-[max(env(safe-area-inset-bottom),0.75rem)]">
         <form
-          className="relative space-y-4 rounded-lg border bg-card p-5"
+          className="relative flex items-end gap-2"
           onSubmit={(event) => {
             event.preventDefault();
-            send.mutate();
+            if (text.trim()) send.mutate();
           }}
         >
-          <div className="space-y-1">
-            <h1 className="text-[19px] font-bold">
-              {initial.firstName ? `${initial.firstName}, tell` : "Tell"} {business} directly
-            </h1>
-            <p className="flex items-center gap-1.5 text-[15px] text-muted-foreground">
-              <IconLock className="size-4" /> Private: this goes only to {business}.
-            </p>
-          </div>
-          {initial.sent && (
-            <p className="text-sm text-muted-foreground">
-              You&apos;ve written before; this adds to it.
-            </p>
-          )}
-          <label htmlFor="feedback" className="sr-only">
+          <label htmlFor="private-message" className="sr-only">
             Your message
           </label>
-          <Textarea
-            id="feedback"
-            rows={5}
-            maxLength={2000}
-            placeholder="What happened, and how can they put it right?"
-            value={message}
-            onChange={(event) => setMessage(event.target.value)}
+          <textarea
+            id="private-message"
+            rows={1}
+            maxLength={1000}
+            value={text}
+            placeholder="Type a message"
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey && text.trim()) {
+                event.preventDefault();
+                send.mutate();
+              }
+            }}
+            className="max-h-32 min-h-11 flex-1 resize-none rounded-2xl border border-input bg-background px-4 py-2.5 text-base outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
           />
           {/* Only bots fill this in. */}
           <input
@@ -98,20 +116,17 @@ export function PrivateFeedback({
             onChange={(event) => setCompany(event.target.value)}
             className="absolute -left-[9999px] h-0 w-0 opacity-0"
           />
-          <Button
+          <button
             type="submit"
-            size="lg"
-            className="w-full"
-            disabled={message.trim().length < 2 || send.isPending}
+            disabled={!text.trim() || send.isPending}
+            className="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-40"
+            aria-label="Send"
           >
-            {send.isPending && <Spinner />} Send to {business}
-          </Button>
+            <IconArrowUp className="size-5" />
+          </button>
         </form>
-      )}
-      <section className="space-y-3 border-t pt-6">
-        <p className="text-[15px] text-muted-foreground">Rather talk?</p>
         <ContactButtons business={initial.business} />
-      </section>
+      </div>
     </div>
   );
 }

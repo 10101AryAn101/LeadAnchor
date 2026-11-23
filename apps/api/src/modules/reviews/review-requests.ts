@@ -1,8 +1,9 @@
 import {
+  type PublicChatThread,
   type PublicFeedbackContext,
   type PublicUnsubscribe,
   type ReviewRequestOutcome,
-  type privateFeedbackInput,
+  type publicChatInput,
   reviewRequestMessage,
 } from "@leadanchor/contracts";
 import { and, eq, lt } from "drizzle-orm";
@@ -10,10 +11,12 @@ import type { z } from "zod";
 import { env, linkBaseUrl } from "../../config/env";
 import { systemDb } from "../../db/client";
 import {
+  conversations,
   customers,
   emailOptOuts,
   leads,
   listingConnections,
+  messages,
   reviewRequests,
   tenants,
 } from "../../db/schema";
@@ -26,6 +29,7 @@ import { logger } from "../../lib/logger";
 import { audit } from "../compliance/audit";
 import { addLeadEvent } from "../leads/lead-capture";
 import { creditUnsubscribe } from "../campaigns/links";
+import { chatThread } from "../chat/web-chat";
 import { isOptedOut, postalAddress, resolveUnsubscribeToken } from "../messaging/email-opt-out";
 import { requestEmail } from "../messaging/send-path";
 import { notifyOwner } from "../notifications/notify";
@@ -37,7 +41,7 @@ const DAY_MS = 86_400_000;
 /** A request waiting on setup (the Google link, the postal address) gives up after this. */
 const WAIT_DAYS = 14;
 
-/** The customer's private line to the owner (C-46): today a message page, later the chat thread. */
+/** The customer's private line to the owner (C-46): a chat with the owner, already tied to their job. */
 export const feedbackUrl = (token: string) => `${linkBaseUrl}/f/${token}`;
 
 const delaySecs = () => env.REVIEW_REQUEST_DELAY_MINUTES * 60;
@@ -256,43 +260,120 @@ export async function getFeedbackContext(token: string): Promise<PublicFeedbackC
   };
 }
 
-const MESSAGES_PER_HOUR = 5;
+const MESSAGES_PER_HOUR = 20;
 const recentMessages = new Map<string, number[]>();
+const OWNER_REASON = "Private message from a review request";
 
-/** C-46 AC 5: a private message reaches the owner as a priority alert and a note on the job, at once. */
-export async function submitFeedback(token: string, input: z.output<typeof privateFeedbackInput>) {
+/** The chat behind a review request's private line, if the customer has written. Its key is the link's own token. */
+async function feedbackChatOf(tenantId: string, token: string) {
+  const [conversation] = await systemDb
+    .select()
+    .from(conversations)
+    .where(
+      and(
+        eq(conversations.tenantId, tenantId),
+        eq(conversations.tokenHash, sha256(token)),
+        eq(conversations.channel, "web"),
+      ),
+    )
+    .limit(1);
+  return conversation ?? null;
+}
+
+/** The private chat so far, with the owner's replies (C-46: "opens the existing web/AI chat thread"). */
+export async function getFeedbackThread(token: string): Promise<PublicChatThread> {
+  const { tenant } = await resolveFeedback(token);
+  const conversation = await feedbackChatOf(tenant.id, token);
+  if (!conversation) return { token: null, messages: [], typing: false };
+  return { token: null, ...(await chatThread(conversation.id)) };
+}
+
+/**
+ * C-46 AC 5: the customer writes on the private line. It's a chat with the owner, tied to their
+ * job (the assistant stays out of it), and each message is a priority alert and a note on the job.
+ */
+export async function postFeedbackMessage(
+  token: string,
+  input: z.output<typeof publicChatInput>,
+): Promise<PublicChatThread> {
   const { request, tenant, customer } = await resolveFeedback(token);
-  if (input.company) return { ok: true as const };
+  if (input.company) return { token: null, messages: [], typing: false };
   const recent = (recentMessages.get(request.id) ?? []).filter((at) => Date.now() - at < 3_600_000);
   if (recent.length >= MESSAGES_PER_HOUR)
     throw new HttpError(429, "too_many_requests", `Please call ${tenant.name} instead.`);
   if (recentMessages.size > 10_000) recentMessages.clear();
   recentMessages.set(request.id, [...recent, Date.now()]);
 
-  await tenantWork(tenant.id, async (tx, fx) => {
+  const existing = await feedbackChatOf(tenant.id, token);
+  const conversationId = await tenantWork(tenant.id, async (tx, fx) => {
+    const now = new Date();
+    const [conversation] = existing
+      ? await tx
+          .update(conversations)
+          .set({
+            lastInboundAt: now,
+            lastMessageAt: now,
+            needsOwner: true,
+            needsOwnerReason: OWNER_REASON,
+          })
+          .where(eq(conversations.id, existing.id))
+          .returning()
+      : await tx
+          .insert(conversations)
+          .values({
+            tenantId: tenant.id,
+            channel: "web",
+            tokenHash: sha256(token),
+            customerId: request.customerId,
+            leadId: request.leadId,
+            source: "link",
+            // The owner answers this one, not the assistant.
+            handler: "owner",
+            needsOwner: true,
+            needsOwnerReason: OWNER_REASON,
+            lastInboundAt: now,
+            lastMessageAt: now,
+          })
+          .returning();
+    await tx.insert(messages).values({
+      tenantId: tenant.id,
+      customerId: request.customerId,
+      leadId: request.leadId,
+      direction: "inbound",
+      channel: "web",
+      purpose: "conversational",
+      status: "received",
+      toAddress: tenant.slug,
+      fromAddress: `web:${conversation!.id}`,
+      body: input.text,
+      provider: "leadanchor",
+      conversationId: conversation!.id,
+      author: "customer",
+    });
     await tx
       .update(reviewRequests)
-      .set({ feedbackAt: new Date() })
+      .set({ feedbackAt: now })
       .where(eq(reviewRequests.id, request.id));
     await addLeadEvent(tx, {
       tenantId: tenant.id,
       leadId: request.leadId,
       type: "feedback.received",
       actor: "customer",
-      data: { text: input.message },
+      data: { text: input.text },
     });
     await notifyOwner(tx, fx, {
       tenantId: tenant.id,
       kind: "feedback",
       title: `${customer.name ?? "A customer"} sent you a private message`,
-      body:
-        input.message.length > 140 ? `${input.message.slice(0, 139).trimEnd()}…` : input.message,
+      body: input.text.length > 140 ? `${input.text.slice(0, 139).trimEnd()}…` : input.text,
       leadId: request.leadId,
       callbackPhone: customer.phoneE164,
     });
+    fx.publish({ type: "chat.updated", conversationId: conversation!.id });
     fx.publish({ type: "lead.updated", leadId: request.leadId });
+    return conversation!.id;
   });
-  return { ok: true as const };
+  return { token: null, ...(await chatThread(conversationId)) };
 }
 
 /* ── Unsubscribe (CAN-SPAM) ──────────────────────────────────────────────── */

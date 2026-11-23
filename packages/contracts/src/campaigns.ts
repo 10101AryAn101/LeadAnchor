@@ -3,6 +3,14 @@
  * passes before it can go out. The app shows the same problems while the owner types.
  */
 
+/**
+ * How fast a campaign goes out, in emails a minute: the owner approves one with the campaign
+ * (C-44 AC 5). Slower is gentler on the business's sending reputation.
+ */
+export const CAMPAIGN_SEND_RATES = [20, 60, 120] as const;
+export type CampaignSendRate = (typeof CAMPAIGN_SEND_RATES)[number];
+export const DEFAULT_SEND_RATE: CampaignSendRate = 60;
+
 /** The only merge field: the customer's first name. */
 export const FIRST_NAME_FIELD = "{first_name}";
 

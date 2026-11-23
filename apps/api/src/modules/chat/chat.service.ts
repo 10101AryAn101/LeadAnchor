@@ -28,6 +28,7 @@ import { HttpError, notFound } from "../../lib/errors";
 import { audit } from "../compliance/audit";
 import { approvedForTexting } from "../compliance/registration.service";
 import { requestMessage } from "../messaging/send-path";
+import { profileLine } from "../profile/profile";
 import { assistantOn } from "../billing/access";
 import { webChatUrl, whatsappLinkFor } from "./links";
 
@@ -234,6 +235,7 @@ export async function getChat(tenantId: string, conversationId: string): Promise
       typing:
         conversation.assistantPendingAt !== null &&
         Date.now() - conversation.assistantPendingAt.getTime() < 90_000,
+      profileCard: profileLine(tenant!),
     };
   });
 }

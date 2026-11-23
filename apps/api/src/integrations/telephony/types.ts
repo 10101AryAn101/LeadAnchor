@@ -22,13 +22,24 @@ interface EventBase extends CallHandle {
 
 /** Normalised events, regardless of provider. */
 export type TelephonyEvent =
-  | (EventBase & { kind: "call.incoming"; from: string; to: string })
+  | (EventBase & {
+      kind: "call.incoming";
+      from: string;
+      to: string;
+      /**
+       * The number the caller first dialled, when their call was forwarded here (the SIP Diversion
+       * header). It's the owner's own cell when they missed it and their forwarding sent it on (C-01);
+       * absent on a call dialled straight to the LeadAnchor number (C-02).
+       */
+      forwardedFrom?: string;
+    })
   | (EventBase & { kind: "owner.answered" })
   | (EventBase & { kind: "owner.unavailable"; reason: "no_answer" | "busy" | "machine" | "failed" })
   | (EventBase & { kind: "caller.hangup"; cause: string })
   | (EventBase & { kind: "playback.finished"; tag: string })
   | (EventBase & { kind: "speech.result"; tag: string; transcript: string; confidence: number | null })
-  | (EventBase & { kind: "speech.timeout"; tag: string })
+  /** Listening ended without a finished sentence; `partial` is what the caller was still saying, if anything (C-39). */
+  | (EventBase & { kind: "speech.timeout"; tag: string; partial?: string })
   /** A keypad press (DTMF), e.g. "press 1 to get a text" (C-06). */
   | (EventBase & { kind: "dtmf"; digit: string })
   | (EventBase & { kind: "recording.saved"; recordingUrl: string | null; durationSecs: number | null })
@@ -44,8 +55,14 @@ export interface ProvisionedNumber {
 export interface TelephonyProvider {
   readonly name: TelephonyProviderName;
 
-  /** Orders a local number for a new business (C-02). */
-  provisionNumber(input: { areaCode: string | null }): Promise<ProvisionedNumber>;
+  /**
+   * Orders a local number for a new business (C-02): in the owner's area code, or when none is free
+   * there, elsewhere in their state, then anywhere in the US, so sign-up never fails on it.
+   */
+  provisionNumber(input: { areaCode: string | null; state?: string | null }): Promise<ProvisionedNumber>;
+
+  /** Gives a number back to the carrier once the business that had it has left. */
+  releaseNumber(number: { e164: string; providerNumberId: string | null }): Promise<void>;
 
   /** Rings the owner's cell with a timeout and answering-machine detection (C-02). */
   ringOwner(call: CallHandle, input: { ownerE164: string; fromE164: string; timeoutSecs: number }): Promise<void>;
@@ -65,6 +82,12 @@ export interface TelephonyProvider {
   recordVoicemail(call: CallHandle, input: { maxSecs: number }): Promise<void>;
 
   hangup(call: CallHandle): Promise<void>;
+
+  /**
+   * Turns an incoming call away unanswered, as a busy line (C-01). Used when our own ring to the
+   * owner comes straight back because their phone forwards calls to their LeadAnchor number.
+   */
+  reject(call: CallHandle): Promise<void>;
 
   /**
    * Forwarding test (C-01): calls the owner's cell from their LeadAnchor number and lets it

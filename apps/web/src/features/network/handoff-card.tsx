@@ -119,8 +119,8 @@ function HandoffStatus({ lead, handoff }: { lead: LeadDetail; handoff: HandoffIt
             </a>
           )}
           <p className="text-sm text-muted-foreground">
-            {customer} got a text naming them, and can choose to stay with you for{" "}
-            {HANDOFF_STAY_DAYS} days.
+            {customer} was told who has it, and can choose to stay with you for {HANDOFF_STAY_DAYS}{" "}
+            days.
           </p>
           {handoff.convertedAt && (
             <p className="text-sm font-medium text-primary">
@@ -143,7 +143,9 @@ function HandoffStatus({ lead, handoff }: { lead: LeadDetail; handoff: HandoffIt
       );
     case "withdrawn":
       return (
-        <p className="mt-2 text-[15px] text-muted-foreground">You took it back from the network.</p>
+        <p className="mt-2 text-[15px] text-muted-foreground">
+          Taken back from the network. The job is yours again.
+        </p>
       );
   }
 }
@@ -238,9 +240,9 @@ function PassSheet({
             anyone else&apos;s details.
           </p>
           <p>
-            {firstName(lead) ?? "The customer"} gets a text naming that pro, with a link to stay
-            with you instead. If nobody accepts within {HANDOFF_OFFER_HOURS} hours, the job stays
-            with you.
+            {firstName(lead) ?? "The customer"} is told who that pro is, by text or email, with a
+            link to stay with you instead. If nobody accepts within {HANDOFF_OFFER_HOURS} hours, the
+            job stays with you.
           </p>
           <p>
             <Link

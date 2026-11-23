@@ -4,6 +4,9 @@ import {
   type AudiencePreview,
   CAMPAIGN_SEGMENTS,
   CAMPAIGN_SEGMENT_LABELS,
+  CAMPAIGN_SEND_RATES,
+  type CampaignSendRate,
+  DEFAULT_SEND_RATE,
   type CampaignAudience,
   type CampaignDetail,
   type CampaignDraft,
@@ -30,6 +33,7 @@ import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api, isApiError } from "@/lib/api";
 import { keys, useCampaignOptions, useMe, useServices } from "@/lib/queries";
 import { cn } from "@/lib/utils";
@@ -545,6 +549,8 @@ function SendCard({
   const [confirming, setConfirming] = useState<"now" | "later" | null>(null);
   const [date, setDate] = useState(tomorrow);
   const [time, setTime] = useState("09:00");
+  // C-44 AC 5: the throughput the owner approves with the campaign.
+  const [perMinute, setPerMinute] = useState<CampaignSendRate>(DEFAULT_SEND_RATE);
   const isOwner = me?.role === "owner";
 
   const test = useMutation({
@@ -573,7 +579,7 @@ function SendCard({
   const settled = !saving && !incomplete;
   const people =
     reachable === null ? "your customers" : `${reachable} ${reachable === 1 ? "person" : "people"}`;
-  const minutes = Math.ceil((reachable ?? 0) / 60);
+  const minutes = Math.ceil((reachable ?? 0) / perMinute);
   const ready = settled && !blocked && isOwner && reachable !== null;
   return (
     <section className="space-y-3 rounded-lg border bg-card p-5">
@@ -599,6 +605,25 @@ function SendCard({
       {!isOwner && me && (
         <p className="text-sm text-muted-foreground">Only the owner can approve a campaign.</p>
       )}
+      <Field>
+        <FieldLabel>How fast it goes out</FieldLabel>
+        <ToggleGroup
+          value={[String(perMinute)]}
+          onValueChange={(value) => value[0] && setPerMinute(Number(value[0]) as CampaignSendRate)}
+          variant="outline"
+          aria-label="How fast it goes out"
+        >
+          {CAMPAIGN_SEND_RATES.map((rate) => (
+            <ToggleGroupItem key={rate} value={String(rate)} className="px-3">
+              {rate} a minute
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <FieldDescription>
+          Slower is gentler on your email reputation. Nobody gets it between 9 pm and 8 am their
+          time: those emails wait for 8 am.
+        </FieldDescription>
+      </Field>
       <div className="flex flex-wrap gap-2">
         <Button type="button" disabled={!ready} onClick={() => setConfirming("now")}>
           <IconSend /> Send now
@@ -630,7 +655,7 @@ function SendCard({
           <Button
             type="button"
             disabled={send.isPending}
-            onClick={() => send.mutate({ when: "now" })}
+            onClick={() => send.mutate({ when: "now", perMinute })}
           >
             {send.isPending ? <Spinner /> : <IconSend />} Send to {people}
           </Button>
@@ -650,7 +675,7 @@ function SendCard({
           <Button
             type="button"
             disabled={send.isPending || !date || !time}
-            onClick={() => send.mutate({ when: "later", date, time })}
+            onClick={() => send.mutate({ when: "later", date, time, perMinute })}
           >
             {send.isPending ? <Spinner /> : <IconCalendarClock />} Schedule for {people}
           </Button>

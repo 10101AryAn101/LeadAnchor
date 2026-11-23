@@ -43,6 +43,7 @@ export const TENANT_TABLES = [
   "membership_plans",
   "plan_memberships",
   "membership_invoices",
+  "membership_income_months",
   "network_members",
   "lead_handoffs",
   "handoff_offers",

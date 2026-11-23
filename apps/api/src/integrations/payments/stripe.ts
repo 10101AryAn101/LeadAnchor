@@ -289,20 +289,26 @@ export class StripePayments implements PaymentsProvider {
     return this.updateSubscription(accountId, subscriptionId, { cancel_at_period_end: true });
   }
 
-  async changeSubscriptionPrice(accountId: string, subscriptionId: string, priceId: string) {
+  async changeSubscriptionPrice(
+    accountId: string,
+    subscriptionId: string,
+    priceId: string,
+    { prorate = true }: { prorate?: boolean } = {},
+  ) {
     const options = { stripeAccount: accountId };
     const current = await this.stripe.subscriptions
       .retrieve(subscriptionId, {}, options)
       .catch(refuse);
     const item = current.items.data[0];
     if (!item) throw new PaymentRefused("This membership has no plan on it to change.");
-    // Bill (or credit) the difference for the rest of this period straight away.
+    // Bill (or credit) the difference for the rest of this period straight away; or, for a
+    // move announced in advance, nothing now and the new price from the next renewal.
     const updated = await this.stripe.subscriptions
       .update(
         subscriptionId,
         {
           items: [{ id: item.id, price: priceId }],
-          proration_behavior: "always_invoice",
+          proration_behavior: prorate ? "always_invoice" : "none",
           expand: ["default_payment_method"],
         },
         options,
@@ -319,6 +325,20 @@ export class StripePayments implements PaymentsProvider {
       subscription: subscriptionStateOf(updated),
       invoice: invoice && invoice.amountCents > 0 ? invoice : null,
     };
+  }
+
+  async renameProduct(
+    accountId: string,
+    productId: string,
+    input: { name: string; description: string },
+  ) {
+    await this.stripe.products
+      .update(
+        productId,
+        { name: input.name, ...(input.description ? { description: input.description } : {}) },
+        { stripeAccount: accountId },
+      )
+      .catch(refuse);
   }
 
   async retryInvoice(accountId: string, invoiceId: string): Promise<InvoiceState> {
@@ -362,6 +382,10 @@ export class StripePayments implements PaymentsProvider {
         )
         .catch(refuse),
     );
+  }
+
+  getInvoice(accountId: string, invoiceId: string) {
+    return this.invoiceState(accountId, invoiceId);
   }
 
   /** A bill, with the payment attempts that carry the decline message. Null until Stripe tries it. */
@@ -590,6 +614,7 @@ export function subscriptionStateOf(subscription: Stripe.Subscription): Subscrip
       toDate(subscription.ended_at),
     cardBrand: method?.card?.brand ?? null,
     cardLast4: method?.card?.last4 ?? null,
+    lapsed: status === "canceled" && subscription.cancellation_details?.reason === "payment_failed",
   };
 }
 

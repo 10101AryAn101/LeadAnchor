@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { type AiProfileFacts, aiProfileOf, answerFor, faqFor, hoursOf } from "./ai-profile";
 import { PANEL_SIZE, mentions, panelQuestions } from "./panel";
+import { missingServices, serviceList } from "./consistency";
 
 const facts = (overrides: Partial<AiProfileFacts> = {}): AiProfileFacts => ({
   name: "Rivera Plumbing",
@@ -91,5 +92,41 @@ describe("the monthly check (C-42)", () => {
     expect(mentions("Rivera Plumbing & Heating, LLC", ["Rivera Plumbing and Heating"], "")).toBe(true);
     expect(mentions("Rivera Plumbing", [], "I'd call Rivera Plumbing first.")).toBe(true);
     expect(mentions("Rivera Plumbing", ["Radiant Plumbing & Air Conditioning"], "Try Radiant.")).toBe(false);
+  });
+});
+
+describe("claims that trace to a real record (C-42 AC d)", () => {
+  it("says missed calls get a link back only when the Dispatcher is on and texting is allowed", () => {
+    const service = { name: "Drain cleaning", jobs: 0 };
+    // A short answer gets true filler; this line is only among it when the records back it.
+    const short = { rating: null, yearsInBusiness: null, zips: [], licenseNumber: null, insuranceCarrier: null, bookingUrl: null };
+    expect(answerFor(facts({ ...short, textsBack: true }), service)).toContain("Missed calls are answered by an assistant");
+    for (const each of [facts({ textsBack: false }), facts({ textsBack: false, rating: null, yearsInBusiness: null, zips: [], licenseNumber: null, insuranceCarrier: null, bookingUrl: null })]) {
+      const text = answerFor(each, service);
+      expect(text).not.toMatch(/missed call/i);
+      expect(words(text)).toBeGreaterThanOrEqual(40);
+      expect(words(text)).toBeLessThanOrEqual(60);
+    }
+  });
+
+  it("names the licence's own state and trade when the owner gave them (C-41)", () => {
+    const text = answerFor(facts({ licenseTrade: "Master Plumber", licenseState: "TX" }), { name: "Water heater repair", jobs: 14 });
+    expect(text).toContain("licensed (TX Master Plumber #M-40231)");
+  });
+});
+
+describe("services match everywhere (C-42 point 5)", () => {
+  const priceList = ["Water heater repair or replacement", "Drain cleaning", "Leak repair", "Sump pump installation"];
+
+  it("finds price-list services the owner's website never mentions", () => {
+    const site = "Rivera Plumbing. We fix water heaters and do drain cleaning across Austin. Call for leak repair today.";
+    expect(missingServices(priceList, site)).toEqual(["Water heater repair or replacement", "Sump pump installation"]);
+    expect(missingServices(priceList, "Water heater installs, drain cleaning, leak repair and sump pump service.")).toEqual([]);
+  });
+
+  it("says which ones in a short list", () => {
+    expect(serviceList(["Drain cleaning"])).toBe("Drain cleaning");
+    expect(serviceList(["Drain cleaning", "Leak repair"])).toBe("Drain cleaning and Leak repair");
+    expect(serviceList(["A", "B", "C", "D", "E"])).toBe("A, B, C and 2 more");
   });
 });

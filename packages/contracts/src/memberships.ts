@@ -7,6 +7,9 @@ import type { PlanInterval, WorkCadenceKind } from "./domain";
  */
 export const MEMBERSHIP_CONSENT_VERSION = "membership-v1";
 
+/** C-48 AC 2: members moved to a plan's newer price are told at least this many days before it bills. */
+export const PRICE_MOVE_NOTICE_DAYS = 30;
+
 const usd = (cents: number) =>
   new Intl.NumberFormat("en-US", {
     style: "currency",

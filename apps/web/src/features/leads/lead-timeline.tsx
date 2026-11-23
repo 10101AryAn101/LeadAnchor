@@ -52,6 +52,7 @@ import {
 } from "@tabler/icons-react";
 import { PAYMENT_METHOD_LABELS, type PaymentMethod } from "@leadanchor/contracts";
 import { type ReactNode, useMemo, useState } from "react";
+import Link from "next/link";
 import { amount, clockTime, dayLabel, fullDate, money } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { StageGlyph } from "./lead-meta";
@@ -80,7 +81,17 @@ interface Row {
 }
 
 const str = (value: unknown) => (typeof value === "string" ? value : "");
-const cents = (value: unknown) => (typeof value === "number" ? amount(value) : "");
+
+/** How the request form link reached the customer (C-07). */
+const LINK_CHANNEL: Record<string, string> = {
+  sms: "From the link in the text.",
+  whatsapp: "From the link on WhatsApp.",
+  email: "From the link in the email.",
+  web: "From the link in the website chat.",
+};
+/** How the customer heard their job was passed to another pro (C-24). */
+const TOLD_BY: Record<string, string> = { text: "text", whatsapp: "WhatsApp", email: "email" };
+const cents =(value: unknown) => (typeof value === "number" ? amount(value) : "");
 const methodLabel = (value: unknown) => PAYMENT_METHOD_LABELS[value as PaymentMethod] ?? str(value);
 
 /** Older entries stored the raw error from the AI service; show those in plain words too. */
@@ -212,11 +223,16 @@ function paymentRow(event: LeadEvent, base: { id: string; at: string }): Row | n
         kind: "money",
         icon: IconLockOpen,
         tone: "neutral",
-        title: d.reason === "owner" ? `Released the ${cents(d.amountCents)} hold` : `The ${cents(d.amountCents)} hold ended`,
-        body: d.reason === "owner" ? "The card wasn't charged." : "Not collected within 7 days, so the card was released.",
+        title: d.reason === "expired" ? `The ${cents(d.amountCents)} hold ended` : `Released the ${cents(d.amountCents)} hold`,
+        body:
+          d.reason === "booking_canceled"
+            ? "The visit was cancelled, so the card wasn't charged."
+            : d.reason === "owner"
+              ? "The card wasn't charged."
+              : "Not collected within 7 days, so the card was released.",
       };
     case "payment.canceled":
-      return { ...base, kind: "money", icon: IconCircleX, tone: "neutral", title: `Pay link for ${cents(d.amountCents)} closed` };
+      return { ...base, kind: "money", icon: IconCircleX, tone: "neutral", title: `Pay link for ${cents(d.amountCents)} closed`, body: d.reason === "booking_canceled" ? "The visit was cancelled." : undefined };
     case "payment.reported":
       return { ...base, kind: "money", icon: IconCurrencyDollar, tone: "waiting", title: `Says they paid ${cents(d.amountCents)} by ${methodLabel(d.method)}`, body: "Check it arrived, then mark it received." };
     default:
@@ -410,7 +426,8 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
     case "intake.link_created":
       return { ...base, kind: "messages", icon: IconLink, tone: "neutral", title: "Request form link created" };
     case "intake.opened":
-      return { ...base, kind: "other", icon: IconEye, tone: "neutral", title: "Opened the request form" };
+      // C-07: which message the link came in, so opens can be counted per channel.
+      return { ...base, kind: "other", icon: IconEye, tone: "neutral", title: "Opened the request form", body: LINK_CHANNEL[str(d.channel)] };
     case "intake.submitted":
       return {
         ...base,
@@ -490,7 +507,20 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
         icon: IconRepeat,
         tone: "good",
         title: `Paid for by their ${str(d.plan)} membership`,
-        body: `${str(d.period) ? `${str(d.period)} bill` : "Their bill"}${typeof d.amountCents === "number" ? ` of ${money(d.amountCents)}` : ""} went through, so this job is due. Book the visit.`,
+        body: (
+          <>
+            {`${str(d.period) ? `${str(d.period)} bill` : "Their bill"}${typeof d.amountCents === "number" ? ` of ${money(d.amountCents)}` : ""} went through, so this job is due. Book the visit.`}
+            {/* C-51: back to the member and the bill that paid for this job. */}
+            {str(d.membershipId) && (
+              <>
+                {" "}
+                <Link href={`/memberships?m=${str(d.membershipId)}${str(d.invoiceId) ? `&bill=${str(d.invoiceId)}` : ""}`} className="font-semibold text-primary underline-offset-2 hover:underline">
+                  See the member and the bill
+                </Link>
+              </>
+            )}
+          </>
+        ),
       };
     case "campaign.responded":
       return {
@@ -508,14 +538,20 @@ function eventRow(event: LeadEvent, onPhoto: (id: string) => void): Row | null {
       const offered = typeof d.offeredTo === "number" ? d.offeredTo : 0;
       return { ...base, kind: "other", icon: IconUsersGroup, tone: "auto", title: `Offered to ${offered} trusted ${offered === 1 ? "pro" : "pros"} near you`, body: "They saw the job and the area only." };
     }
-    case "network.passed":
-      return { ...base, kind: "other", icon: IconUsersGroup, tone: "good", title: `Passed to ${str(d.partner)}`, body: "They got the customer's name, number, address and the job. The customer was told by text and can choose to stay with you." };
+    case "network.passed": {
+      // How the customer was told (guardrail 1). Older entries were always told by text.
+      const told = Array.isArray(d.toldBy) ? d.toldBy.map((via) => TOLD_BY[str(via)] ?? str(via)) : ["text"];
+      const heard = told.length ? `The customer was told by ${told.join(" and ")} and can choose to stay with you.` : "We couldn't text or email the customer, so tell them yourself.";
+      return { ...base, kind: "other", icon: IconUsersGroup, tone: "good", title: `Passed to ${str(d.partner)}`, body: `They got the customer's name, number, address and the job. ${heard}` };
+    }
     case "network.received":
       return { ...base, kind: "other", icon: IconUsersGroup, tone: "good", title: `Passed to you by ${str(d.from)}`, body: str(d.note) ? <Quote>{str(d.note)}</Quote> : "For this job only, as the partner terms say." };
     case "network.expired":
       return { ...base, kind: "other", icon: IconUsersGroup, tone: "waiting", title: "No pro took it in time", body: "The job stayed with you." };
     case "network.withdrawn":
-      return { ...base, kind: "other", icon: IconUsersGroup, tone: "neutral", title: "You took it back from the network" };
+      return d.reason === "cant_tell_customer"
+        ? { ...base, kind: "other", icon: IconUsersGroup, tone: "waiting", title: "Came back from the network", body: `A pro said yes, but we couldn't tell the customer who'd take it: ${str(d.problem)}.` }
+        : { ...base, kind: "other", icon: IconUsersGroup, tone: "neutral", title: "You took it back from the network" };
     case "network.stayed":
       return { ...base, kind: "other", icon: IconUsersGroup, tone: "good", title: "The customer chose to stay with you", body: str(d.partner) ? `${str(d.partner)} was told and took it off their board.` : undefined };
     default:

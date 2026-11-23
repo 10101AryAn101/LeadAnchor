@@ -34,6 +34,7 @@ export function PlanSignup({
       ) : (
         <SignUp token={token} data={data} />
       )}
+      {!joinedId && <AlreadyMember token={token} />}
       <div className="border-t pt-5">
         <p className="mb-3 text-[15px] text-muted-foreground">
           {joinedId ? "Questions?" : "Questions first?"}
@@ -41,6 +42,61 @@ export function PlanSignup({
         <ContactButtons business={data.business} />
       </div>
     </div>
+  );
+}
+
+/** C-52: a member who lost their receipts gets a fresh "manage your plan" link by email. */
+function AlreadyMember({ token }: { token: string }) {
+  const [email, setEmail] = useState("");
+  const [sent, setSent] = useState(false);
+  const ask = useMutation({
+    mutationFn: () =>
+      api(`/public/membership-plans/${encodeURIComponent(token)}/manage-link`, {
+        method: "POST",
+        body: { email: email.trim() },
+      }),
+    onSuccess: () => setSent(true),
+    onError: (error) =>
+      toast.error(isApiError(error) ? error.message : "That didn't go through. Please try again."),
+  });
+  return (
+    <section className="space-y-3 border-t pt-5">
+      <h2 className="text-[17px] font-bold">Already a member?</h2>
+      {sent ? (
+        <p className="flex items-start gap-2 text-[15px] text-muted-foreground">
+          <IconCircleCheck className="mt-0.5 size-5 shrink-0 text-primary" />
+          If that email belongs to a member, a link to manage the plan is on its way. Check your
+          inbox in a minute or two.
+        </p>
+      ) : (
+        <form
+          className="space-y-2"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (email.trim()) ask.mutate();
+          }}
+        >
+          <Field>
+            <FieldLabel htmlFor="member-email">
+              Get a link to update your card, see your bills or cancel
+            </FieldLabel>
+            <div className="flex gap-2">
+              <Input
+                id="member-email"
+                type="email"
+                autoComplete="email"
+                placeholder="The email you joined with"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+              />
+              <Button type="submit" variant="outline" disabled={!email.trim() || ask.isPending}>
+                {ask.isPending && <Spinner />} Email me
+              </Button>
+            </div>
+          </Field>
+        </form>
+      )}
+    </section>
   );
 }
 

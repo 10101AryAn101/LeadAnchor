@@ -21,6 +21,9 @@ export const tenants = pgTable("tenants", {
   postalCode: text("postal_code"),
   website: text("website"),
   licenseNumber: text("license_number"),
+  /** What the licence is for and the state that issued it (C-41), e.g. "Master Plumber", "TX". Self-attested. */
+  licenseTrade: text("license_trade"),
+  licenseState: text("license_state"),
   insuranceCarrier: text("insurance_carrier"),
   yearsInBusiness: integer("years_in_business"),
   /** Self-attested by the owner (C-41): shown as "Licensed & Insured", never "Verified". */

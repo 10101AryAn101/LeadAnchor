@@ -13,6 +13,7 @@ import {
 import type { Metadata } from "next";
 import { Suspense } from "react";
 import { Button } from "@/components/ui/button";
+import { ChatWidget, OpenChatLink } from "@/features/chat/chat-widget";
 import { Skeleton } from "@/components/ui/skeleton";
 import { DiscoverySections } from "@/features/profile/discovery-sections";
 import { Stars } from "@/features/reviews/stars";
@@ -107,7 +108,6 @@ function Site({
           ? "Insured"
           : null;
   const quoteUrl = `/r/${slug}?src=website`;
-  const chatUrl = `/c/${slug}`;
 
   return (
     <div className="min-h-dvh bg-background pb-24">
@@ -186,7 +186,7 @@ function Site({
                 size="lg"
                 variant="outline"
                 nativeButton={false}
-                render={<a href={chatUrl} />}
+                render={<OpenChatLink slug={slug} />}
               >
                 <IconMessages /> Chat with us
               </Button>
@@ -350,14 +350,16 @@ function Site({
               <IconBrandWhatsapp className="size-6 text-[#1f9d55]" /> WhatsApp
             </a>
           )}
-          <a
-            href={chatUrl}
+          <OpenChatLink
+            slug={slug}
             className="flex flex-col items-center justify-center gap-0.5 text-[13px] font-semibold"
           >
             <IconMessages className="size-6 text-primary" /> Chat
-          </a>
+          </OpenChatLink>
         </div>
       </nav>
+      {/* C-33: the chat opens here, on the website, as a widget. */}
+      <ChatWidget slug={slug} />
     </div>
   );
 }

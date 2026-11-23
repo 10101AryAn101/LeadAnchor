@@ -59,6 +59,8 @@ export async function getPublicProfile(slug: string): Promise<PublicProfile | nu
     state: tenant.state,
     phone: number?.e164 ?? null,
     licenseNumber: tenant.licenseNumber,
+    licenseTrade: tenant.licenseTrade,
+    licenseState: tenant.licenseState,
     insuranceCarrier: tenant.insuranceCarrier,
     yearsInBusiness: tenant.yearsInBusiness,
     googleProfileUrl: tenant.googleProfileUrl,

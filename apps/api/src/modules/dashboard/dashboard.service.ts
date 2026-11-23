@@ -13,6 +13,7 @@ const money = (cents: number) =>
  * Dashboard metrics (C-14) and the value-proof summary (C-40).
  * "Recovered" only counts real job values the owner entered on won leads that
  * started as a missed call — never estimates (AC: "real attributed numbers only").
+ * The jobs-won count beside it counts those same leads; "converted" is every won job.
  */
 export async function getDashboard(tenantId: string, range: DashboardRange): Promise<DashboardSummary> {
   const days = RANGE_DAYS[range];
@@ -38,11 +39,14 @@ export async function getDashboard(tenantId: string, range: DashboardRange): Pro
         select
           count(*) filter (where created_at >= ${since})::int as created,
           count(*) filter (where stage = 'won' and won_at >= ${since})::int as won,
+          count(*) filter (where stage = 'won' and won_at >= ${since} and source in ${CALL_SOURCES})::int as won_from_calls,
           coalesce(sum(value_cents) filter (where stage = 'won' and won_at >= ${since} and source in ${CALL_SOURCES}), 0)::bigint as recovered,
+          coalesce(sum(value_cents) filter (where stage = 'won' and won_at >= ${since}), 0)::bigint as converted,
           coalesce(sum(coalesce(value_cents, estimated_value_cents)) filter (where stage not in ('won', 'lost')), 0)::bigint as pipeline,
-          count(*) filter (where needs_callback and stage not in ('won', 'lost'))::int as callbacks
+          count(*) filter (where needs_callback and stage not in ('won', 'lost'))::int as callbacks,
+          (select count(*) from bookings where created_at >= ${since} and status <> 'canceled')::int as booked
         from leads`)
-    ).rows[0] as { created: number; won: number; recovered: string; pipeline: string; callbacks: number };
+    ).rows[0] as { created: number; won: number; won_from_calls: number; recovered: string; converted: string; pipeline: string; callbacks: number; booked: number };
 
     const seriesRows = (
       await tx.execute(sql`
@@ -52,7 +56,7 @@ export async function getDashboard(tenantId: string, range: DashboardRange): Pro
         )
         select to_char(d.day, 'YYYY-MM-DD') as date,
           (select count(*) from calls c where outcome in ${CAPTURED} and (c.started_at at time zone ${tz})::date = d.day)::int as captured,
-          (select count(*) from leads l where stage = 'won' and (l.won_at at time zone ${tz})::date = d.day)::int as won
+          (select count(*) from leads l where stage = 'won' and source in ${CALL_SOURCES} and (l.won_at at time zone ${tz})::date = d.day)::int as won
         from days d order by d.day`)
     ).rows as Array<{ date: string; captured: number; won: number }>;
 
@@ -75,7 +79,7 @@ export async function getDashboard(tenantId: string, range: DashboardRange): Pro
     const headline =
       missed === 0
         ? `${period} every call was answered by you — nothing slipped through.`
-        : `${period} LeadAnchor caught ${missed} missed call${missed === 1 ? "" : "s"} and put ${leadRow.created} lead${leadRow.created === 1 ? "" : "s"} on your board.`;
+        : `${period} LeadAnchor caught ${missed} missed call${missed === 1 ? "" : "s"} and put ${leadRow.created} lead${leadRow.created === 1 ? "" : "s"} on your board${leadRow.booked > 0 ? `, and ${leadRow.booked} job${leadRow.booked === 1 ? " was" : "s were"} booked in` : ""}.`;
     const detail =
       recoveredCents > 0
         ? `${money(recoveredCents)} in won jobs started as a missed call.`
@@ -93,6 +97,8 @@ export async function getDashboard(tenantId: string, range: DashboardRange): Pro
       voicemails: callRow.voicemail,
       leadsCreated: leadRow.created,
       leadsWon: leadRow.won,
+      wonFromCalls: leadRow.won_from_calls,
+      convertedCents: Number(leadRow.converted),
       winRate: leadRow.created > 0 ? leadRow.won / leadRow.created : 0,
       needsCallback: leadRow.callbacks,
       series: seriesRows,

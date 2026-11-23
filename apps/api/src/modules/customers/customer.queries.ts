@@ -1,7 +1,7 @@
 import type { CustomerDetail, CustomerListItem } from "@leadanchor/contracts";
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import { withTenant } from "../../db/client";
-import { calls, customers, leads, mediaAssets } from "../../db/schema";
+import { calls, customers, leads, mediaAssets, membershipPlans, planMemberships } from "../../db/schema";
 import { notFound } from "../../lib/errors";
 import { iso } from "../../lib/time";
 import { toCallItem } from "../leads/lead.service";
@@ -59,9 +59,16 @@ export async function getCustomer(tenantId: string, customerId: string): Promise
     const [customer] = await tx.select().from(customers).where(eq(customers.id, customerId));
     if (!customer) throw notFound("Customer");
 
-    const [jobs, callRows] = await Promise.all([
+    const [jobs, callRows, membershipRows] = await Promise.all([
       tx.select().from(leads).where(eq(leads.customerId, customerId)).orderBy(desc(leads.createdAt)),
       tx.select().from(calls).where(eq(calls.customerId, customerId)).orderBy(desc(calls.startedAt)).limit(50),
+      // C-50: their plans, so the owner sees a member (and one who owes) without opening Memberships.
+      tx
+        .select({ membership: planMemberships, plan: membershipPlans.name })
+        .from(planMemberships)
+        .innerJoin(membershipPlans, eq(membershipPlans.id, planMemberships.planId))
+        .where(and(eq(planMemberships.customerId, customerId), ne(planMemberships.status, "pending")))
+        .orderBy(desc(planMemberships.createdAt)),
     ]);
     const jobIds = jobs.map((job) => job.id);
     const [photos, quoteItems, paymentItems] = await Promise.all([
@@ -113,6 +120,15 @@ export async function getCustomer(tenantId: string, customerId: string): Promise
         leadId: photo.leadId!,
         issue: (photo.aiTags as { issue?: string } | null)?.issue ?? null,
         createdAt: photo.createdAt.toISOString(),
+      })),
+      memberships: membershipRows.map(({ membership, plan }) => ({
+        id: membership.id,
+        plan,
+        status: membership.status,
+        priceCents: membership.priceCents,
+        interval: membership.interval,
+        nextBillAt: membership.status === "active" || membership.status === "past_due" ? iso(membership.currentPeriodEnd) : null,
+        startedAt: iso(membership.startedAt),
       })),
     };
   });

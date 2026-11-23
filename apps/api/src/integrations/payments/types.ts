@@ -98,6 +98,11 @@ export interface SubscriptionState {
   endsAt: Date | null;
   cardBrand: string | null;
   cardLast4: string | null;
+  /**
+   * The provider ended it because every retry failed. A business's own Stripe settings can do
+   * that instead of leaving it past due, so it's reported, never taken for the member cancelling.
+   */
+  lapsed?: boolean;
 }
 
 /**
@@ -155,17 +160,31 @@ export interface PaymentsProvider {
   /** The subscription a finished checkout started, or null while it's still open. */
   subscriptionForCheckout(accountId: string, checkoutId: string): Promise<SubscriptionState | null>;
   getSubscription(accountId: string, subscriptionId: string): Promise<SubscriptionState>;
+  /** One bill as it stands now; null until the provider has tried it. */
+  getInvoice(accountId: string, invoiceId: string): Promise<InvoiceState | null>;
   /** Stops collecting until resumed; nothing is charged while paused. */
   pauseSubscription(accountId: string, subscriptionId: string): Promise<SubscriptionState>;
   resumeSubscription(accountId: string, subscriptionId: string): Promise<SubscriptionState>;
   /** Cancels at the end of the paid period; nothing more is charged. */
   cancelSubscription(accountId: string, subscriptionId: string): Promise<SubscriptionState>;
-  /** Moves to another Price now; the provider works out and bills (or credits) the difference. */
+  /**
+   * Moves to another Price now; the provider works out and bills (or credits) the difference. A
+   * Price on another schedule (monthly to yearly) restarts the billing period today, crediting the
+   * unused part of the old one. With `prorate: false` (same schedule only) nothing is billed now:
+   * the next renewal bills the new Price.
+   */
   changeSubscriptionPrice(
     accountId: string,
     subscriptionId: string,
     priceId: string,
+    options?: { prorate?: boolean },
   ): Promise<{ subscription: SubscriptionState; invoice: InvoiceState | null }>;
+  /** Renames a plan's Product, so receipts and the billing page show its current name (C-48). */
+  renameProduct(
+    accountId: string,
+    productId: string,
+    input: { name: string; description: string },
+  ): Promise<void>;
   /** Tries a declined bill again now. */
   retryInvoice(accountId: string, invoiceId: string): Promise<InvoiceState>;
   /** The provider's hosted page where a member updates their card, sees bills, or cancels. */

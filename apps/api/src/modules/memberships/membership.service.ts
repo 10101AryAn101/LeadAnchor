@@ -13,6 +13,7 @@ import { withTenant } from "../../db/client";
 import {
   customers,
   membershipInvoices,
+  membershipIncomeMonths,
   membershipPlans,
   planMemberships,
   tenants,
@@ -34,6 +35,9 @@ import {
 } from "./billing";
 import { manageUrl } from "./links";
 import { activePlan, ensurePrice, paymentAccountOf } from "./plans.service";
+import { incomeHistory, recordIncomeMonths } from "./income";
+import { monthOf, previousMonth } from "./months";
+import { applyDuePriceMoves } from "./price-moves";
 
 const DAY_MS = 86_400_000;
 
@@ -120,6 +124,10 @@ function toItem(row: Row): MembershipItem {
           nextAttemptAt: iso(issue.nextAttemptAt),
         }
       : null,
+    priceChange:
+      membership.pendingPriceCents != null && membership.pendingPriceAt
+        ? { priceCents: membership.pendingPriceCents, at: membership.pendingPriceAt.toISOString() }
+        : null,
   };
 }
 
@@ -134,12 +142,33 @@ export async function listMemberships(tenantId: string): Promise<MembershipsResp
   const canceled = items.filter((item) => item.canceledAt && Date.parse(item.canceledAt) >= since);
   const monthly = (list: MembershipItem[]) =>
     list.reduce((total, item) => total + item.monthlyCents, 0);
-  const ready = await withTenant(tenantId, async (tx) => cardsReady(await paymentAccountOf(tx)));
+  const mrrCents = monthly(items.filter((item) => item.status === "active"));
+  const { ready, lastMonth, income } = await withTenant(tenantId, async (tx) => {
+    const [tenant] = await tx
+      .select({ timezone: tenants.timezone })
+      .from(tenants)
+      .where(eq(tenants.id, tenantId));
+    const timeZone = tenant?.timezone ?? "America/Chicago";
+    const [closing] = await tx
+      .select({ mrrCents: membershipIncomeMonths.mrrCents })
+      .from(membershipIncomeMonths)
+      .where(eq(membershipIncomeMonths.month, previousMonth(monthOf(new Date(), timeZone))));
+    return {
+      ready: cardsReady(await paymentAccountOf(tx)),
+      lastMonth: closing ?? null,
+      income: await incomeHistory(tx, timeZone),
+    };
+  });
   return {
     memberships: items,
+    income,
     summary: {
-      mrrCents: monthly(items.filter((item) => item.status === "active")),
-      mrrChangeCents: monthly(joined) - monthly(canceled),
+      mrrCents,
+      // Against last month's close once it's on record; a 30-day estimate until then.
+      mrrChangeCents: lastMonth
+        ? mrrCents - lastMonth.mrrCents
+        : monthly(joined) - monthly(canceled),
+      mrrChangeBasis: lastMonth ? "last_month" : "last_30_days",
       active: items.filter((item) => item.status === "active").length,
       pastDue: items.filter((item) => item.status === "past_due").length,
       paused: items.filter((item) => item.status === "paused").length,
@@ -306,7 +335,11 @@ export async function membershipAction(
   return getMembership(tenantId, id);
 }
 
-/** Moves a member to another plan on the same schedule; the provider prorates the difference (C-49). */
+/**
+ * Moves a member to another plan; the provider prorates the difference (C-49). A plan on another
+ * schedule (monthly to yearly, C-50) starts a new billing period today, with the unused part of
+ * the old one credited.
+ */
 async function changePlan(
   tenantId: string,
   membership: Membership,
@@ -322,12 +355,6 @@ async function changePlan(
       throw new HttpError(422, "validation_failed", "Pick an active plan.", {
         planId: ["Pick an active plan"],
       });
-    if (target.interval !== membership.interval)
-      throw new HttpError(
-        422,
-        "validation_failed",
-        "That plan bills on a different schedule. Cancel this one and have them join it instead.",
-      );
     const priceId = await ensurePrice(tx, target);
     return { ...target, providerPriceId: priceId };
   });
@@ -341,7 +368,8 @@ async function changePlan(
   await tenantWork(tenantId, async (tx, fx) => {
     await tx
       .update(planMemberships)
-      .set({ planId: plan.id })
+      // A move to the old plan's newer price no longer applies: they're on another plan now (C-48).
+      .set({ planId: plan.id, pendingPriceCents: null, pendingPriceId: null, pendingPriceAt: null })
       .where(eq(planMemberships.id, membership.id));
     const [customer] = await tx
       .select()
@@ -357,11 +385,17 @@ async function changePlan(
       subject: `Your plan is now ${plan.name}`,
       body: [
         `Hi ${firstNameOf(customer?.name) ?? "there"},`,
-        `Your membership has moved to ${plan.name}, at ${planPrice(subscription.amountCents, subscription.interval)}.${
-          invoice
-            ? ` The difference for the rest of this ${subscription.interval}, ${dollars(invoice.amountCents)}, is billed now.`
-            : " Any difference for the rest of this period comes off your next bill."
-        }`,
+        plan.interval !== membership.interval
+          ? `Your membership has moved to ${plan.name}, at ${planPrice(subscription.amountCents, subscription.interval)}, starting today.${
+              invoice
+                ? ` Today's bill is ${dollars(invoice.amountCents)}, after a credit for the unused part of your old plan.`
+                : " The unused part of your old plan covers it, and anything left over comes off your next bill."
+            }`
+          : `Your membership has moved to ${plan.name}, at ${planPrice(subscription.amountCents, subscription.interval)}.${
+              invoice
+                ? ` The difference for the rest of this ${subscription.interval}, ${dollars(invoice.amountCents)}, is billed now.`
+                : " Any difference for the rest of this period comes off your next bill."
+            }`,
         `Manage your plan: ${manageUrl(membership.id)}`,
       ].join("\n\n"),
     });
@@ -407,8 +441,13 @@ export async function simulateRetry(tenantId: string, id: string) {
   return getMembership(tenantId, id);
 }
 
-/** Every 15 minutes: the simulator's billing clock (Stripe runs its own and sends webhooks). */
+/**
+ * Every 15 minutes: announced price moves that are due (C-48), then the simulator's billing clock
+ * (Stripe runs its own and sends webhooks).
+ */
 export async function membershipsTickJob() {
+  await applyDuePriceMoves();
+  await recordIncomeMonths();
   if (payments.name !== "simulator") return;
   for (const event of simulatorPayments.advanceBilling()) await receivePaymentEvent(event);
 }

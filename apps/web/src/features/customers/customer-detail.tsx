@@ -1,7 +1,7 @@
 "use client";
 
 import { CALL_OUTCOME_LABELS, type CustomerDetail, type CustomerJob, LEAD_STAGE_LABELS, PAYMENT_METHOD_LABELS } from "@leadanchor/contracts";
-import { IconChevronLeft, IconChevronRight, IconFileDollar, IconLock, IconMessage, IconPhone, IconReceipt, IconSend, IconShieldCheck, IconShieldX } from "@tabler/icons-react";
+import { IconChevronLeft, IconChevronRight, IconFileDollar, IconLock, IconMessage, IconPhone, IconReceipt, IconRepeat, IconSend, IconShieldCheck, IconShieldX } from "@tabler/icons-react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { QuoteStatusChip } from "@/features/money/quote-status";
 import { StageGlyph, UrgencyChip } from "@/features/leads/lead-meta";
 import { TagChips } from "@/features/leads/lead-tags";
+import { MemberStatus, per, shortDate } from "@/features/memberships/membership-meta";
 import { useRecordContact } from "@/features/leads/use-lead-actions";
 import { amount, duration, formatPhone, fullDate, money, smsHref, telHref, timeAgo } from "@/lib/format";
 import { useConsent, useCustomer } from "@/lib/queries";
@@ -37,8 +38,12 @@ export function CustomerDetailView() {
   }
 
   const name = customer.name ?? formatPhone(customer.phone);
+  const jobTitle = new Map(customer.jobs.map((job) => [job.id, job.title]));
   // Calling or texting from here counts against their open job, like on the lead page.
   const openJob = customer.jobs.find((job) => job.stage !== "won" && job.stage !== "lost");
+  // Repeat business: two or more jobs that weren't lost.
+  const repeat = customer.stats.openJobs + customer.stats.wonJobs >= 2;
+  const member = customer.memberships.find((item) => item.status !== "canceled");
   const contact = (channel: "call" | "text") => openJob && recordContact({ id: openJob.id, customer: { phone: customer.phone } }, channel);
 
   return (
@@ -49,7 +54,12 @@ export function CustomerDetailView() {
 
       <header className="space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          {customer.stats.jobs >= 2 && <Badge variant="outline">Repeat customer</Badge>}
+          {repeat && <Badge variant="outline">Repeat customer</Badge>}
+          {member && (
+            <Badge variant="outline" className="gap-1">
+              <IconRepeat className="size-3.5" /> {member.plan} member
+            </Badge>
+          )}
           {customer.phone && <TextingStatus phone={customer.phone} />}
         </div>
         <h1 className="font-display text-[28px] leading-[34px] font-semibold">{name}</h1>
@@ -88,6 +98,35 @@ export function CustomerDetailView() {
         </ul>
       </section>
 
+      <ComesBackFor jobs={customer.jobs} />
+
+      {customer.memberships.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="text-[17px] font-bold">Membership</h2>
+          <ul className="divide-y rounded-lg border bg-card">
+            {customer.memberships.map((item) => (
+              <li key={item.id}>
+                <Link href={`/memberships?m=${item.id}`} className="flex min-h-16 items-center gap-3 px-4 py-3 transition-colors hover:bg-muted/60">
+                  <IconRepeat className="size-5 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2 font-semibold">
+                      {item.plan} <MemberStatus status={item.status} />
+                    </span>
+                    <span className="block text-sm text-muted-foreground">
+                      {amount(item.priceCents)}
+                      {per(item.interval)}
+                      {item.nextBillAt ? `, next bill ${shortDate(item.nextBillAt)}` : ""}
+                      {item.startedAt ? `, member since ${shortDate(item.startedAt)}` : ""}
+                    </span>
+                  </span>
+                  <IconChevronRight className="size-5 shrink-0 text-muted-foreground" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       {(customer.quotes.length > 0 || customer.payments.length > 0) && <MoneyHistory customer={customer} />}
 
       {customer.photos.length > 0 && (
@@ -115,9 +154,13 @@ export function CustomerDetailView() {
           <ul className="divide-y rounded-lg border bg-card">
             {customer.calls.map((call) => (
               <li key={call.id} className="flex min-h-14 items-center justify-between gap-3 px-4 py-2.5">
-                <span>
+                <span className="min-w-0">
                   <span className="block font-medium">{CALL_OUTCOME_LABELS[call.outcome]}</span>
-                  <span className="block text-sm text-muted-foreground">{fullDate(call.startedAt)}</span>
+                  <span className="block truncate text-sm text-muted-foreground">
+                    {fullDate(call.startedAt)}
+                    {/* Why they called: the job the call became (C-04). */}
+                    {call.leadId && jobTitle.get(call.leadId) ? `, about ${jobTitle.get(call.leadId)}` : ""}
+                  </span>
                 </span>
                 <span className="tabular text-sm text-muted-foreground">{duration(call.durationSecs)}</span>
               </li>
@@ -134,6 +177,39 @@ export function CustomerDetailView() {
         </section>
       )}
     </div>
+  );
+}
+
+/**
+ * C-34 AC 3: what they keep coming back for, so a pattern shows (a drain cleared every spring,
+ * a water heater that keeps failing). Only reasons that came up more than once.
+ */
+function ComesBackFor({ jobs }: { jobs: CustomerJob[] }) {
+  const groups = new Map<string, { label: string; dates: string[] }>();
+  for (const job of jobs) {
+    const label = (job.serviceCategory ?? job.title).trim();
+    const key = label.toLowerCase();
+    const group = groups.get(key) ?? { label, dates: [] };
+    group.dates.push(job.createdAt);
+    groups.set(key, group);
+  }
+  const repeats = [...groups.values()].filter((group) => group.dates.length > 1).sort((a, b) => b.dates.length - a.dates.length);
+  if (repeats.length === 0) return null;
+  const month = (iso: string) => new Date(iso).toLocaleDateString("en-US", { month: "short", year: "numeric" });
+  return (
+    <section className="space-y-3">
+      <h2 className="text-[17px] font-bold">What they come back for</h2>
+      <ul className="divide-y rounded-lg border bg-card">
+        {repeats.map((group) => (
+          <li key={group.label} className="flex min-h-14 flex-wrap items-center justify-between gap-x-3 gap-y-1 px-4 py-2.5">
+            <span className="font-medium">
+              {group.label} <span className="text-muted-foreground">× {group.dates.length}</span>
+            </span>
+            <span className="text-sm text-muted-foreground">{[...group.dates].sort().map(month).join(", ")}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

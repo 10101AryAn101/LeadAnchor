@@ -42,6 +42,8 @@ const formSchema = z.object({
   postalCode: z.union([z.literal(""), z.string().trim().regex(/^\d{5}(-\d{4})?$/, "Enter a valid ZIP code")]),
   timezone: z.string(),
   licenseNumber: z.string().trim().max(40),
+  licenseTrade: z.string().trim().max(60),
+  licenseState: z.union([z.literal(""), z.string().trim().regex(/^[A-Za-z]{2}$/, "Use the two-letter state, like TX")]),
   insuranceCarrier: z.string().trim().max(80),
   insurancePolicyNumber: z.string().trim().max(60),
   yearsInBusiness: z.string().trim().regex(/^\d{0,3}$/, "Use a whole number"),
@@ -65,6 +67,8 @@ const toForm = (s: SettingsResponse): FormValues => ({
   postalCode: s.postalCode ?? "",
   timezone: s.timezone,
   licenseNumber: s.licenseNumber ?? "",
+  licenseTrade: s.licenseTrade ?? "",
+  licenseState: s.licenseState ?? "",
   insuranceCarrier: s.insuranceCarrier ?? "",
   insurancePolicyNumber: s.insurancePolicyNumber ?? "",
   yearsInBusiness: s.yearsInBusiness != null ? String(s.yearsInBusiness) : "",
@@ -123,6 +127,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         streetAddress: values.streetAddress || null,
         postalCode: values.postalCode || null,
         licenseNumber: values.licenseNumber || null,
+        licenseTrade: values.licenseTrade || null,
+        licenseState: values.licenseState || null,
         insuranceCarrier: values.insuranceCarrier || null,
         insurancePolicyNumber: values.insurancePolicyNumber || null,
         yearsInBusiness: values.yearsInBusiness ? Number(values.yearsInBusiness) : null,
@@ -236,6 +242,8 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
               <FieldError errors={[errors.timezone]} />
             </Field>
             <TextField form={form} name="licenseNumber" label="Licence number (optional)" />
+            <TextField form={form} name="licenseTrade" label="What the licence is for, e.g. Master Plumber (optional)" />
+            <TextField form={form} name="licenseState" label="State that issued it, e.g. TX (optional)" />
             <TextField form={form} name="insuranceCarrier" label="Insurance carrier (optional)" />
             <TextField form={form} name="insurancePolicyNumber" label="Insurance policy number (optional)" />
             <TextField form={form} name="yearsInBusiness" label="Years in business (optional)" type="number" />
@@ -325,6 +333,8 @@ function TextField({
     | "state"
     | "postalCode"
     | "licenseNumber"
+    | "licenseTrade"
+    | "licenseState"
     | "insuranceCarrier"
     | "insurancePolicyNumber"
     | "yearsInBusiness"

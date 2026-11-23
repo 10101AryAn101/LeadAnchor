@@ -60,6 +60,20 @@ export class MetaWhatsApp implements WhatsAppAdapter {
   chatLink(businessE164: string, prefill: string) {
     return whatsappDeepLink(this.sharedNumber ?? businessE164, prefill);
   }
+
+  /** A customer's photo (C-11): Meta hands out a short-lived URL that needs the same token. */
+  async downloadMedia(mediaId: string): Promise<Buffer | null> {
+    try {
+      const headers = { Authorization: `Bearer ${this.accessToken}` };
+      const info = await fetch(`https://graph.facebook.com/${this.graphVersion}/${encodeURIComponent(mediaId)}`, { headers, signal: AbortSignal.timeout(15_000) });
+      const json = (await info.json().catch(() => ({}))) as { url?: string };
+      if (!info.ok || !json.url) return null;
+      const file = await fetch(json.url, { headers, signal: AbortSignal.timeout(30_000) });
+      return file.ok ? Buffer.from(await file.arrayBuffer()) : null;
+    } catch {
+      return null;
+    }
+  }
 }
 
 /**

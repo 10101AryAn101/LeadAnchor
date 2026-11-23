@@ -41,6 +41,8 @@ export const campaigns = pgTable(
     approvedBy: text("approved_by"),
     /** Replies go to the owner who approved it. */
     replyTo: text("reply_to"),
+    /** The throughput the owner approved (C-44 AC 5): emails a minute. Null: sent before the choice existed. */
+    sendsPerMinute: integer("sends_per_minute"),
     sentAt: tsz("sent_at"),
     canceledAt: tsz("canceled_at"),
     createdAt: createdAt(),

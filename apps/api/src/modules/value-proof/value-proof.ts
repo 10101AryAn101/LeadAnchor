@@ -19,6 +19,8 @@ export interface PeriodNumbers {
   caught: number;
   dispatcher: number;
   leads: number;
+  /** Visits booked in the period, by the customer or the owner, and not cancelled since. */
+  booked: number;
   wonFromCalls: number;
   recoveredCents: number;
 }
@@ -55,11 +57,12 @@ export function summaryText(frequency: "daily" | "weekly", n: PeriodNumbers) {
     n.caught === 0 && n.leads === 0
       ? `${period} there were no missed calls to catch.`
       : `${period} LeadAnchor caught ${count(n.caught, "missed call")}${n.dispatcher > 0 ? ` (${n.dispatcher} answered by the AI Dispatcher)` : ""} and put ${count(n.leads, "lead")} on your board.`;
+  const booked = n.booked > 0 ? ` ${count(n.booked, "job")} ${n.booked === 1 ? "was" : "were"} booked in.` : "";
   const won =
     n.wonFromCalls > 0
       ? ` You won ${count(n.wonFromCalls, "job")} worth ${usd.format(n.recoveredCents / 100)} from calls you would have missed.`
       : " Mark jobs as won with their value to see what they were worth.";
-  return { title, body: caught + won };
+  return { title, body: caught + booked + won };
 }
 
 /** Sends one summary now: an alert in the app (and push, when connected) plus an email to each owner. */
@@ -82,14 +85,16 @@ export async function sendValueProof(tenantId: string, now = new Date()) {
           (select count(*) from calls where started_at >= ${since} and outcome in ${CAPTURED})::int as caught,
           (select count(*) from calls where started_at >= ${since} and outcome in ('dispatcher_completed', 'dispatcher_abandoned'))::int as dispatcher,
           (select count(*) from leads where created_at >= ${since})::int as leads,
+          (select count(*) from bookings where created_at >= ${since} and status <> 'canceled')::int as booked,
           (select count(*) from leads where stage = 'won' and won_at >= ${since} and source in ${CALL_SOURCES})::int as won_from_calls,
           (select coalesce(sum(value_cents), 0) from leads where stage = 'won' and won_at >= ${since} and source in ${CALL_SOURCES})::bigint as recovered`)
-    ).rows[0] as { caught: number; dispatcher: number; leads: number; won_from_calls: number; recovered: string };
+    ).rows[0] as { caught: number; dispatcher: number; leads: number; booked: number; won_from_calls: number; recovered: string };
 
     const { title, body } = summaryText(frequency, {
       caught: numbers.caught,
       dispatcher: numbers.dispatcher,
       leads: numbers.leads,
+      booked: numbers.booked,
       wonFromCalls: numbers.won_from_calls,
       recoveredCents: Number(numbers.recovered),
     });

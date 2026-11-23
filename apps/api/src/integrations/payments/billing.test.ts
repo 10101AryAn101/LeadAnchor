@@ -183,3 +183,70 @@ describe("simulated Stripe Billing (module 12)", () => {
     expect(next.amountCents).toBeLessThan(4_900);
   });
 });
+
+describe("plan changes across schedules and announced price moves (C-48, C-50)", () => {
+  it("moves a monthly member to a yearly plan: a new year starts today, less the unused month", async () => {
+    const { accountId, productId, subscription } = await member();
+    const yearly = await sim.createPrice({
+      accountId,
+      productId,
+      name: "Gold AC Care",
+      description: "",
+      amountCents: 99_000,
+      interval: "year",
+      idempotencyKey: "yearly",
+    });
+    const moved = await sim.changeSubscriptionPrice(
+      accountId,
+      subscription.subscriptionId,
+      yearly.priceId,
+    );
+    expect(moved.subscription).toMatchObject({
+      interval: "year",
+      amountCents: 99_000,
+      status: "active",
+    });
+    const yearAhead = Date.now() + 360 * DAY;
+    expect(moved.subscription.currentPeriodEnd!.getTime()).toBeGreaterThan(yearAhead);
+    // Nearly the whole $99 month was unused, so it comes off the $990 year.
+    expect(moved.invoice).toMatchObject({ kind: "proration", status: "paid" });
+    expect(moved.invoice!.amountCents).toBeLessThan(99_000 - 9_500);
+    expect(moved.invoice!.amountCents).toBeGreaterThan(99_000 - 9_900 - 1);
+  });
+
+  it("bills an announced new price from the next renewal, with nothing charged now", async () => {
+    const { accountId, productId, subscription } = await member();
+    const raised = await sim.createPrice({
+      accountId,
+      productId,
+      name: "Gold AC Care",
+      description: "",
+      amountCents: 11_900,
+      interval: "month",
+      idempotencyKey: "raised",
+    });
+    const moved = await sim.changeSubscriptionPrice(
+      accountId,
+      subscription.subscriptionId,
+      raised.priceId,
+      {
+        prorate: false,
+      },
+    );
+    expect(moved.invoice).toBeNull();
+    expect(moved.subscription.currentPeriodEnd).toEqual(subscription.currentPeriodEnd);
+    const next = invoices(sim.renewNow(subscription.subscriptionId, "pay"))[0]!;
+    expect(next).toMatchObject({ kind: "cycle", amountCents: 11_900, status: "paid" });
+  });
+
+  it("renames the plan's product", async () => {
+    const { accountId, productId } = await member();
+    await sim.renameProduct(accountId, productId, {
+      name: "Gold Comfort Club",
+      description: "Two tune-ups a year",
+    });
+    await expect(
+      sim.renameProduct(accountId, "prod_missing", { name: "X", description: "" }),
+    ).rejects.toThrow();
+  });
+});

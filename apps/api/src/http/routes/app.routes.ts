@@ -49,7 +49,7 @@ import { z } from "zod";
 import { env, webOrigins } from "../../config/env";
 import { withTenant } from "../../db/client";
 import { mediaAssets } from "../../db/schema";
-import { notFound, parseInput } from "../../lib/errors";
+import { forbidden, notFound, parseInput } from "../../lib/errors";
 import { realtime } from "../../lib/realtime";
 import { storage } from "../../container";
 import { listCalls } from "../../modules/calls/call.queries";
@@ -74,6 +74,7 @@ import {
 import { getAssistantSettings, getChat, listChats, ownerReply, setHandler, updateAssistantSettings } from "../../modules/chat/chat.service";
 import { getMembership, listMemberships, membershipAction } from "../../modules/memberships/membership.service";
 import { createPlan, listPlans, setPlanArchived, updatePlan } from "../../modules/memberships/plans.service";
+import { moveMembersToPlanPrice } from "../../modules/memberships/price-moves";
 import {
   connectListing,
   disconnectListing,
@@ -233,9 +234,10 @@ export async function appRoutes(app: FastifyInstance) {
     return updateQuote(ctx.tenantId, ctx.userId, id, parseInput(quoteUpdateInput, req.body));
   });
 
-  /** The owner's approval: the only way a quote reaches the customer (C-45). */
+  /** The owner's approval: the only way a quote reaches the customer (C-45 AC 1). Others can draft it. */
   app.post("/api/quotes/:id/send", async (req) => {
     const ctx = await tenantContext(req);
+    if (ctx.role !== "owner") throw forbidden("Only the owner can send a quote. Ask them to check it and send it.");
     const { id } = parseInput(idParam, req.params);
     return sendQuote(ctx.tenantId, ctx.userId, id, parseInput(sendInput, req.body ?? {}));
   });
@@ -590,6 +592,14 @@ export async function appRoutes(app: FastifyInstance) {
     const { id } = parseInput(idParam, req.params);
     await requireFeature(ctx.tenantId, "memberships");
     return updatePlan(ctx.tenantId, id, parseInput(planInput, req.body), `user:${ctx.userId}`);
+  });
+
+  /** C-48 AC 2: members on an older price move to the current one, told at least 30 days ahead. */
+  app.post("/api/membership-plans/:id/move-members", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(idParam, req.params);
+    await requireFeature(ctx.tenantId, "memberships");
+    return moveMembersToPlanPrice(ctx.tenantId, id, `user:${ctx.userId}`);
   });
 
   /** Archived plans take no new members; existing members carry on (C-48 AC 4). */

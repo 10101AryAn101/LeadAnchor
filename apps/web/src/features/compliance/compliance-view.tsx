@@ -436,7 +436,7 @@ function RegistrationForm({ path, prefill, simulated }: { path: RegistrationPath
             "ein",
             "EIN",
             { inputMode: "numeric", placeholder: "12-3456789", autoComplete: "off" },
-            `Encrypted, shown only as the last 4 digits, and deleted ${REGISTRATION_ID_RETENTION_DAYS} days after approval.`,
+            `Encrypted, shown only as the last 4 digits, and deleted ${REGISTRATION_ID_RETENTION_DAYS} days after the carriers decide (or if you stop part-way).`,
           )}
           <Field>
             <FieldLabel htmlFor="entityType">Business type</FieldLabel>
@@ -455,7 +455,7 @@ function RegistrationForm({ path, prefill, simulated }: { path: RegistrationPath
         <div className="grid gap-4 sm:grid-cols-2">
           {field("firstName", "First name", { autoComplete: "given-name" })}
           {field("lastName", "Last name", { autoComplete: "family-name" })}
-          {field("dateOfBirth", "Date of birth", { type: "date" }, `Needed for sole-proprietor registration. Encrypted, and deleted ${REGISTRATION_ID_RETENTION_DAYS} days after approval.`)}
+          {field("dateOfBirth", "Date of birth", { type: "date" }, `Needed for sole-proprietor registration. Encrypted, and deleted ${REGISTRATION_ID_RETENTION_DAYS} days after the carriers decide (or if you stop part-way).`)}
           {field("mobile", "Mobile number", { type: "tel", autoComplete: "tel" }, "The carriers text a one-time code here to confirm it's yours.")}
           {field("email", "Email", { type: "email", autoComplete: "email" })}
         </div>

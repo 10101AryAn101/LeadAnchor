@@ -1,5 +1,4 @@
 import {
-  REGISTRATION_ID_RETENTION_DAYS,
   REGISTRATION_STATUS_COPY,
   type RegistrationResponse,
   type RegistrationStage,
@@ -7,7 +6,7 @@ import {
   type RegistryTestOutcome,
   registrationInput,
 } from "@leadanchor/contracts";
-import { and, eq, inArray, isNotNull, isNull, lt, or } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or } from "drizzle-orm";
 import type { z } from "zod";
 import { env } from "../../config/env";
 import { systemDb, type Tx, withTenant } from "../../db/client";
@@ -16,11 +15,12 @@ import { type Effects, tenantWork } from "../../db/unit-of-work";
 import { QUEUES, enqueue } from "../../jobs/queue";
 import { decryptSecret, encryptSecret } from "../../lib/crypto";
 import { HttpError } from "../../lib/errors";
-import { addDays, iso } from "../../lib/time";
+import { iso } from "../../lib/time";
 import { registry, simulatorRegistry } from "../../container";
 import { type BrandSubmission, RegistryRejection } from "../../integrations/registry/types";
 import { notifyOwner } from "../notifications/notify";
 import { audit } from "./audit";
+import { idDeleteAfterOf } from "./id-retention";
 import { TRADE_VERTICAL, campaignContent, plainFailure } from "./registration-copy";
 
 type RegistrationData = z.output<typeof registrationInput>;
@@ -89,7 +89,7 @@ function present(row: Registration | null): RegistrationResponse {
     submittedAt: iso(row?.submittedAt),
     approvedAt: iso(row?.approvedAt),
     idDeletedAt: iso(row?.idPurgedAt),
-    idDeleteAfter: row?.approvedAt && holdsId && status === "approved" ? addDays(row.approvedAt, REGISTRATION_ID_RETENTION_DAYS).toISOString() : null,
+    idDeleteAfter: row && holdsId ? iso(idDeleteAfterOf(row)) : null,
     smsEnabled: row !== null && approvedForTexting(row),
     simulated: registry.name === "simulator",
     prefill: row && status === "rejected" && stage === "brand" ? prefill(row, details) : null,
@@ -420,26 +420,38 @@ export async function registrationTickJob() {
   await deleteExpiredIds(new Date());
 }
 
-/** Retention (C-43 AC 6): the full EIN and date of birth go 30 days after approval; the last 4 digits stay. */
+/**
+ * Retention (C-43 AC 6): the full EIN and date of birth go 30 days after approval, after a
+ * rejection, or after the owner stopped part-way (see idDeleteAfterOf); the last 4 digits stay.
+ */
 export async function deleteExpiredIds(now: Date) {
-  const due = await systemDb
-    .select({ id: carrierRegistrations.id, tenantId: carrierRegistrations.tenantId })
+  const held = await systemDb
+    .select({
+      id: carrierRegistrations.id,
+      tenantId: carrierRegistrations.tenantId,
+      status: carrierRegistrations.status,
+      approvedAt: carrierRegistrations.approvedAt,
+      updatedAt: carrierRegistrations.updatedAt,
+    })
     .from(carrierRegistrations)
     .where(
       and(
-        eq(carrierRegistrations.status, "approved"),
-        lt(carrierRegistrations.approvedAt, addDays(now, -REGISTRATION_ID_RETENTION_DAYS)),
+        inArray(carrierRegistrations.status, ["approved", "rejected", "verify_mobile"]),
         isNull(carrierRegistrations.idPurgedAt),
         or(isNotNull(carrierRegistrations.taxIdEncrypted), isNotNull(carrierRegistrations.dateOfBirthEncrypted)),
       ),
     );
+  const due = held.filter((row) => {
+    const after = idDeleteAfterOf(row);
+    return after !== null && after.getTime() <= now.getTime();
+  });
   for (const row of due) {
     await tenantWork(row.tenantId, async (tx) => {
       await tx
         .update(carrierRegistrations)
         .set({ taxIdEncrypted: null, dateOfBirthEncrypted: null, idPurgedAt: now })
         .where(eq(carrierRegistrations.id, row.id));
-      await audit(tx, { tenantId: row.tenantId, actor: "system:retention", action: "registration.ids_deleted", entityType: "carrier_registration", entityId: row.id });
+      await audit(tx, { tenantId: row.tenantId, actor: "system:retention", action: "registration.ids_deleted", entityType: "carrier_registration", entityId: row.id, data: { after: row.status } });
     });
   }
   return due.length;
