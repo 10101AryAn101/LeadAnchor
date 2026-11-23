@@ -1,10 +1,12 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, resolve, sep } from "node:path";
 
 /** Blob storage port. Local folder in development; S3-compatible storage later. */
 export interface BlobStorage {
   put(key: string, data: Buffer): Promise<void>;
   get(key: string): Promise<Buffer>;
+  /** Gone for good (data retention); a missing file is fine. */
+  delete(key: string): Promise<void>;
 }
 
 export class LocalBlobStorage implements BlobStorage {
@@ -29,5 +31,9 @@ export class LocalBlobStorage implements BlobStorage {
 
   async get(key: string) {
     return readFile(this.pathFor(key));
+  }
+
+  async delete(key: string) {
+    await rm(this.pathFor(key), { force: true });
   }
 }

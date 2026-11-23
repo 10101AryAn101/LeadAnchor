@@ -1,10 +1,21 @@
-import type { MessageChannel, MessagePurpose } from "@leadanchor/contracts";
+import type { MessageAuthor, MessageChannel, MessagePurpose } from "@leadanchor/contracts";
 import { and, desc, eq, gt } from "drizzle-orm";
 import type { Tx } from "../../db/client";
 import { carrierRegistrations, messages, phoneNumbers, type tenants } from "../../db/schema";
 import type { Effects } from "../../db/unit-of-work";
+import { env } from "../../config/env";
 import { QUEUES } from "../../jobs/queue";
 import { channels, consentLedger } from "../../container";
+import { approvedForTexting } from "../compliance/registration.service";
+import {
+  MARKETING_EMAIL_PURPOSES,
+  SUPPRESSION_REASONS,
+  marketingFooter,
+  marketingFooterHtml,
+  postalAddress,
+  suppressionOf,
+  unsubscribeUrl,
+} from "./email-opt-out";
 import { decide } from "./policy";
 
 type Tenant = typeof tenants.$inferSelect;
@@ -17,6 +28,9 @@ export interface MessageIntent {
   body: string;
   purpose: MessagePurpose;
   preferredChannels?: MessageChannel[];
+  /** Chats (C-11, C-16): the thread it belongs to, and who wrote it. */
+  conversationId?: string | null;
+  author?: MessageAuthor;
 }
 
 /**
@@ -31,8 +45,45 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
     .where(and(eq(phoneNumbers.tenantId, intent.tenant.id), eq(phoneNumbers.status, "active")))
     .limit(1);
 
+  const { decision, consent } = await textPolicy(tx, intent);
+
+  const channel = decision.channel ?? intent.preferredChannels?.[0] ?? "sms";
+  const provider =
+    channel === "whatsapp" ? (channels.whatsapp?.provider ?? "meta") : channel === "web" ? channels.web.provider : channels.sms.provider;
+
+  const [message] = await tx
+    .insert(messages)
+    .values({
+      tenantId: intent.tenant.id,
+      customerId: intent.customerId,
+      leadId: intent.leadId,
+      direction: "outbound",
+      channel,
+      purpose: intent.purpose,
+      status: decision.allowed ? "queued" : "blocked",
+      toAddress: intent.to,
+      fromAddress: number?.e164 ?? "unassigned",
+      body: intent.body,
+      blockedReason: decision.reason,
+      provider,
+      policy: { checks: decision.checks, consentRecordId: consent?.id ?? null },
+      conversationId: intent.conversationId ?? null,
+      author: intent.author ?? null,
+    })
+    .returning();
+
+  if (decision.allowed) fx.enqueue(QUEUES.dispatchMessage, { tenantId: intent.tenant.id, messageId: message!.id });
+  fx.publish({ type: "message.created", messageId: message!.id, leadId: intent.leadId });
+  return message!;
+}
+
+/**
+ * What the policy would decide for this text right now, without writing anything. requestMessage
+ * uses it, and so does code that must know a customer can be reached before it acts (C-24).
+ */
+export async function textPolicy(tx: Tx, intent: Pick<MessageIntent, "tenant" | "to" | "purpose" | "preferredChannels">) {
   const [registration] = await tx
-    .select({ status: carrierRegistrations.status })
+    .select({ status: carrierRegistrations.status, provider: carrierRegistrations.provider })
     .from(carrierRegistrations)
     .where(eq(carrierRegistrations.tenantId, intent.tenant.id))
     .limit(1);
@@ -58,14 +109,82 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
     purpose: intent.purpose,
     preferredChannels: intent.preferredChannels ?? ["sms", "whatsapp"],
     smsConsent: consent?.action ?? null,
-    carrierApproved: registration?.status === "approved",
+    carrierApproved: registration ? approvedForTexting(registration) : false,
     whatsappWindowOpen: Boolean(recentInboundWhatsApp),
     whatsappConfigured: channels.whatsapp !== null,
     recipientLocalHour: localHour(intent.tenant.timezone),
+    waitlistTextsCleared: env.WAITLIST_TEXTS_CLEARED,
+    webChatOpen: intent.to.startsWith("web:"),
   });
+  return { decision, consent };
+}
 
-  const channel = decision.channel ?? intent.preferredChannels?.[0] ?? "sms";
-  const provider = channel === "whatsapp" ? (channels.whatsapp?.provider ?? "meta") : channels.sms.provider;
+const VALID_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Why a job or account email to this address would be blocked right now, or null if it would go. */
+export async function emailBlockedReason(tx: Tx, to: string) {
+  if (!VALID_EMAIL.test(to)) return "That email address doesn't look right.";
+  return (await suppressionOf(tx, to)) === "bounce" ? SUPPRESSION_REASONS.bounce! : null;
+}
+
+export interface EmailIntent {
+  tenant: Tenant;
+  customerId: string | null;
+  leadId: string | null;
+  to: string;
+  subject: string;
+  body: string;
+  purpose: MessagePurpose;
+  /** A designed version (campaigns); "<!--footer-->" marks where the unsubscribe footer goes. */
+  html?: string;
+  /** Where replies go, e.g. the owner's own inbox. */
+  replyTo?: string | null;
+  /** Marketing footer: why they're getting it, and whether to say it's an offer. */
+  footer?: { reason?: string; advertisement?: boolean };
+  /** Spreads a campaign out over time (module 11: sends are rate-limited). */
+  sendAfterSecs?: number;
+}
+
+/** The platform's sending address, under the business's own name (CAN-SPAM: say who it's from). */
+function senderFor(business: string) {
+  const address = env.EMAIL_FROM.match(/<([^>]+)>/)?.[1] ?? env.EMAIL_FROM;
+  return `"${business.replaceAll('"', "")} via LeadAnchor" <${address}>`;
+}
+
+/**
+ * Email goes through the same governed path as texts: one row per message with the
+ * decision attached, delivered by the queue. Job and account emails need no opt-in, but
+ * nothing goes to an address that bounced. Marketing-type email (review requests,
+ * campaigns) also skips anyone who unsubscribed or marked one as spam, and carries the
+ * postal address and an unsubscribe link (CAN-SPAM).
+ */
+export async function requestEmail(tx: Tx, fx: Effects, intent: EmailIntent) {
+  const validAddress = VALID_EMAIL.test(intent.to);
+  const checks = [{ check: "email_address", passed: validAddress, detail: validAddress ? "Address looks valid." : "Invalid address." }];
+  let blockedReason = validAddress ? null : "That email address doesn't look right.";
+  let body = intent.body;
+  let html = intent.html ?? null;
+  const marketing = MARKETING_EMAIL_PURPOSES.has(intent.purpose);
+
+  const suppressed = validAddress ? await suppressionOf(tx, intent.to) : null;
+  if (validAddress && !marketing) {
+    const bounced = suppressed === "bounce";
+    checks.push({ check: "email_bounce", passed: !bounced, detail: bounced ? "Emails to this address bounce." : "Address hasn't bounced." });
+    if (bounced) blockedReason = SUPPRESSION_REASONS.bounce!;
+  }
+  if (validAddress && marketing) {
+    const reason = suppressed ? (SUPPRESSION_REASONS[suppressed] ?? "They asked not to get these emails.") : null;
+    checks.push({ check: "email_opt_out", passed: !reason, detail: reason ?? "Not on the unsubscribe list." });
+    const address = reason ? null : await postalAddress(tx, intent.tenant);
+    if (!reason) checks.push({ check: "postal_address", passed: address !== null, detail: address ? "Postal address included." : "No postal address on file." });
+    if (reason) blockedReason = reason;
+    else if (!address) blockedReason = "Add the business's street address and ZIP in Settings first (US anti-spam law).";
+    else {
+      const footer = { business: intent.tenant.name, address, unsubscribe: unsubscribeUrl(intent.tenant.id, intent.to), ...intent.footer };
+      body += marketingFooter(footer);
+      html = html?.replace("<!--footer-->", marketingFooterHtml(footer)) ?? null;
+    }
+  }
 
   const [message] = await tx
     .insert(messages)
@@ -74,19 +193,28 @@ export async function requestMessage(tx: Tx, fx: Effects, intent: MessageIntent)
       customerId: intent.customerId,
       leadId: intent.leadId,
       direction: "outbound",
-      channel,
+      channel: "email",
       purpose: intent.purpose,
-      status: decision.allowed ? "queued" : "blocked",
+      status: blockedReason ? "blocked" : "queued",
       toAddress: intent.to,
-      fromAddress: number?.e164 ?? "unassigned",
-      body: intent.body,
-      blockedReason: decision.reason,
-      provider,
-      policy: { checks: decision.checks, consentRecordId: consent?.id ?? null },
+      fromAddress: marketing ? senderFor(intent.tenant.name) : env.EMAIL_FROM,
+      subject: intent.subject,
+      body,
+      html: html?.replace("<!--footer-->", "") ?? null,
+      replyTo: intent.replyTo ?? null,
+      blockedReason,
+      provider: channels.email.provider,
+      policy: { checks },
     })
     .returning();
 
-  if (decision.allowed) fx.enqueue(QUEUES.dispatchMessage, { tenantId: intent.tenant.id, messageId: message!.id });
+  if (!blockedReason) {
+    fx.enqueue(
+      QUEUES.dispatchMessage,
+      { tenantId: intent.tenant.id, messageId: message!.id },
+      intent.sendAfterSecs ? { startAfterSecs: intent.sendAfterSecs } : undefined,
+    );
+  }
   fx.publish({ type: "message.created", messageId: message!.id, leadId: intent.leadId });
   return message!;
 }

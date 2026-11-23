@@ -1,4 +1,5 @@
-import { index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { MESSAGE_CHANNELS } from "@leadanchor/contracts";
+import { boolean, index, integer, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { createdAt, pk, tsz } from "./columns";
 import { customers, leads } from "./crm";
 import { tenantRef } from "./tenancy";
@@ -17,6 +18,8 @@ export const intakeRequests = pgTable(
       .references(() => customers.id, { onDelete: "cascade" }),
     tokenHash: text("token_hash").notNull(),
     status: text("status", { enum: ["sent", "opened", "submitted", "expired"] }).notNull().default("sent"),
+    /** How the link reached the customer, so opens are counted per channel (C-07). Null until it's sent. */
+    channel: text("channel", { enum: MESSAGE_CHANNELS }),
     expiresAt: tsz("expires_at").notNull(),
     openedAt: tsz("opened_at"),
     submittedAt: tsz("submitted_at"),
@@ -44,6 +47,8 @@ export const mediaAssets = pgTable(
     aiStatus: text("ai_status", { enum: ["pending", "done", "failed", "skipped"] }).notNull().default("pending"),
     aiTags: jsonb("ai_tags").$type<Record<string, unknown>>(),
     aiError: text("ai_error"),
+    /** The owner chose to show this photo in their public work gallery (C-41). */
+    showcase: boolean("showcase").notNull().default(false),
     createdAt: createdAt(),
   },
   (t) => [index("media_assets_lead_idx").on(t.leadId)],

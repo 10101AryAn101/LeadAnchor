@@ -4,13 +4,23 @@ import type { NotificationItem, NotificationKind } from "@leadanchor/contracts";
 import {
   type Icon,
   IconBell,
+  IconCalendarEvent,
   IconCamera,
   IconChecks,
+  IconCurrencyDollar,
+  IconFileDollar,
   IconFileText,
   IconHeadset,
+  IconMessageCircle,
+  IconMessages,
   IconPhoneX,
   IconRecordMail,
+  IconRepeat,
+  IconShieldCheck,
+  IconSpeakerphone,
+  IconStar,
   IconTrendingUp,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -26,11 +36,22 @@ import { cn } from "@/lib/utils";
 /** Amber only where someone is waiting on the owner. */
 const KIND: Record<NotificationKind, { icon: Icon; tone: string }> = {
   ghost_call: { icon: IconPhoneX, tone: "bg-signal-subtle text-signal-strong" },
+  account: { icon: IconBell, tone: "bg-info-subtle text-info-strong" },
   voicemail: { icon: IconRecordMail, tone: "bg-signal-subtle text-signal-strong" },
   dispatcher_lead: { icon: IconHeadset, tone: "bg-primary-subtle text-primary-subtle-foreground" },
   intake_submitted: { icon: IconFileText, tone: "bg-primary-subtle text-primary-subtle-foreground" },
   photo_analyzed: { icon: IconCamera, tone: "bg-info-subtle text-info-strong" },
   value_proof: { icon: IconTrendingUp, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  registration: { icon: IconShieldCheck, tone: "bg-info-subtle text-info-strong" },
+  quote: { icon: IconFileDollar, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  payment: { icon: IconCurrencyDollar, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  booking: { icon: IconCalendarEvent, tone: "bg-info-subtle text-info-strong" },
+  review: { icon: IconStar, tone: "bg-signal-subtle text-signal-strong" },
+  feedback: { icon: IconMessageCircle, tone: "bg-signal-subtle text-signal-strong" },
+  chat: { icon: IconMessages, tone: "bg-info-subtle text-info-strong" },
+  campaign: { icon: IconSpeakerphone, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  membership: { icon: IconRepeat, tone: "bg-primary-subtle text-primary-subtle-foreground" },
+  network: { icon: IconUsersGroup, tone: "bg-signal-subtle text-signal-strong" },
 };
 
 export function NotificationsButton({ className }: { className?: string }) {
@@ -49,6 +70,8 @@ export function NotificationsButton({ className }: { className?: string }) {
     if (!item.readAt) markRead.mutate([item.id]);
     setOpen(false);
     if (item.leadId) router.push(`/leads/${item.leadId}`);
+    else if (item.kind === "review") router.push("/reviews");
+    else if (item.kind === "chat") router.push("/chats");
   };
 
   return (

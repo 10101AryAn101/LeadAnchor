@@ -71,10 +71,19 @@ export const LEAD_STAGE_LABELS: Record<LeadStage, string> = {
 
 /**
  * What the owner did that moves a card by itself: reaching the customer (Contacted),
- * adding a price (Quoted) or booking a visit (Scheduled). Won and Lost always need the
- * owner's word, so nothing moves a card there automatically.
+ * adding a price or sending a quote (Quoted) or booking a visit (Scheduled). Won and Lost
+ * always need the owner's word, so nothing moves a card there automatically.
  */
-export const AUTO_MOVE_REASONS = ["owner_called", "owner_texted", "owner_answered", "form_sent", "price_set", "visit_booked"] as const;
+export const AUTO_MOVE_REASONS = [
+  "owner_called",
+  "owner_texted",
+  "owner_answered",
+  "form_sent",
+  "price_set",
+  "quote_sent",
+  "visit_booked",
+  "booked_online",
+] as const;
 export type AutoMoveReason = (typeof AUTO_MOVE_REASONS)[number];
 
 export const AUTO_MOVE_STAGE: Record<AutoMoveReason, LeadStage> = {
@@ -83,7 +92,9 @@ export const AUTO_MOVE_STAGE: Record<AutoMoveReason, LeadStage> = {
   owner_answered: "contacted",
   form_sent: "contacted",
   price_set: "quoted",
+  quote_sent: "quoted",
   visit_booked: "scheduled",
+  booked_online: "scheduled",
 };
 
 /** The stage a card moves to after `reason`, or null when it stays put. Cards only ever move forward. */
@@ -92,6 +103,10 @@ export function autoMoveTarget(current: LeadStage, reason: AutoMoveReason): Lead
   const target = AUTO_MOVE_STAGE[reason];
   return LEAD_STAGES.indexOf(target) > LEAD_STAGES.indexOf(current) ? target : null;
 }
+
+/** The "is my call forwarding on?" test (C-01): a call to the owner's cell that should come back to the LeadAnchor line. */
+export const FORWARDING_STATUSES = ["unknown", "checking", "verified", "not_detected"] as const;
+export type ForwardingStatus = (typeof FORWARDING_STATUSES)[number];
 
 /** How the owner reached out from a card: the Call or Text button. */
 export const CONTACT_CHANNELS = ["call", "text"] as const;
@@ -105,7 +120,12 @@ export const LEAD_SOURCES = [
   "web_form",
   "whatsapp",
   "google",
+  "booking",
   "manual",
+  "web_chat",
+  "text",
+  "membership",
+  "network",
 ] as const;
 export type LeadSource = (typeof LEAD_SOURCES)[number];
 
@@ -116,11 +136,20 @@ export const LEAD_SOURCE_LABELS: Record<LeadSource, string> = {
   web_form: "Website form",
   whatsapp: "WhatsApp",
   google: "Google",
+  booking: "Booked online",
   manual: "Added by you",
+  web_chat: "Website chat",
+  text: "Texted in",
+  membership: "Membership",
+  network: "Passed by a partner pro",
 };
 
 export const URGENCY_LEVELS = ["low", "normal", "high", "emergency"] as const;
 export type Urgency = (typeof URGENCY_LEVELS)[number];
+
+/** Where a request on the public form came from (C-10): the website button, the Google profile, or a shared link. */
+export const REQUEST_SOURCES = ["website", "google", "link"] as const;
+export type RequestSource = (typeof REQUEST_SOURCES)[number];
 
 /** How the customer's request form is progressing (C-07 / C-08). */
 export const INTAKE_STATUSES = ["none", "link_sent", "opened", "submitted"] as const;
@@ -150,10 +179,16 @@ export const CALLER_TYPES = ["new", "known"] as const;
 export type CallerType = (typeof CALLER_TYPES)[number];
 
 /** Messaging (Module 5 — one governed send path). */
-export const MESSAGE_CHANNELS = ["sms", "rcs", "whatsapp", "email"] as const;
+/** "web" is the website chat (C-10, C-16): the customer's browser shows the business's replies. */
+export const MESSAGE_CHANNELS = ["sms", "rcs", "whatsapp", "email", "web"] as const;
 export type MessageChannel = (typeof MESSAGE_CHANNELS)[number];
 
-export const MESSAGE_PURPOSES = ["transactional", "conversational", "marketing"] as const;
+/**
+ * keyword_reply: the one-off answer to a customer's own STOP, START or HELP, which carriers require.
+ * waitlist_offer: a freed slot offered to someone on the waitlist (C-22); by text only once counsel
+ * has confirmed the waitlist opt-in wording, by email until then.
+ */
+export const MESSAGE_PURPOSES = ["transactional", "conversational", "marketing", "keyword_reply", "waitlist_offer", "review_request"] as const;
 export type MessagePurpose = (typeof MESSAGE_PURPOSES)[number];
 
 export const MESSAGE_DIRECTIONS = ["outbound", "inbound"] as const;
@@ -176,16 +211,28 @@ export type ConsentSource = (typeof CONSENT_SOURCES)[number];
 export const REGISTRATION_PATHS = ["standard", "sole_proprietor"] as const;
 export type RegistrationPath = (typeof REGISTRATION_PATHS)[number];
 
-export const REGISTRATION_STATUSES = ["not_started", "submitted", "in_review", "approved", "rejected"] as const;
+export const REGISTRATION_STATUSES = ["not_started", "submitted", "verify_mobile", "in_review", "approved", "rejected"] as const;
 export type RegistrationStatus = (typeof REGISTRATION_STATUSES)[number];
 
 export const REGISTRATION_STATUS_COPY: Record<RegistrationStatus, string> = {
   not_started: "Not started — texting customers is switched off until carriers approve you.",
-  submitted: "Submitted — we've sent your details to the carriers.",
+  submitted: "Submitted — we're sending your details to the carriers.",
+  verify_mobile: "Check your phone — enter the code the carriers texted you to confirm your mobile number.",
   in_review: "Carrier approval: in review — usually 1–3 weeks.",
   approved: "Approved — automatic texts are on.",
   rejected: "Needs a fix — the carriers asked us to correct something.",
 };
+
+/** The review runs in order: the business is checked, then the texting plan, then the number is connected. */
+export const REGISTRATION_STAGES = ["brand", "campaign", "number"] as const;
+export type RegistrationStage = (typeof REGISTRATION_STAGES)[number];
+
+/** Simulator only: what the pretend carriers decide (like the `mock` brands Telnyx offers for testing). */
+export const REGISTRY_TEST_OUTCOMES = ["approve", "reject_brand", "reject_campaign"] as const;
+export type RegistryTestOutcome = (typeof REGISTRY_TEST_OUTCOMES)[number];
+
+/** Retention (C-43): the full EIN and date of birth are deleted this many days after approval. */
+export const REGISTRATION_ID_RETENTION_DAYS = 30;
 
 export const NOTIFICATION_KINDS = [
   "ghost_call",
@@ -194,8 +241,162 @@ export const NOTIFICATION_KINDS = [
   "intake_submitted",
   "photo_analyzed",
   "value_proof",
+  "registration",
+  "quote",
+  "payment",
+  "booking",
+  "review",
+  "feedback",
+  "chat",
+  "campaign",
+  "membership",
+  "network",
+  /** The account itself: a new number after coming back, and the like. */
+  "account",
 ] as const;
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
+
+/** Bookings (module 8, C-18 … C-22). Only "booked" holds a slot. */
+export const BOOKING_STATUSES = ["booked", "canceled", "completed", "no_show"] as const;
+export type BookingStatus = (typeof BOOKING_STATUSES)[number];
+
+/** Who made it: the customer online, the owner, or the waitlist taking a freed slot. */
+export const BOOKING_SOURCES = ["customer", "owner", "waitlist"] as const;
+export type BookingSource = (typeof BOOKING_SOURCES)[number];
+
+export const BOOKING_CANCELERS = ["customer", "owner"] as const;
+export type BookingCanceler = (typeof BOOKING_CANCELERS)[number];
+
+export const WEEKDAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+export type WeekdayKey = (typeof WEEKDAY_KEYS)[number];
+export const WEEKDAY_LABELS: Record<WeekdayKey, string> = {
+  sun: "Sunday",
+  mon: "Monday",
+  tue: "Tuesday",
+  wed: "Wednesday",
+  thu: "Thursday",
+  fri: "Friday",
+  sat: "Saturday",
+};
+
+/** How long a job takes when the price list doesn't say. */
+export const DEFAULT_SERVICE_MINUTES = 60;
+/** C-20: the day-before reminder goes out this many hours ahead. */
+export const REMINDER_HOURS = 24;
+
+export const WAITLIST_STATUSES = ["waiting", "booked", "removed"] as const;
+export type WaitlistStatus = (typeof WAITLIST_STATUSES)[number];
+
+/** Two-way calendar sync (module 8): Google Calendar and Microsoft Outlook, or the simulator until they're set up. */
+export const CALENDAR_PROVIDERS = ["simulator", "google", "microsoft"] as const;
+export type CalendarProviderName = (typeof CALENDAR_PROVIDERS)[number];
+
+/** The business listing a business connects (module 9, C-21): Google, with a simulator until it's set up. */
+export const LISTING_PROVIDERS = ["simulator", "google"] as const;
+export type ListingProviderName = (typeof LISTING_PROVIDERS)[number];
+
+/** What LeadAnchor keeps up to date on the listing (C-21). */
+export const LISTING_SYNC_FIELDS = ["hours", "phone", "website", "bookingLink", "address", "chatLink"] as const;
+export type ListingSyncField = (typeof LISTING_SYNC_FIELDS)[number];
+export type ListingSyncFields = Record<ListingSyncField, boolean>;
+
+/** Where a Google review's reply stands (C-47). Nothing is posted without the owner's approval. */
+export const REVIEW_REPLY_STATUSES = ["needs_reply", "draft", "posting", "posted", "failed"] as const;
+export type ReviewReplyStatus = (typeof REVIEW_REPLY_STATUSES)[number];
+
+/** Reviews of this many stars or fewer get a careful draft and a priority alert (C-47 AC 3). */
+export const LOW_RATING_MAX = 3;
+
+/** The voice of drafted replies, set by the owner (C-47 AC 5). */
+export const REPLY_TONES = ["warm", "professional", "brief"] as const;
+export type ReplyTone = (typeof REPLY_TONES)[number];
+export const REPLY_TONE_LABELS: Record<ReplyTone, string> = { warm: "Warm", professional: "Professional", brief: "Short" };
+
+/**
+ * What happened to a completed job's review request (C-46). Every completed job gets one; when
+ * it can't be sent, the reason is kept so the record still shows nobody was left out on purpose.
+ */
+export const REVIEW_REQUEST_OUTCOMES = [
+  "scheduled",
+  "sent",
+  "no_email",
+  "no_google_link",
+  "no_address",
+  "unsubscribed",
+  "canceled",
+] as const;
+export type ReviewRequestOutcome = (typeof REVIEW_REQUEST_OUTCOMES)[number];
+
+/** Quotes (module 6, C-45): drafted by the AI or from the price list, checked and sent by the owner. */
+export const QUOTE_STATUSES = ["draft", "sent", "accepted", "declined"] as const;
+export type QuoteStatus = (typeof QUOTE_STATUSES)[number];
+
+/** Where a quote line came from: the AI's pick from the price list, the price list itself, or the owner's own words. */
+export const QUOTE_LINE_ORIGINS = ["ai", "price_list", "custom"] as const;
+export type QuoteLineOrigin = (typeof QUOTE_LINE_ORIGINS)[number];
+
+/** How the first draft was made: by the AI from the photos, from the price list alone when the AI couldn't help, or empty. */
+export const QUOTE_DRAFT_SOURCES = ["ai", "price_list", "blank"] as const;
+export type QuoteDraftSource = (typeof QUOTE_DRAFT_SOURCES)[number];
+
+/** A sent quote can be accepted for this many days. */
+export const QUOTE_VALID_DAYS = 30;
+export const MAX_QUOTE_LINES = 30;
+/** C-45: a draft is ready within 15 seconds; the AI gets this long and the price list covers the rest. */
+export const QUOTE_DRAFT_AI_BUDGET_MS = 12_000;
+
+/** Payments (module 7). A deposit secures a booking (C-15); a payment is for the work (C-26). */
+export const PAYMENT_KINDS = ["deposit", "payment"] as const;
+export type PaymentKind = (typeof PAYMENT_KINDS)[number];
+
+/** hold: the card is authorised now and collected later (C-15); charge: collected straight away. */
+export const PAYMENT_CAPTURES = ["hold", "charge"] as const;
+export type PaymentCapture = (typeof PAYMENT_CAPTURES)[number];
+
+export const PAYMENT_STATUSES = ["open", "held", "paid", "released", "canceled"] as const;
+export type PaymentStatus = (typeof PAYMENT_STATUSES)[number];
+
+export const PAYMENT_METHODS = ["card", "zelle", "venmo", "cash", "check", "other"] as const;
+export type PaymentMethod = (typeof PAYMENT_METHODS)[number];
+
+/** Money the owner marks as received themselves: nothing outside the card checkout reports back on its own. */
+export const MANUAL_PAYMENT_METHODS = ["zelle", "venmo", "cash", "check", "other"] as const;
+export type ManualPaymentMethod = (typeof MANUAL_PAYMENT_METHODS)[number];
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  card: "Card",
+  zelle: "Zelle",
+  venmo: "Venmo",
+  cash: "Cash",
+  check: "Check",
+  other: "Other",
+};
+
+/** Card payments go through Stripe (each business gets its own Connect account), or the local simulator until it's connected. */
+export const PAYMENT_PROVIDERS = ["simulator", "stripe"] as const;
+export type PaymentProviderName = (typeof PAYMENT_PROVIDERS)[number];
+
+export const PAYMENT_ACCOUNT_STATUSES = ["not_connected", "onboarding", "active", "restricted"] as const;
+export type PaymentAccountStatus = (typeof PAYMENT_ACCOUNT_STATUSES)[number];
+
+/** Card networks drop an uncollected hold after 7 days; the owner is warned a day before. */
+export const CARD_HOLD_DAYS = 7;
+export const MAX_PAYMENT_CENTS = 5_000_000;
+
+/** Job tags (module 4) offered before a business has made its own. */
+export const STARTER_TAGS: Record<Track, string[]> = {
+  A: ["Emergency", "Warranty", "Commercial", "Repeat customer", "Needs parts", "Estimate only"],
+  B: ["New client", "Regular", "VIP", "Package", "Follow up"],
+};
+export const MAX_TAGS_PER_JOB = 8;
+
+/** Phone alerts (C-05): Firebase Cloud Messaging, or the local simulator until Firebase is connected. */
+export const PUSH_PROVIDERS = ["fcm", "simulator"] as const;
+export type PushProviderName = (typeof PUSH_PROVIDERS)[number];
+
+/** What happened to an alert's push: none sent (no phones / in-app only), sent, failed, or simulated. */
+export const PUSH_STATUSES = ["in_app", "fcm_sent", "fcm_failed", "simulated"] as const;
+export type PushStatus = (typeof PUSH_STATUSES)[number];
 
 /** Third-party services named in the spec, with how this build talks to each. */
 export const INTEGRATIONS = [
@@ -208,8 +409,101 @@ export const INTEGRATIONS = [
   "gemini",
   "scheduler",
   "email",
+  "weather",
+  "holidays",
 ] as const;
 export type IntegrationKey = (typeof INTEGRATIONS)[number];
 
 export const INTEGRATION_STATES = ["live", "simulated", "not_configured", "planned"] as const;
 export type IntegrationState = (typeof INTEGRATION_STATES)[number];
+
+/**
+ * Chats (C-11, C-16): WhatsApp, the website chat and texts. The assistant answers until it hands a
+ * chat to the owner or the owner takes over.
+ */
+export const CHAT_CHANNELS = ["whatsapp", "web", "sms"] as const;
+export type ChatChannel = (typeof CHAT_CHANNELS)[number];
+export const CHAT_CHANNEL_LABELS: Record<ChatChannel, string> = { whatsapp: "WhatsApp", web: "Website chat", sms: "Text" };
+
+/** Who wrote a chat message. */
+export const MESSAGE_AUTHORS = ["customer", "assistant", "owner", "system"] as const;
+export type MessageAuthor = (typeof MESSAGE_AUTHORS)[number];
+
+/** assistant: the AI is answering; needs_owner: it handed over; owner: the owner took over. */
+export const CHAT_STATES = ["assistant", "needs_owner", "owner"] as const;
+export type ChatState = (typeof CHAT_STATES)[number];
+
+/** WhatsApp lets a business reply freely for this long after the customer's last message (C-11). */
+export const WHATSAPP_WINDOW_HOURS = 24;
+
+/**
+ * Email campaigns (module 11; C-28 win-backs, C-29 promotions, C-30 weather and holiday offers,
+ * C-44 click-to-book). Email-first: marketing texts wait for the TCPA consent work.
+ */
+export const CAMPAIGN_KINDS = ["winback", "promotion", "seasonal"] as const;
+export type CampaignKind = (typeof CAMPAIGN_KINDS)[number];
+export const CAMPAIGN_KIND_LABELS: Record<CampaignKind, string> = {
+  winback: "Win-back",
+  promotion: "Promotion",
+  seasonal: "Seasonal offer",
+};
+
+/** "suggested": a weather or holiday trigger drafted it. Nothing is sent until the owner approves (C-30). */
+export const CAMPAIGN_STATUSES = ["suggested", "draft", "scheduled", "sending", "sent", "canceled"] as const;
+export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
+
+/** Who a campaign goes to. Only people already in LeadAnchor: never an uploaded list (C-44 AC 1). */
+export const CAMPAIGN_SEGMENTS = ["quiet", "customers", "service", "tag", "not_booked"] as const;
+export type CampaignSegment = (typeof CAMPAIGN_SEGMENTS)[number];
+export const CAMPAIGN_SEGMENT_LABELS: Record<CampaignSegment, string> = {
+  quiet: "Past customers who've gone quiet",
+  customers: "All past customers",
+  service: "Customers who had a service done",
+  tag: "Customers with a tag",
+  not_booked: "People who asked but didn't book",
+};
+
+/** One person on a sent campaign: emailed, left out (and why), or the email came back. */
+export const RECIPIENT_STATUSES = ["sent", "skipped", "bounced", "failed"] as const;
+export type RecipientStatus = (typeof RECIPIENT_STATUSES)[number];
+
+/** What prompted a suggested campaign (C-30). */
+export const CAMPAIGN_TRIGGER_KINDS = ["freeze", "heat", "holiday"] as const;
+export type CampaignTriggerKind = (typeof CAMPAIGN_TRIGGER_KINDS)[number];
+
+/** Provider reports about a sent email: it bounced, or the person marked it as spam. */
+export const EMAIL_FEEDBACK_TYPES = ["bounce", "complaint"] as const;
+export type EmailFeedbackType = (typeof EMAIL_FEEDBACK_TYPES)[number];
+
+/**
+ * Memberships (module 12; C-48 … C-52): the business's own maintenance plans, sold to its own
+ * customers and billed by Stripe Billing (the simulator until Stripe is connected).
+ */
+export const PLAN_INTERVALS = ["month", "year"] as const;
+export type PlanInterval = (typeof PLAN_INTERVALS)[number];
+
+export const PLAN_STATUSES = ["active", "archived"] as const;
+export type PlanStatus = (typeof PLAN_STATUSES)[number];
+
+/** As Stripe reports it; "pending" is a sign-up whose checkout isn't finished. */
+export const MEMBERSHIP_STATUSES = ["pending", "active", "past_due", "paused", "canceled"] as const;
+export type MembershipStatus = (typeof MEMBERSHIP_STATUSES)[number];
+export const MEMBERSHIP_STATUS_LABELS: Record<MembershipStatus, string> = {
+  pending: "Signing up",
+  active: "Active",
+  past_due: "Past due",
+  paused: "Paused",
+  canceled: "Cancelled",
+};
+
+/** One bill: paid, being retried after a decline, or failed after every retry. */
+export const INVOICE_STATUSES = ["paid", "retrying", "failed"] as const;
+export type InvoiceStatus = (typeof INVOICE_STATUSES)[number];
+
+/** When a paid bill puts the plan's job on the board (C-51): every bill, every Nth, in chosen months, or never. */
+export const WORK_CADENCES = ["every", "nth", "months", "none"] as const;
+export type WorkCadenceKind = (typeof WORK_CADENCES)[number];
+
+/** What the owner can do to a membership (C-50). */
+export const MEMBERSHIP_ACTIONS = ["pause", "resume", "cancel", "change_plan", "retry"] as const;
+export type MembershipAction = (typeof MEMBERSHIP_ACTIONS)[number];

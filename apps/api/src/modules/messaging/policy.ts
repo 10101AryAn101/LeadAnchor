@@ -19,6 +19,10 @@ export interface PolicyFacts {
   whatsappConfigured: boolean;
   /** Recipient's local hour, for quiet hours on marketing. */
   recipientLocalHour: number;
+  /** Counsel has confirmed the waitlist opt-in wording covers texts (C-22). Platform-wide. */
+  waitlistTextsCleared: boolean;
+  /** The customer is chatting on the business's website chat, so a reply shows in that window (C-16). */
+  webChatOpen?: boolean;
 }
 
 export interface PolicyCheck {
@@ -34,17 +38,32 @@ export interface PolicyDecision {
   checks: PolicyCheck[];
 }
 
-const QUIET_START = 21; // 9 pm
-const QUIET_END = 8; // 8 am
+export const QUIET_START = 21; // 9 pm
+export const QUIET_END = 8; // 8 am
 
 export function decide(facts: PolicyFacts): PolicyDecision {
   const checks: PolicyCheck[] = [];
   const blocked = (reason: string): PolicyDecision => ({ allowed: false, channel: null, reason, checks });
 
-  if (facts.purpose === "marketing") {
+  if (facts.purpose === "marketing" || facts.purpose === "review_request") {
     // Email-first strategy: marketing texts stay off until counsel signs off on the TCPA consent stack.
+    // A review request counts as marketing (C-46), so it goes by email too.
     checks.push({ check: "marketing_channel", passed: false, detail: "Marketing runs on email until SMS marketing is legally cleared." });
-    return blocked("Marketing texts are switched off (email-first plan).");
+    return blocked(
+      facts.purpose === "review_request"
+        ? "Review requests go by email: they count as marketing, and marketing texts are off (email-first plan)."
+        : "Marketing texts are switched off (email-first plan).",
+    );
+  }
+
+  if (facts.purpose === "waitlist_offer") {
+    // Spreadsheet rollout for C-22: email and in-app now; texts once counsel confirms the opt-in.
+    checks.push({
+      check: "waitlist_texts",
+      passed: facts.waitlistTextsCleared,
+      detail: facts.waitlistTextsCleared ? "Waitlist texts are cleared." : "Waitlist texts wait for counsel to confirm the opt-in wording.",
+    });
+    if (!facts.waitlistTextsCleared) return blocked("Waitlist texts are off until legal sign-off, so the offer goes by email.");
   }
 
   const quiet = facts.recipientLocalHour >= QUIET_START || facts.recipientLocalHour < QUIET_END;
@@ -52,15 +71,19 @@ export function decide(facts: PolicyFacts): PolicyDecision {
 
   for (const channel of facts.preferredChannels) {
     if (channel === "sms" || channel === "rcs") {
-      const consentOk = facts.smsConsent === "GRANTED";
+      // Answering the customer's own STOP, START or HELP is the one text that needs no prior consent.
+      const keywordReply = facts.purpose === "keyword_reply";
+      const consentOk = keywordReply || facts.smsConsent === "GRANTED";
       checks.push({
         check: "sms_consent",
         passed: consentOk,
-        detail: consentOk
-          ? "Customer agreed to texts (consent ledger)."
-          : facts.smsConsent === "REVOKED"
-            ? "Customer opted out (STOP)."
-            : "No consent on record for texts.",
+        detail: keywordReply
+          ? "Reply to the customer's own STOP, START or HELP."
+          : consentOk
+            ? "Customer agreed to texts (consent ledger)."
+            : facts.smsConsent === "REVOKED"
+              ? "Customer opted out (STOP)."
+              : "No consent on record for texts.",
       });
       if (!consentOk) continue;
 
@@ -74,7 +97,25 @@ export function decide(facts: PolicyFacts): PolicyDecision {
       return { allowed: true, channel: "sms", reason: null, checks };
     }
 
+    if (channel === "web") {
+      // A reply in the chat the customer opened on the business's site: no phone, no texting consent involved.
+      const ok = facts.webChatOpen === true && facts.purpose === "conversational";
+      checks.push({
+        check: "web_chat",
+        passed: ok,
+        detail: ok ? "Reply in the website chat the customer started." : "Only replies go to a website chat.",
+      });
+      if (ok) return { allowed: true, channel: "web", reason: null, checks };
+      continue;
+    }
+
     if (channel === "whatsapp") {
+      // An opt-out covers WhatsApp too (C-27, and WhatsApp's own rules), whichever channel it came on.
+      // Only the reply confirming it still goes, as with texts.
+      if (facts.smsConsent === "REVOKED" && facts.purpose !== "keyword_reply") {
+        checks.push({ check: "whatsapp_opt_out", passed: false, detail: "Customer opted out (STOP)." });
+        continue;
+      }
       const ok = facts.whatsappConfigured && facts.whatsappWindowOpen;
       checks.push({
         check: "whatsapp_window",

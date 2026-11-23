@@ -12,9 +12,13 @@ import { uuidv7 } from "uuidv7";
 import type { z } from "zod";
 import { systemDb, withTenant } from "../../db/client";
 import { carrierRegistrations, memberships, phoneNumbers, services, tenants } from "../../db/schema";
+import { QUEUES, enqueue } from "../../jobs/queue";
 import { HttpError } from "../../lib/errors";
 import { telephony } from "../../container";
+import { accountOf } from "../billing/access";
 import { audit } from "../compliance/audit";
+import { requestUrl } from "../intake/intake.service";
+import { profileUrl } from "../profile/profile";
 import { DEFAULT_SERVICES } from "./default-services";
 
 type OnboardingData = z.output<typeof onboardingInput>;
@@ -29,9 +33,16 @@ export async function onboardTenant(userId: string, input: OnboardingData) {
   if (await findMembership(userId)) throw new HttpError(409, "already_onboarded", "Your business is already set up.");
 
   const areaCode = input.ownerCell.slice(2, 5);
-  const number = await telephony.provisionNumber({ areaCode });
+  const number = await telephony.provisionNumber({ areaCode, state: input.state || null });
   const tenantId = uuidv7();
   const slug = `${slugify(input.businessName)}-${tenantId.slice(-4)}`;
+  // C-25: the business whose link this one came from earns when it starts paying.
+  const [referrer] = input.referralCode
+    ? await systemDb
+        .select({ id: tenants.id })
+        .from(tenants)
+        .where(eq(tenants.referralCode, input.referralCode.toUpperCase()))
+    : [];
 
   await withTenant(tenantId, async (tx) => {
     await tx.insert(tenants).values({
@@ -46,6 +57,7 @@ export async function onboardTenant(userId: string, input: OnboardingData) {
       city: input.city || null,
       state: input.state ? input.state.toUpperCase() : null,
       avgJobValueCents: input.avgJobValueDollars * 100,
+      referredByTenantId: referrer?.id ?? null,
       onboardedAt: new Date(),
     });
     await tx.insert(memberships).values({ tenantId, userId, role: "owner" });
@@ -82,6 +94,7 @@ export async function getTenantSummary(tenantId: string): Promise<TenantSummary>
       trackingNumber: number?.e164 ?? null,
       ownerCell: tenant.ownerCellE164,
       registrationStatus: registration?.status ?? REGISTRATION_STATUSES[0],
+      account: accountOf(tenant),
     };
   });
 }
@@ -96,17 +109,30 @@ export async function getSettings(tenantId: string): Promise<SettingsResponse> {
       trade: tenant.trade,
       ownerName: tenant.ownerName,
       ownerCell: tenant.ownerCellE164,
+      streetAddress: tenant.streetAddress,
       city: tenant.city,
       state: tenant.state,
+      postalCode: tenant.postalCode,
       timezone: tenant.timezone,
       licenseNumber: tenant.licenseNumber,
+      licenseTrade: tenant.licenseTrade,
+      licenseState: tenant.licenseState,
       insuranceCarrier: tenant.insuranceCarrier,
+      insurancePolicyNumber: tenant.insurancePolicyNumber,
       yearsInBusiness: tenant.yearsInBusiness,
+      googleProfileUrl: tenant.googleProfileUrl,
+      website: tenant.website,
+      profileLinkInTexts: tenant.profileLinkInTexts,
+      profileUrl: profileUrl(tenant.slug),
+      requestUrl: requestUrl(tenant.slug),
       avgJobValueCents: tenant.avgJobValueCents,
       ringTimeoutSecs: tenant.ringTimeoutSecs,
       dispatcherEnabled: tenant.dispatcherEnabled,
       valueProofFrequency: tenant.valueProofFrequency,
       trackingNumber: number?.e164 ?? null,
+      forwardingStatus: tenant.forwardingStatus,
+      forwardingCheckedAt: tenant.forwardingCheckedAt?.toISOString() ?? null,
+      simulated: telephony.name === "simulator",
     };
   });
 }
@@ -119,12 +145,20 @@ export async function updateSettings(tenantId: string, userId: string, input: Se
         ...(input.businessName !== undefined && { name: input.businessName }),
         ...(input.ownerName !== undefined && { ownerName: input.ownerName }),
         ...(input.ownerCell !== undefined && { ownerCellE164: input.ownerCell }),
+        ...(input.streetAddress !== undefined && { streetAddress: input.streetAddress || null }),
+        ...(input.postalCode !== undefined && { postalCode: input.postalCode || null }),
         ...(input.city !== undefined && { city: input.city || null }),
         ...(input.state !== undefined && { state: input.state ? input.state.toUpperCase() : null }),
         ...(input.timezone !== undefined && { timezone: input.timezone }),
         ...(input.licenseNumber !== undefined && { licenseNumber: input.licenseNumber || null }),
+        ...(input.licenseTrade !== undefined && { licenseTrade: input.licenseTrade || null }),
+        ...(input.licenseState !== undefined && { licenseState: input.licenseState ? input.licenseState.toUpperCase() : null }),
         ...(input.insuranceCarrier !== undefined && { insuranceCarrier: input.insuranceCarrier || null }),
+        ...(input.insurancePolicyNumber !== undefined && { insurancePolicyNumber: input.insurancePolicyNumber || null }),
         ...(input.yearsInBusiness !== undefined && { yearsInBusiness: input.yearsInBusiness }),
+        ...(input.googleProfileUrl !== undefined && { googleProfileUrl: input.googleProfileUrl || null }),
+        ...(input.website !== undefined && { website: input.website || null }),
+        ...(input.profileLinkInTexts !== undefined && { profileLinkInTexts: input.profileLinkInTexts }),
         ...(input.avgJobValueDollars !== undefined && { avgJobValueCents: input.avgJobValueDollars * 100 }),
         ...(input.ringTimeoutSecs !== undefined && { ringTimeoutSecs: input.ringTimeoutSecs }),
         ...(input.dispatcherEnabled !== undefined && { dispatcherEnabled: input.dispatcherEnabled }),
@@ -133,6 +167,8 @@ export async function updateSettings(tenantId: string, userId: string, input: Se
       .where(eq(tenants.id, tenantId));
     await audit(tx, { tenantId, actor: `user:${userId}`, action: "settings.updated", entityType: "tenant", entityId: tenantId, data: { fields: Object.keys(input) } });
   });
+  // The address and website are kept on the Google listing too (C-21); nothing happens if it isn't connected.
+  await enqueue(QUEUES.listingPush, { tenantId });
   return getSettings(tenantId);
 }
 

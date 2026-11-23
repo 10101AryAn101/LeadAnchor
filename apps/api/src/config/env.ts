@@ -24,6 +24,9 @@ const schema = z.object({
   API_PORT: z.coerce.number().int().default(4000),
   PUBLIC_WEB_URL: z.url().default("http://localhost:3000"),
   PUBLIC_API_URL: z.url().default("http://localhost:4000"),
+  // The public address `pnpm tunnel` (ngrok) gives this computer, for providers' webhooks and
+  // anything they fetch (the call ringback). Sign-in and links keep using the addresses above.
+  TUNNEL_URL: z.url().optional(),
 
   // PostgreSQL. The app role is subject to row-level security; the system role
   // bypasses it for routing lookups (e.g. "which business owns this number?") and jobs.
@@ -51,34 +54,82 @@ const schema = z.object({
   TELNYX_CONNECTION_ID: optional,
   TELNYX_MESSAGING_PROFILE_ID: optional,
   TELNYX_WEBHOOK_TOLERANCE_SECS: z.coerce.number().int().default(300),
+  // Telnyx trial: the one number ordered by hand, and the business (slug) that answers on it.
+  TELNYX_TEST_NUMBER: optional,
+  TELNYX_TEST_BUSINESS: optional,
 
   // Messaging channels.
   SMS_PROVIDER: z.enum(["simulator", "telnyx"]).default("simulator"),
+  // Carrier registration (10DLC). Unset, it follows SMS_PROVIDER; a Telnyx trial keeps "simulator",
+  // since a trial can't file real registrations.
+  CARRIER_REGISTRY: z.enum(["simulator", "telnyx"]).optional(),
   WHATSAPP_ACCESS_TOKEN: optional,
   WHATSAPP_PHONE_NUMBER_ID: optional,
   WHATSAPP_APP_SECRET: optional,
   WHATSAPP_VERIFY_TOKEN: optional,
-  EMAIL_TRANSPORT: z.enum(["dev", "smtp"]).default("dev"),
+  // Test mode: Meta's one free test number answers for this business (its slug).
+  WHATSAPP_TEST_BUSINESS: optional,
+  // "dev" keeps emails in the local outbox; "resend" sends them through Resend.
+  EMAIL_TRANSPORT: z.enum(["dev", "smtp", "resend"]).default("dev"),
   SMTP_URL: optional,
   EMAIL_FROM: z.string().default("LeadAnchor <no-reply@leadanchor.local>"),
+  RESEND_API_KEY: optional,
+  RESEND_WEBHOOK_SECRET: optional,
+  // Test mode: every email goes to this address instead (Resend's own test addresses excepted).
+  EMAIL_TEST_RECIPIENT: optional,
 
   // Consent ledger (C-27). The spec names a Firebase ledger; "local" is an
   // append-only, hash-chained Postgres ledger used until Firebase is set up.
-  CONSENT_LEDGER: z.enum(["local", "firestore"]).default("local"),
+  // "local-and-firestore" keeps checking the local ledger and copies every new record to Firestore.
+  CONSENT_LEDGER: z.enum(["local", "firestore", "local-and-firestore"]).default("local"),
   FIREBASE_PROJECT_ID: z.string().default("demo-leadanchor"),
   FIRESTORE_EMULATOR_HOST: optional,
   GOOGLE_APPLICATION_CREDENTIALS: optional,
   FCM_ENABLED: flag,
+  // The Firebase web app's settings, handed to browsers so they can receive alerts. Public by design.
+  FIREBASE_WEB_API_KEY: optional,
+  FIREBASE_WEB_APP_ID: optional,
+  FIREBASE_MESSAGING_SENDER_ID: optional,
+  FIREBASE_VAPID_KEY: optional,
 
   STORAGE_DIR: z.string().default("./storage"),
 
-  // Later phases — read now so the integrations page can report them honestly.
+  // Weather for seasonal offers (C-30). "nws" reads the US National Weather Service (free, no key);
+  // weather.gov asks every app to name itself and a contact, sent as WEATHER_CONTACT.
+  WEATHER_PROVIDER: z.enum(["simulator", "nws"]).default("simulator"),
+  WEATHER_CONTACT: optional,
+
+  // C-22: waitlist offers go by email until counsel confirms the waitlist opt-in wording
+  // covers texts. Platform-wide, so it is a deployment setting rather than a business one.
+  WAITLIST_TEXTS_CLEARED: flag,
+
+  // Quote PDFs (C-45) are printed by headless Chrome or Edge. Found automatically on a
+  // desktop; set the path on a server (e.g. /usr/bin/chromium).
+  PDF_BROWSER_PATH: optional,
+
+  // Card payments (Stripe Connect + Billing). Without a key the local Stripe simulator runs.
+  // Test mode: an sk_test_ key; webhooks arrive through the tunnel (docs/integrations/test-mode-setup.md).
   STRIPE_SECRET_KEY: optional,
+  STRIPE_WEBHOOK_SECRET: optional,
+  // LeadAnchor's own subscriptions (businesses paying for their tier) are events on LeadAnchor's
+  // account, which Stripe sends to a second endpoint with its own signing secret.
+  STRIPE_BILLING_WEBHOOK_SECRET: optional,
+
+  // Later phases — read now so the integrations page can report them honestly.
   GBP_CLIENT_ID: optional,
+  // Google sign-in for Google Calendar (OAuth web client). Without it the simulated calendar stands in.
+  GOOGLE_OAUTH_CLIENT_ID: optional,
+  GOOGLE_OAUTH_CLIENT_SECRET: optional,
+  /** C-46: minutes between marking a job Won and its review request going out (time to undo a mis-tap). */
+  REVIEW_REQUEST_DELAY_MINUTES: z.coerce.number().int().min(0).max(1440).default(30),
   SCHEDULER_PROVIDER: optional,
 
   // Development helpers (call simulator, simulated carrier approval).
   DEV_TOOLS: flag,
+
+  // ── LeadAnchor staff (module 14) ──
+  /** Comma-separated emails of staff who can open the operator console and get its alerts. */
+  OPERATOR_EMAILS: z.string().default(""),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -95,8 +146,21 @@ if (!parsed.success) {
 export const env = parsed.data;
 export type Env = typeof env;
 
+/** LeadAnchor staff: the operator console (module 14) and its alert emails. */
+export const operatorEmails = env.OPERATOR_EMAILS.split(",")
+  .map((email) => email.trim().toLowerCase())
+  .filter(Boolean);
+
 export const isDev = env.NODE_ENV === "development";
 export const devToolsEnabled = env.NODE_ENV !== "production" && (env.DEV_TOOLS || isDev);
+
+/**
+ * A phone hotspot ("Local Area Connection* 12" on 192.168.137.1), Hyper-V, WSL, Docker or a VPN
+ * adapter: links go out on Wi-Fi or Ethernet first, where other devices on the network can reach them.
+ */
+const isVirtualAdapter = ({ adapter, address }: { adapter: string; address: string }) =>
+  /local area connection\*|vethernet|virtualbox|vmware|hyper-v|wsl|docker|tailscale|zerotier|bluetooth/i.test(adapter) ||
+  address.startsWith("192.168.137.");
 
 /**
  * In development `next dev` also serves the web app on this computer's local-network
@@ -107,13 +171,14 @@ export const devToolsEnabled = env.NODE_ENV !== "production" && (env.DEV_TOOLS |
 const lanWebOrigins = (() => {
   const { protocol, hostname, port } = new URL(env.PUBLIC_WEB_URL);
   if (!isDev || (hostname !== "localhost" && hostname !== "127.0.0.1")) return [];
-  return Object.values(networkInterfaces())
-    .flat()
-    .flatMap((net) =>
-      net && net.family === "IPv4" && !net.internal && !net.address.startsWith("169.254.")
-        ? [`${protocol}//${net.address}${port ? `:${port}` : ""}`]
-        : [],
-    );
+  return Object.entries(networkInterfaces())
+    .flatMap(([adapter, nets]) =>
+      (nets ?? [])
+        .filter((net) => net.family === "IPv4" && !net.internal && !net.address.startsWith("169.254."))
+        .map((net) => ({ adapter, address: net.address })),
+    )
+    .sort((a, b) => Number(isVirtualAdapter(a)) - Number(isVirtualAdapter(b)))
+    .map(({ address }) => `${protocol}//${address}${port ? `:${port}` : ""}`);
 })();
 
 /** Origins the web app is opened from. Sign-in rejects requests from any other page. */

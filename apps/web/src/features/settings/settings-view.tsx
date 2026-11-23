@@ -1,7 +1,7 @@
 "use client";
 
 import { zodResolver } from "@hookform/resolvers/zod";
-import { type SettingsResponse, settingsUpdateInput } from "@leadanchor/contracts";
+import { type SettingsResponse, US_TIME_ZONE_LABELS, US_TIME_ZONES, isUsTimeZone, settingsUpdateInput } from "@leadanchor/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useEffect } from "react";
 import { Controller, useForm } from "react-hook-form";
@@ -20,18 +20,36 @@ import { api } from "@/lib/api";
 import { formatPhone } from "@/lib/format";
 import { showFormError } from "@/lib/forms";
 import { keys, useSettings } from "@/lib/queries";
+import { AssistantSection } from "./assistant-section";
+import { BookingSection } from "./booking-section";
+import { CaptureLinks } from "./capture-links";
+import { GoogleSection } from "./google-section";
+import { ForwardingCheck } from "./forwarding-check";
 import { ForwardingGuide } from "./forwarding-guide";
+import { PaymentsSection } from "./payments-section";
+import { PhoneAlerts } from "./phone-alerts";
+import { PlanSection } from "./plan-section";
+import { ServicesSection } from "./services-section";
 
 /** Form shape: plain strings/numbers in the inputs, validated by the shared schema on submit. */
 const formSchema = z.object({
   businessName: z.string().trim().min(2, "Enter your business name").max(80),
   ownerName: z.string().trim().min(2, "Enter your name").max(80),
   ownerCell: z.string().trim().min(7, "Enter your cell number"),
+  streetAddress: z.string().trim().max(120),
   city: z.string().trim().max(80),
   state: z.string().trim().max(2),
+  postalCode: z.union([z.literal(""), z.string().trim().regex(/^\d{5}(-\d{4})?$/, "Enter a valid ZIP code")]),
+  timezone: z.string(),
   licenseNumber: z.string().trim().max(40),
+  licenseTrade: z.string().trim().max(60),
+  licenseState: z.union([z.literal(""), z.string().trim().regex(/^[A-Za-z]{2}$/, "Use the two-letter state, like TX")]),
   insuranceCarrier: z.string().trim().max(80),
+  insurancePolicyNumber: z.string().trim().max(60),
   yearsInBusiness: z.string().trim().regex(/^\d{0,3}$/, "Use a whole number"),
+  googleProfileUrl: z.union([z.literal(""), z.url("Paste the full link, starting with https://").max(300)]),
+  website: z.union([z.literal(""), z.url({ protocol: /^https?$/, error: "Paste the full address, starting with https://" }).max(300)]),
+  profileLinkInTexts: z.boolean(),
   avgJobValueDollars: z.coerce.number().int().min(25).max(50_000),
   ringTimeoutSecs: z.coerce.number().int().min(10).max(30),
   dispatcherEnabled: z.boolean(),
@@ -43,11 +61,20 @@ const toForm = (s: SettingsResponse): FormValues => ({
   businessName: s.businessName,
   ownerName: s.ownerName ?? "",
   ownerCell: s.ownerCell ? formatPhone(s.ownerCell) : "",
+  streetAddress: s.streetAddress ?? "",
   city: s.city ?? "",
   state: s.state ?? "",
+  postalCode: s.postalCode ?? "",
+  timezone: s.timezone,
   licenseNumber: s.licenseNumber ?? "",
+  licenseTrade: s.licenseTrade ?? "",
+  licenseState: s.licenseState ?? "",
   insuranceCarrier: s.insuranceCarrier ?? "",
+  insurancePolicyNumber: s.insurancePolicyNumber ?? "",
   yearsInBusiness: s.yearsInBusiness != null ? String(s.yearsInBusiness) : "",
+  googleProfileUrl: s.googleProfileUrl ?? "",
+  website: s.website ?? "",
+  profileLinkInTexts: s.profileLinkInTexts,
   avgJobValueDollars: Math.round(s.avgJobValueCents / 100),
   ringTimeoutSecs: s.ringTimeoutSecs,
   dispatcherEnabled: s.dispatcherEnabled,
@@ -66,7 +93,17 @@ export function SettingsView() {
       </div>
     );
   }
-  return <SettingsForm settings={settings} />;
+  return (
+    <div className="space-y-6 pb-24 lg:pb-0">
+      <SettingsForm settings={settings} />
+      <PlanSection />
+      <ServicesSection />
+      <BookingSection />
+      <AssistantSection />
+      <GoogleSection />
+      <PaymentsSection />
+    </div>
+  );
 }
 
 /** Mounted only once settings are loaded, so every control starts controlled. */
@@ -87,9 +124,16 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
     mutationFn: (values: z.output<typeof formSchema>) => {
       const body = settingsUpdateInput.parse({
         ...values,
+        streetAddress: values.streetAddress || null,
+        postalCode: values.postalCode || null,
         licenseNumber: values.licenseNumber || null,
+        licenseTrade: values.licenseTrade || null,
+        licenseState: values.licenseState || null,
         insuranceCarrier: values.insuranceCarrier || null,
+        insurancePolicyNumber: values.insurancePolicyNumber || null,
         yearsInBusiness: values.yearsInBusiness ? Number(values.yearsInBusiness) : null,
+        googleProfileUrl: values.googleProfileUrl || null,
+        website: values.website || null,
       });
       return api<SettingsResponse>("/settings", { method: "PATCH", body });
     },
@@ -103,7 +147,7 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
   });
 
   return (
-    <form className="space-y-6 pb-24 lg:pb-0" onSubmit={form.handleSubmit((values) => save.mutate(values))} noValidate>
+    <form className="space-y-6" onSubmit={form.handleSubmit((values) => save.mutate(values))} noValidate>
       <PageHeader
         title="Settings"
         description="How LeadAnchor answers for you, and what customers see."
@@ -120,6 +164,15 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
           <p className="tabular font-display text-3xl font-semibold">{formatPhone(settings.trackingNumber)}</p>
         </div>
         <ForwardingGuide trackingNumber={settings.trackingNumber ?? ""} />
+        <ForwardingCheck settings={settings} />
+      </Section>
+
+      <Section id="capture" title="Website & Google" description="Catch the people who'd never call: one request form behind your Google profile, your website and a link you can share.">
+        <CaptureLinks settings={settings} />
+      </Section>
+
+      <Section id="alerts" title="Missed-call alerts" description="A “tap to call back” alert on your phone within seconds of a missed call or hang-up.">
+        <PhoneAlerts />
       </Section>
 
       <Section title="When you can't pick up" description="Calls ring your cell first. If you don't answer in time, LeadAnchor takes over.">
@@ -162,24 +215,68 @@ function SettingsForm({ settings }: { settings: SettingsResponse }) {
         </FieldGroup>
       </Section>
 
-      <Section title="Business profile" description="Shown on the request form customers open. Licence and insurance are your own statements — we show them as “Licensed & Insured”, never “Verified”.">
+      <Section id="profile" title="Business profile" description="Shown on the request form customers open. Licence and insurance are your own statements — we show them as “Licensed & Insured”, never “Verified”.">
         <FieldGroup>
           <div className="grid gap-4 sm:grid-cols-2">
             <TextField form={form} name="businessName" label="Business name" />
             <TextField form={form} name="ownerName" label="Your name" />
             <TextField form={form} name="ownerCell" label="Your cell (we ring this)" type="tel" />
-            <div className="grid grid-cols-[1fr_96px] gap-3">
+            <TextField form={form} name="streetAddress" label="Street address (for review emails and Google)" />
+            <div className="grid grid-cols-[1fr_72px_104px] gap-3 sm:col-span-2">
               <TextField form={form} name="city" label="City" />
               <TextField form={form} name="state" label="State" />
+              <TextField form={form} name="postalCode" label="ZIP" />
             </div>
+            <Field data-invalid={!!errors.timezone} className="sm:col-span-2">
+              <FieldLabel htmlFor="timezone">Time zone</FieldLabel>
+              <select id="timezone" className="h-11 w-full rounded-md border border-input bg-background px-3 text-[15px]" {...form.register("timezone")}>
+                {/* A business set up before the picker existed may hold a zone outside the US: show it so it can be changed. */}
+                {!isUsTimeZone(settings.timezone) && <option value={settings.timezone}>{settings.timezone} (outside the US)</option>}
+                {US_TIME_ZONES.map((zone) => (
+                  <option key={zone} value={zone}>
+                    {US_TIME_ZONE_LABELS[zone]}
+                  </option>
+                ))}
+              </select>
+              <FieldDescription>Your booking hours, reminders and daily summary run on this clock.</FieldDescription>
+              <FieldError errors={[errors.timezone]} />
+            </Field>
             <TextField form={form} name="licenseNumber" label="Licence number (optional)" />
+            <TextField form={form} name="licenseTrade" label="What the licence is for, e.g. Master Plumber (optional)" />
+            <TextField form={form} name="licenseState" label="State that issued it, e.g. TX (optional)" />
             <TextField form={form} name="insuranceCarrier" label="Insurance carrier (optional)" />
+            <TextField form={form} name="insurancePolicyNumber" label="Insurance policy number (optional)" />
             <TextField form={form} name="yearsInBusiness" label="Years in business (optional)" type="number" />
+            <div className="sm:col-span-2">
+              <TextField form={form} name="website" label="Your website (optional)" type="url" />
+            </div>
+            <div className="sm:col-span-2">
+              <TextField form={form} name="googleProfileUrl" label="Your Google listing link (optional)" type="url" />
+            </div>
           </div>
+          <Field orientation="horizontal" className="items-start justify-between gap-4 rounded-lg border bg-background p-4">
+            <div className="space-y-1">
+              <FieldLabel htmlFor="profileLinkInTexts">Add my profile link to a new customer&apos;s first text</FieldLabel>
+              <FieldDescription>
+                Your public page shows your licence, insurance, services and the job photos you choose.{" "}
+                <a href={settings.profileUrl} target="_blank" rel="noopener noreferrer" className="font-semibold text-primary underline-offset-2 hover:underline">
+                  View my profile
+                </a>
+              </FieldDescription>
+            </div>
+            <Controller
+              control={form.control}
+              name="profileLinkInTexts"
+              render={({ field }) => <Switch id="profileLinkInTexts" checked={field.value} onCheckedChange={field.onChange} />}
+            />
+          </Field>
         </FieldGroup>
       </Section>
 
-      <Section title="Your summary" description="A short note of what LeadAnchor caught for you and what it was worth.">
+      <Section
+        title="Your summary"
+        description="A short note of what LeadAnchor caught for you and what it was worth. It arrives at 8 AM your time, as an alert in the app and by email."
+      >
         <Controller
           control={form.control}
           name="valueProofFrequency"
@@ -227,7 +324,22 @@ function TextField({
   type = "text",
 }: {
   form: ReturnType<typeof useForm<FormValues, unknown, z.output<typeof formSchema>>>;
-  name: "businessName" | "ownerName" | "ownerCell" | "city" | "state" | "licenseNumber" | "insuranceCarrier" | "yearsInBusiness";
+  name:
+    | "businessName"
+    | "ownerName"
+    | "ownerCell"
+    | "streetAddress"
+    | "city"
+    | "state"
+    | "postalCode"
+    | "licenseNumber"
+    | "licenseTrade"
+    | "licenseState"
+    | "insuranceCarrier"
+    | "insurancePolicyNumber"
+    | "yearsInBusiness"
+    | "googleProfileUrl"
+    | "website";
   label: string;
   type?: string;
 }) {

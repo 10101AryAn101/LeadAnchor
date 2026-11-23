@@ -9,6 +9,7 @@ const base: PolicyFacts = {
   whatsappWindowOpen: false,
   whatsappConfigured: false,
   recipientLocalHour: 14,
+  waitlistTextsCleared: false,
 };
 
 describe("send policy (governed send path)", () => {
@@ -16,6 +17,43 @@ describe("send policy (governed send path)", () => {
     const decision = decide(base);
     expect(decision.allowed).toBe(true);
     expect(decision.channel).toBe("sms");
+  });
+
+  it("keeps waitlist offers off text until counsel clears the wording, then sends them like job texts (C-22)", () => {
+    const held = decide({ ...base, purpose: "waitlist_offer" });
+    expect(held.allowed).toBe(false);
+    expect(held.reason).toMatch(/legal sign-off/i);
+    expect(decide({ ...base, purpose: "waitlist_offer", waitlistTextsCleared: true }).allowed).toBe(true);
+    expect(decide({ ...base, purpose: "waitlist_offer", waitlistTextsCleared: true, smsConsent: null }).allowed).toBe(false);
+  });
+
+  it("answers a website chat in the chat itself, and only with replies (C-16)", () => {
+    const reply = decide({ ...base, purpose: "conversational", preferredChannels: ["web"], smsConsent: null, carrierApproved: false, webChatOpen: true });
+    expect(reply.allowed).toBe(true);
+    expect(reply.channel).toBe("web");
+    expect(decide({ ...base, purpose: "marketing", preferredChannels: ["web"], webChatOpen: true }).allowed).toBe(false);
+    expect(decide({ ...base, purpose: "conversational", preferredChannels: ["web"], webChatOpen: false }).allowed).toBe(false);
+  });
+
+  it("answers WhatsApp freely only inside the 24-hour window the customer opened (C-11)", () => {
+    const facts = { ...base, purpose: "conversational" as const, preferredChannels: ["whatsapp" as const], smsConsent: null, whatsappConfigured: true };
+    expect(decide({ ...facts, whatsappWindowOpen: true }).channel).toBe("whatsapp");
+    expect(decide({ ...facts, whatsappWindowOpen: false }).allowed).toBe(false);
+  });
+
+  it("stops WhatsApp too once the customer opts out, except the reply confirming it (C-27)", () => {
+    const facts = { ...base, preferredChannels: ["whatsapp" as const], smsConsent: "REVOKED" as const, whatsappConfigured: true, whatsappWindowOpen: true };
+    const reply = decide({ ...facts, purpose: "conversational" });
+    expect(reply.allowed).toBe(false);
+    expect(reply.reason).toBe("Customer opted out (STOP).");
+    expect(decide({ ...facts, purpose: "transactional", preferredChannels: ["sms", "whatsapp"] }).allowed).toBe(false);
+    expect(decide({ ...facts, purpose: "keyword_reply" }).channel).toBe("whatsapp");
+  });
+
+  it("sends review requests by email only: they count as marketing (C-46)", () => {
+    const decision = decide({ ...base, purpose: "review_request" });
+    expect(decision.allowed).toBe(false);
+    expect(decision.reason).toMatch(/by email/i);
   });
 
   it("blocks texts until carriers approve the business (10DLC hard block)", () => {
@@ -32,6 +70,12 @@ describe("send policy (governed send path)", () => {
     const decision = decide({ ...base, smsConsent: "REVOKED" });
     expect(decision.allowed).toBe(false);
     expect(decision.checks.find((c) => c.check === "sms_consent")?.detail).toMatch(/opted out/i);
+  });
+
+  it("answers the customer's own STOP or HELP without consent, but never before carrier approval", () => {
+    expect(decide({ ...base, purpose: "keyword_reply", smsConsent: "REVOKED" }).allowed).toBe(true);
+    expect(decide({ ...base, purpose: "keyword_reply", smsConsent: null }).allowed).toBe(true);
+    expect(decide({ ...base, purpose: "keyword_reply", smsConsent: "REVOKED", carrierApproved: false }).allowed).toBe(false);
   });
 
   it("keeps marketing texts off under the email-first plan", () => {

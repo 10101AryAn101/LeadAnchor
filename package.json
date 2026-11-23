@@ -9,9 +9,12 @@
   },
   "scripts": {
     "setup": "node scripts/setup.mjs",
+    "tunnel": "node scripts/tunnel.mjs",
     "dev": "turbo run dev --filter=@leadanchor/api --filter=@leadanchor/web",
     "db:start": "pnpm --filter @leadanchor/dev-db start",
+    "db:utf8": "pnpm --filter @leadanchor/dev-db to-utf8",
     "db:migrate": "pnpm --filter @leadanchor/api db:migrate",
+    "db:seed": "pnpm --filter @leadanchor/api db:seed",
     "db:generate": "pnpm --filter @leadanchor/api db:generate",
     "db:studio": "pnpm --filter @leadanchor/api db:studio",
     "build": "turbo run build",

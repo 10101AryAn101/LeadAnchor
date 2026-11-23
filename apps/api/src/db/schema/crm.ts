@@ -1,4 +1,5 @@
 import { INTAKE_STATUSES, LEAD_SOURCES, LEAD_STAGES, URGENCY_LEVELS } from "@leadanchor/contracts";
+import { sql } from "drizzle-orm";
 import {
   boolean,
   doublePrecision,
@@ -77,6 +78,8 @@ export const leads = pgTable(
     lostReason: text("lost_reason"),
     /** Booked visit time. Setting it moves the card to Scheduled. */
     scheduledFor: tsz("scheduled_for"),
+    /** The owner's own labels (module 4), e.g. "Warranty". */
+    tags: text("tags").array().notNull().default(sql`'{}'::text[]`),
     stageChangedAt: tsz("stage_changed_at").notNull().defaultNow(),
     wonAt: tsz("won_at"),
     lastActivityAt: tsz("last_activity_at").notNull().defaultNow(),
@@ -87,6 +90,7 @@ export const leads = pgTable(
     index("leads_board_idx").on(t.tenantId, t.stage, t.position),
     index("leads_customer_idx").on(t.tenantId, t.customerId),
     index("leads_created_idx").on(t.tenantId, t.createdAt),
+    index("leads_tags_idx").using("gin", t.tags),
   ],
 );
 

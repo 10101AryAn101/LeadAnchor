@@ -1,14 +1,64 @@
-import { simulatorScenarioInput, toE164, usPhone } from "@leadanchor/contracts";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import {
+  EMAIL_FEEDBACK_TYPES,
+  type OutboxEmail,
+  type SimCheckout,
+  type SimOnboarding,
+  type SimGoogleListing,
+  type SimPortal,
+  type SimRedirect,
+  type SimTierCheckout,
+  type SimTierPortal,
+  type SimWhatsAppThread,
+  simTierCheckoutInput,
+  simTierPortalInput,
+  simTrialInput,
+  simCalendarEventInput,
+  simGoogleReviewInput,
+  simWhatsAppInput,
+  simCheckoutInput,
+  simOnboardingInput,
+  simulatorScenarioInput,
+  simPortalInput,
+  simRenewInput,
+  simWeatherInput,
+  toE164,
+  usPhone,
+} from "@leadanchor/contracts";
+import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-import { withTenant } from "../../db/client";
-import { messages, phoneNumbers } from "../../db/schema";
-import { HttpError, badRequest, parseInput } from "../../lib/errors";
-import { simulatorTelephony, telephony } from "../../container";
+import { systemDb, withTenant } from "../../db/client";
+import { conversations, leadHandoffs, listingConnections, messages, phoneNumbers, tenants } from "../../db/schema";
+import { HttpError, badRequest, notFound, parseInput } from "../../lib/errors";
+import {
+  billing,
+  payments,
+  simulatorBilling,
+  simulatorListings,
+  simulatorPayments,
+  simulatorTelephony,
+  simulatorWeather,
+  telephony,
+  weather,
+} from "../../container";
+import { applyAddonSubscription, applyTierSubscription, setTrialDaysLeft } from "../../modules/billing/billing.service";
+import { PaymentRefused } from "../../integrations/payments/types";
 import { getCallTrace } from "../../modules/calls/call.queries";
-import { approveRegistrationForDev } from "../../modules/compliance/registration.service";
+import { approveRegistrationForDev, resetRegistrationForDev, simulatedRegistrationCode } from "../../modules/compliance/registration.service";
 import { handleInboundMessage } from "../../modules/messaging/inbound";
+import { paymentsTickJob, receivePaymentEvent } from "../../modules/payments/payment.service";
+import { networkTickJob } from "../../modules/network/network.service";
+import { runVisibilityCheck } from "../../modules/discovery/discovery.service";
+import { bookingsTickJob, sendReminder } from "../../modules/booking/booking.service";
+import { addSimulatedEvent, moveSimulatedEvent, removeSimulatedEvent, simulatedCalendarEvents } from "../../modules/booking/calendar-sync";
+import { paymentRequests } from "../../db/schema";
+import { sendValueProof } from "../../modules/value-proof/value-proof";
+import { hoursList, syncListing } from "../../modules/reviews/listing.service";
+import { sendWaitingRequestsNow } from "../../modules/reviews/review-requests";
+import { addSampleCustomers } from "../../modules/campaigns/sample-customers";
+import { checkSignals } from "../../modules/campaigns/signals";
+import { recordEmailFeedback } from "../../modules/messaging/email-feedback";
+import { simulateRenewal, simulateRetry } from "../../modules/memberships/membership.service";
 import { tenantContext } from "../context";
 
 /** Development-only tools: the call simulator, the simulated customer phone and fake carrier approval. */
@@ -21,11 +71,18 @@ export async function devRoutes(app: FastifyInstance) {
     return number.e164;
   }
 
+  /** The owner's own cell: a forwarded call (C-01) is one they missed there. */
+  async function ownerCell(tenantId: string) {
+    const [tenant] = await withTenant(tenantId, (tx) => tx.select({ cell: tenants.ownerCellE164 }).from(tenants).where(eq(tenants.id, tenantId)));
+    return tenant?.cell ?? undefined;
+  }
+
   app.post("/api/dev/simulator/calls", async (req, reply) => {
     const ctx = await tenantContext(req);
     if (telephony.name !== "simulator") throw new HttpError(409, "not_simulated", "The simulator is off because Telnyx is connected.");
     const scenario = parseInput(simulatorScenarioInput, req.body);
-    const handle = simulatorTelephony.startCall(await trackingNumber(ctx.tenantId), scenario);
+    const forwardedFrom = scenario.route === "forwarded" ? await ownerCell(ctx.tenantId) : undefined;
+    const handle = simulatorTelephony.startCall(await trackingNumber(ctx.tenantId), scenario, forwardedFrom);
     return reply.status(202).send({ sessionId: handle.sessionId });
   });
 
@@ -52,7 +109,8 @@ export async function devRoutes(app: FastifyInstance) {
     );
     return {
       messages: [...rows, ...replies]
-        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime())
+        // A reply sent while handling a text shares its timestamp; ids are time-ordered.
+        .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.id.localeCompare(b.id))
         .map((m) => ({ id: m.id, direction: m.direction, body: m.body, channel: m.channel, status: m.status, createdAt: m.createdAt.toISOString() })),
     };
   });
@@ -70,5 +128,473 @@ export async function devRoutes(app: FastifyInstance) {
   app.post("/api/dev/simulator/registration/approve", async (req) => {
     const ctx = await tenantContext(req, ["owner"]);
     return approveRegistrationForDev(ctx.tenantId, ctx.userId);
+  });
+
+  app.post("/api/dev/simulator/registration/reset", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return resetRegistrationForDev(ctx.tenantId, ctx.userId);
+  });
+
+  /** The code the pretend carriers "texted" a sole proprietor. */
+  app.get("/api/dev/simulator/registration/code", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return { code: await simulatedRegistrationCode(ctx.tenantId) };
+  });
+
+  /** Emails the app has "sent" while no email service is connected (Dev → Email outbox). */
+  app.get("/api/dev/outbox", async (req): Promise<{ emails: OutboxEmail[] }> => {
+    const ctx = await tenantContext(req);
+    const rows = await withTenant(ctx.tenantId, (tx) =>
+      tx.select().from(messages).where(eq(messages.channel, "email")).orderBy(desc(messages.createdAt)).limit(50),
+    );
+    return {
+      emails: rows.map((m) => ({
+        id: m.id,
+        to: m.toAddress,
+        subject: m.subject,
+        body: m.body,
+        html: m.html,
+        replyTo: m.replyTo,
+        status: m.status,
+        blockedReason: m.blockedReason,
+        feedback: m.feedback,
+        createdAt: m.createdAt.toISOString(),
+      })),
+    };
+  });
+
+  /** Plays the email service reporting back: this email bounced, or was marked as spam. */
+  app.post("/api/dev/outbox/:id/feedback", async (req, reply) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(z.object({ id: z.uuid() }), req.params);
+    const { type } = parseInput(z.object({ type: z.enum(EMAIL_FEEDBACK_TYPES) }), req.body);
+    await recordEmailFeedback(ctx.tenantId, id, type);
+    return reply.status(204).send();
+  });
+
+  /* ── Campaigns (module 11): sample customers, the weather, and a check for offer ideas ── */
+
+  app.post("/api/dev/simulator/past-customers", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return addSampleCustomers(ctx.tenantId);
+  });
+
+  app.get("/api/dev/simulator/weather", async (req) => {
+    const ctx = await tenantContext(req);
+    const [place] = await withTenant(ctx.tenantId, (tx) =>
+      tx
+        .select({ city: tenants.city, state: tenants.state, postalCode: tenants.postalCode })
+        .from(tenants)
+        .where(eq(tenants.id, ctx.tenantId)),
+    );
+    return {
+      scenario: simulatorWeather.scenarioOf(ctx.tenantId),
+      simulated: weather.name === "simulator",
+      place: [place?.city, place?.state].filter(Boolean).join(", ") || null,
+      forecast: await weather.forecast(ctx.tenantId, place ?? { city: null, state: null, postalCode: null }),
+    };
+  });
+
+  app.post("/api/dev/simulator/weather", async (req, reply) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    if (weather.name !== "simulator") throw new HttpError(409, "not_simulated", "Forecasts come from the weather service, so the simulator is off.");
+    simulatorWeather.setScenario(ctx.tenantId, parseInput(simWeatherInput, req.body).kind);
+    return reply.status(204).send();
+  });
+
+  /** Runs the six-hourly check now: a freeze, heat wave or holiday worth an offer (C-30). */
+  app.post("/api/dev/simulator/campaign-ideas", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return { created: await checkSignals(ctx.tenantId) };
+  });
+
+  /* ── Simulated Stripe (module 7): its hosted pages, and the events its webhook would send ── */
+
+  const simulatedOnly = () => {
+    if (payments.name !== "simulator") throw new HttpError(409, "not_simulated", "Payments go through Stripe, so the simulator is off.");
+  };
+  const checkoutParam = z.object({ id: z.string().regex(/^cs_sim_[a-f0-9]+$/) });
+  const accountParam = z.object({ id: z.string().regex(/^acct_sim_[a-f0-9]+$/) });
+
+  /** The simulated hosted checkout page. Public, like Stripe's own page: the customer opens it. */
+  app.get("/api/dev/simulator/stripe/checkout/:id", async (req): Promise<SimCheckout> => {
+    simulatedOnly();
+    const { id } = parseInput(checkoutParam, req.params);
+    const view = simulatorPayments.checkoutView(id);
+    if (!view) throw notFound("Checkout");
+    return view;
+  });
+
+  app.post("/api/dev/simulator/stripe/checkout/:id", async (req): Promise<SimRedirect | SimCheckout> => {
+    simulatedOnly();
+    const { id } = parseInput(checkoutParam, req.params);
+    const { outcome } = parseInput(simCheckoutInput, req.body);
+    try {
+      const { redirectUrl, events } = simulatorPayments.completeCheckout(id, outcome);
+      // What Stripe's webhook would deliver, handled exactly like the real one.
+      for (const event of events) await receivePaymentEvent(event);
+      return redirectUrl ? { redirectUrl } : simulatorPayments.checkoutView(id)!;
+    } catch (error) {
+      if (error instanceof PaymentRefused) throw new HttpError(409, "payment_refused", error.message);
+      throw error;
+    }
+  });
+
+  app.get("/api/dev/simulator/stripe/onboarding/:id", async (req): Promise<SimOnboarding> => {
+    simulatedOnly();
+    const { id } = parseInput(accountParam, req.params);
+    const view = simulatorPayments.onboardingView(id);
+    if (!view) throw notFound("Account");
+    return view;
+  });
+
+  app.post("/api/dev/simulator/stripe/onboarding/:id", async (req): Promise<SimRedirect> => {
+    simulatedOnly();
+    const { id } = parseInput(accountParam, req.params);
+    const { outcome } = parseInput(simOnboardingInput, req.body);
+    const { redirectUrl, event } = simulatorPayments.completeOnboarding(id, outcome);
+    if (event) await receivePaymentEvent(event);
+    return { redirectUrl };
+  });
+
+  /* ── Simulated Stripe Billing (module 12): the customer portal, and the billing clock ── */
+
+  const portalParam = z.object({ id: z.string().regex(/^bps_sim_[a-f0-9]+$/) });
+
+  /** The simulated customer portal (C-52). Public, like Stripe's own: the member opens it from a receipt. */
+  app.get("/api/dev/simulator/stripe/portal/:id", async (req): Promise<SimPortal> => {
+    simulatedOnly();
+    const { id } = parseInput(portalParam, req.params);
+    const view = simulatorPayments.portalView(id);
+    if (!view) throw notFound("Portal session");
+    return view;
+  });
+
+  app.post("/api/dev/simulator/stripe/portal/:id", async (req): Promise<SimPortal> => {
+    simulatedOnly();
+    const { id } = parseInput(portalParam, req.params);
+    const { action } = parseInput(simPortalInput, req.body);
+    try {
+      // What Stripe's webhook would deliver, handled exactly like the real one.
+      for (const event of simulatorPayments.portalAction(id, action)) await receivePaymentEvent(event);
+    } catch (error) {
+      if (error instanceof PaymentRefused) throw new HttpError(409, "payment_refused", error.message);
+      throw error;
+    }
+    return simulatorPayments.portalView(id)!;
+  });
+
+  /* ── LeadAnchor's own billing (the business paying for its tier) ─────────── */
+
+  const billingSimulatedOnly = () => {
+    if (billing.name !== "simulator") throw new HttpError(409, "not_simulated", "Billing goes through Stripe, so the simulator is off.");
+  };
+  const tierCheckoutParam = z.object({ id: z.string().regex(/^cs_sim_[a-f0-9]+$/) });
+  const tierPortalParam = z.object({ id: z.string().regex(/^bps_sim_[a-f0-9]+$/) });
+  const billingRefused = (error: unknown): never => {
+    if (error instanceof PaymentRefused) throw new HttpError(409, "payment_refused", error.message);
+    throw error;
+  };
+
+  /** The simulated checkout for a tier. Public like Stripe's page; the id is the secret. */
+  app.get("/api/dev/simulator/billing/checkout/:id", async (req): Promise<SimTierCheckout> => {
+    billingSimulatedOnly();
+    const { id } = parseInput(tierCheckoutParam, req.params);
+    try {
+      return simulatorBilling.checkoutView(id);
+    } catch (error) {
+      return billingRefused(error);
+    }
+  });
+
+  app.post("/api/dev/simulator/billing/checkout/:id", async (req): Promise<SimRedirect> => {
+    billingSimulatedOnly();
+    const { id } = parseInput(tierCheckoutParam, req.params);
+    const { outcome } = parseInput(simTierCheckoutInput, req.body);
+    try {
+      // What Stripe's webhook would deliver, applied the same way: a tier, or the website add-on (C-33).
+      if (simulatorBilling.checkoutView(id).product === "website") {
+        const { redirect, addon } = simulatorBilling.completeAddonCheckout(id, outcome === "decline");
+        await applyAddonSubscription(addon, "billing");
+        return { redirectUrl: redirect };
+      }
+      const { redirect, subscription } = simulatorBilling.completeCheckout(id, outcome === "decline");
+      await applyTierSubscription(subscription, "billing");
+      return { redirectUrl: redirect };
+    } catch (error) {
+      return billingRefused(error);
+    }
+  });
+
+  app.get("/api/dev/simulator/billing/portal/:id", async (req): Promise<SimTierPortal> => {
+    billingSimulatedOnly();
+    const { id } = parseInput(tierPortalParam, req.params);
+    try {
+      return simulatorBilling.portalView(id);
+    } catch (error) {
+      return billingRefused(error);
+    }
+  });
+
+  app.post("/api/dev/simulator/billing/portal/:id", async (req): Promise<SimTierPortal> => {
+    billingSimulatedOnly();
+    const { id } = parseInput(tierPortalParam, req.params);
+    const { action } = parseInput(simTierPortalInput, req.body);
+    try {
+      const subscription = simulatorBilling.portalAction(id, action);
+      if (subscription) await applyTierSubscription(subscription, "billing");
+      return simulatorBilling.portalView(id);
+    } catch (error) {
+      return billingRefused(error);
+    }
+  });
+
+  /** Moves the business's free trial end, to try what happens when it runs out (works with Stripe too). */
+  app.post("/api/dev/simulator/trial", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { daysLeft } = parseInput(simTrialInput, req.body);
+    return setTrialDaysLeft(ctx.tenantId, daysLeft);
+  });
+
+  /** Bills a membership's next period now, with a card that pays or declines (instead of waiting a month). */
+  app.post("/api/dev/simulator/memberships/:id/renew", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(z.object({ id: z.uuid() }), req.params);
+    return simulateRenewal(ctx.tenantId, id, parseInput(simRenewInput, req.body).outcome);
+  });
+
+  /** Runs a declined bill's next retry now (instead of in a few days). */
+  app.post("/api/dev/simulator/memberships/:id/retry", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(z.object({ id: z.uuid() }), req.params);
+    return simulateRetry(ctx.tenantId, id);
+  });
+
+  /** Runs the 15-minute payments check now: reconciliation and hold reminders. */
+  /**
+   * Runs the five-minute network check now (C-24, C-25): offers past their time come back, won jobs
+   * count as referrals. With endOffers, this business's open offers end first, instead of in two hours.
+   */
+  /** Runs the "Found by AI" check with made-up answers: no AI quota used, no once-a-day limit (C-42). */
+  app.post("/api/dev/simulator/discovery/check", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return runVisibilityCheck(ctx.tenantId, { simulate: true, force: true });
+  });
+
+  app.post("/api/dev/simulator/network/tick", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { endOffers } = parseInput(z.object({ endOffers: z.boolean().default(false) }), req.body ?? {});
+    if (endOffers) {
+      await systemDb
+        .update(leadHandoffs)
+        // A second back, so the check that follows can't land in the same instant.
+        .set({ expiresAt: new Date(Date.now() - 1000) })
+        .where(and(eq(leadHandoffs.tenantId, ctx.tenantId), eq(leadHandoffs.status, "offered")));
+    }
+    return networkTickJob();
+  });
+
+  app.post("/api/dev/simulator/payments/tick", async (req) => {
+    await tenantContext(req, ["owner"]);
+    await paymentsTickJob();
+    return { ok: true };
+  });
+
+  /** Moves a deposit hold's end date close, to try the "hold ends soon" alert without waiting a week. */
+  app.post("/api/dev/simulator/payments/:id/age", async (req) => {
+    simulatedOnly();
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(z.object({ id: z.uuid() }), req.params);
+    const { hoursLeft } = parseInput(z.object({ hoursLeft: z.number().min(-48).max(24 * 7) }), req.body);
+    const [row] = await withTenant(ctx.tenantId, (tx) => tx.select().from(paymentRequests).where(eq(paymentRequests.id, id)));
+    if (!row?.providerPaymentId || row.status !== "held") throw badRequest("Only a deposit on hold can be moved forward.");
+    simulatorPayments.ageHold(row.providerPaymentId, hoursLeft);
+    await withTenant(ctx.tenantId, (tx) =>
+      tx.update(paymentRequests).set({ holdExpiresAt: new Date(Date.now() + hoursLeft * 3600_000), holdWarnedAt: null }).where(eq(paymentRequests.id, id)),
+    );
+    return { ok: true };
+  });
+
+  /* ── Simulated calendar (module 8): edits as if the owner made them in Google Calendar ── */
+
+  app.get("/api/dev/simulator/calendar", async (req) => {
+    const ctx = await tenantContext(req);
+    return { events: await simulatedCalendarEvents(ctx.tenantId) };
+  });
+
+  app.post("/api/dev/simulator/calendar", async (req, reply) => {
+    const ctx = await tenantContext(req);
+    await addSimulatedEvent(ctx.tenantId, parseInput(simCalendarEventInput, req.body));
+    return reply.status(201).send({ events: await simulatedCalendarEvents(ctx.tenantId) });
+  });
+
+  app.patch("/api/dev/simulator/calendar/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(z.object({ id: z.string().regex(/^evt_sim_[a-f0-9]+$/) }), req.params);
+    await moveSimulatedEvent(ctx.tenantId, id, parseInput(simCalendarEventInput.pick({ startsAt: true, endsAt: true }), req.body));
+    return { events: await simulatedCalendarEvents(ctx.tenantId) };
+  });
+
+  app.delete("/api/dev/simulator/calendar/:id", async (req) => {
+    const ctx = await tenantContext(req);
+    const { id } = parseInput(z.object({ id: z.string().regex(/^evt_sim_[a-f0-9]+$/) }), req.params);
+    await removeSimulatedEvent(ctx.tenantId, id);
+    return { events: await simulatedCalendarEvents(ctx.tenantId) };
+  });
+
+  /* ── Simulated WhatsApp: the customer's WhatsApp, chatting with a business (C-11) ── */
+
+  const whatsappBusiness = z.object({ business: z.string().regex(/^\d{11}$/) });
+
+  // Public on purpose: it plays the customer's own WhatsApp, opened from the business's chat link.
+  const simWhatsApp = async (businessE164: string, customer: string): Promise<SimWhatsAppThread> => {
+    const [number] = await systemDb
+      .select({ tenantId: phoneNumbers.tenantId, name: tenants.name })
+      .from(phoneNumbers)
+      .innerJoin(tenants, eq(tenants.id, phoneNumbers.tenantId))
+      .where(and(eq(phoneNumbers.e164, businessE164), eq(phoneNumbers.status, "active")))
+      .limit(1);
+    if (!number) throw notFound("Business");
+    const rows = await systemDb
+      .select()
+      .from(messages)
+      .where(
+        and(
+          eq(messages.tenantId, number.tenantId),
+          eq(messages.channel, "whatsapp"),
+          inArray(messages.status, ["queued", "sent", "delivered", "received"]),
+          or(
+            and(eq(messages.direction, "inbound"), eq(messages.fromAddress, customer)),
+            and(eq(messages.direction, "outbound"), eq(messages.toAddress, customer)),
+          ),
+        ),
+      )
+      .orderBy(asc(messages.createdAt), asc(messages.id))
+      .limit(200);
+    const [conversation] = await systemDb
+      .select({ pending: conversations.assistantPendingAt })
+      .from(conversations)
+      .where(and(eq(conversations.tenantId, number.tenantId), eq(conversations.channel, "whatsapp"), eq(conversations.contact, customer)))
+      .limit(1);
+    // A reply on its way still shows as typing, as it would until WhatsApp delivers it.
+    const sending = rows.some((row) => row.status === "queued" && Date.now() - row.createdAt.getTime() < 90_000);
+    return {
+      business: { name: number.name, number: businessE164 },
+      messages: rows
+        .filter((row) => row.status !== "queued")
+        .map((row) => ({
+          id: row.id,
+          from: row.direction === "inbound" ? ("customer" as const) : ("business" as const),
+          text: row.body,
+          at: row.createdAt.toISOString(),
+        })),
+      typing: sending || (conversation?.pending != null && Date.now() - conversation.pending.getTime() < 90_000),
+    };
+  };
+
+  app.post("/api/dev/simulator/whatsapp/:business/thread", async (req) => {
+    const { business } = parseInput(whatsappBusiness, req.params);
+    const { from } = parseInput(z.object({ from: usPhone }), req.body);
+    return simWhatsApp(`+${business}`, from);
+  });
+
+  /** The simulated customer writes to the business on WhatsApp, as Meta's webhook would deliver it. */
+  // A photo comes in as a data: URL, so the body can be larger than the default 1 MB.
+  app.post("/api/dev/simulator/whatsapp/:business/messages", { bodyLimit: 16 * 1024 * 1024 }, async (req) => {
+    const { business } = parseInput(whatsappBusiness, req.params);
+    const input = parseInput(simWhatsAppInput, req.body);
+    await handleInboundMessage({
+      from: input.from,
+      to: `+${business}`,
+      text: input.text,
+      channel: "whatsapp",
+      provider: "simulator",
+      providerMessageId: null,
+      profileName: input.name || null,
+      photos: input.photo ? [{ buffer: Buffer.from(input.photo.slice(input.photo.indexOf(",") + 1), "base64") }] : undefined,
+    });
+    return simWhatsApp(`+${business}`, input.from);
+  });
+
+  /* ── Simulated Google listing: the business's page, where customers leave reviews (C-21) ── */
+
+  const googleAccount = z.object({ account: z.string().regex(/^sim-[0-9a-f-]{36}$/) });
+
+  const simGoogle = (account: string): SimGoogleListing => {
+    const listing = simulatorListings.view(account);
+    if (!listing) throw notFound("Listing");
+    const reviews = Object.values(listing.reviews).sort((a, b) => b.publishedAt.localeCompare(a.publishedAt));
+    const ratings = reviews.map((review) => review.rating);
+    return {
+      account,
+      name: listing.name,
+      rating: ratings.length ? Math.round((ratings.reduce((a, b) => a + b, 0) / ratings.length) * 10) / 10 : null,
+      reviewCount: ratings.length,
+      phone: listing.details.phone,
+      website: listing.details.website,
+      bookingLink: listing.details.bookingLink,
+      hours: listing.details.hours ? hoursList(listing.details.hours) : [],
+      reviews,
+      posts: listing.posts,
+      failNextReply: listing.failNextReply,
+    };
+  };
+
+  /** The business whose listing this is, so a new review is read in straight away. */
+  const syncOwner = async (account: string) => {
+    const [connection] = await systemDb.select({ tenantId: listingConnections.tenantId }).from(listingConnections).where(eq(listingConnections.account, account)).limit(1);
+    if (connection) await syncListing(connection.tenantId);
+  };
+
+  // Public on purpose: it plays Google's own page, opened from the link in a review request.
+  app.get("/api/dev/simulator/google/:account", async (req) => {
+    const { account } = parseInput(googleAccount, req.params);
+    return simGoogle(account);
+  });
+
+  app.post("/api/dev/simulator/google/:account/reviews", async (req, reply) => {
+    const { account } = parseInput(googleAccount, req.params);
+    const input = parseInput(simGoogleReviewInput, req.body);
+    if (!simulatorListings.view(account)) throw notFound("Listing");
+    simulatorListings.addReview(account, { reviewer: input.reviewer, rating: input.rating, text: input.text || null });
+    await syncOwner(account);
+    return reply.status(201).send(simGoogle(account));
+  });
+
+  /** Makes Google refuse the next reply, to try the retry and the error the owner sees (C-47 AC 6). */
+  app.post("/api/dev/simulator/google/:account/fail-next-reply", async (req) => {
+    const { account } = parseInput(googleAccount, req.params);
+    const { fail } = parseInput(z.object({ fail: z.boolean() }), req.body);
+    if (!simulatorListings.view(account)) throw notFound("Listing");
+    simulatorListings.setFailNextReply(account, fail);
+    return simGoogle(account);
+  });
+
+  /** Sends this business's waiting review requests now instead of after the wait (C-46). */
+  app.post("/api/dev/simulator/review-requests/send-now", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    return sendWaitingRequestsNow(ctx.tenantId);
+  });
+
+  /** Sends a booking's day-before reminder now, to try YES / NO replies without waiting (C-20). */
+  app.post("/api/dev/simulator/bookings/:id/remind", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    const { id } = parseInput(z.object({ id: z.uuid() }), req.params);
+    await sendReminder(ctx.tenantId, id);
+    return { ok: true };
+  });
+
+  /** Runs the 15-minute booking job now: due reminders and expired waitlist offers. */
+  app.post("/api/dev/simulator/bookings/tick", async (req) => {
+    await tenantContext(req, ["owner"]);
+    await bookingsTickJob();
+    return { ok: true };
+  });
+
+  /** Sends this business's value-proof summary now instead of waiting for 8 AM (C-40). */
+  app.post("/api/dev/value-proof/send", async (req) => {
+    const ctx = await tenantContext(req, ["owner"]);
+    await sendValueProof(ctx.tenantId);
+    return { ok: true };
   });
 }

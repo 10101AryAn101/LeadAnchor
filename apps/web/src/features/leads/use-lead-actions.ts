@@ -11,6 +11,7 @@ import {
   autoMoveTarget,
 } from "@leadanchor/contracts";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter } from "next/navigation";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { api, isApiError } from "@/lib/api";
@@ -28,9 +29,10 @@ interface UpdateVars extends LeadUpdateInput {
  */
 export function useUpdateLead() {
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const mutation = useMutation({
-    mutationFn: ({ id, undoStage: _undo, ...body }: UpdateVars) => api<LeadDetail>(`/leads/${id}`, { method: "PATCH", body }),
+    mutationFn: ({ id, undoStage, ...body }: UpdateVars) => api<LeadDetail>(`/leads/${id}`, { method: "PATCH", body }),
     onMutate: async (vars) => {
       await queryClient.cancelQueries({ queryKey: keys.leads });
       const previous = queryClient.getQueryData<LeadCard[]>(keys.leads);
@@ -42,29 +44,35 @@ export function useUpdateLead() {
                 ...(vars.stage && { stage: vars.stage, needsCallback: vars.stage === "new" ? lead.needsCallback : false }),
                 ...(vars.title && { title: vars.title }),
                 ...(vars.valueDollars !== undefined && { valueCents: vars.valueDollars === null ? null : Math.round(vars.valueDollars * 100) }),
+                ...(vars.tags && { tags: vars.tags }),
                 lastActivityAt: new Date().toISOString(),
               }
             : lead,
         ),
       );
-      return { previous };
+      const previousDetail = queryClient.getQueryData<LeadDetail>(keys.lead(vars.id));
+      if (vars.tags && previousDetail) queryClient.setQueryData<LeadDetail>(keys.lead(vars.id), { ...previousDetail, tags: vars.tags });
+      return { previous, previousDetail };
     },
-    onError: (error, _vars, context) => {
+    onError: (error, vars, context) => {
       if (context?.previous) queryClient.setQueryData(keys.leads, context.previous);
+      if (context?.previousDetail) queryClient.setQueryData(keys.lead(vars.id), context.previousDetail);
       toast.error(isApiError(error) ? error.message : "Couldn't save that change.");
     },
     onSuccess: (detail, vars) => {
       queryClient.setQueryData(keys.lead(detail.id), detail);
       if (vars.stage && vars.undoStage && vars.undoStage !== vars.stage) {
         const from = vars.undoStage;
-        toast(`Moved to ${LEAD_STAGE_LABELS[vars.stage]}`, {
-          action: { label: "Undo", onClick: () => mutation.mutate({ id: vars.id, stage: from }) },
-        });
+        const undo = { label: "Undo", onClick: () => mutation.mutate({ id: vars.id, stage: from }) };
+        // C-26: the job's done, so the bill can go out right away.
+        const due = vars.stage === "won" ? (detail.balance.dueCents ?? 0) : 0;
+        toast(`Moved to ${LEAD_STAGE_LABELS[vars.stage]}`, due > 0 ? { action: { label: "Send the bill", onClick: () => router.push(`/leads/${vars.id}?bill=true`) }, cancel: undo } : { action: undo });
       }
     },
-    onSettled: () => {
+    onSettled: (_data, _error, vars) => {
       void queryClient.invalidateQueries({ queryKey: keys.leads });
       void queryClient.invalidateQueries({ queryKey: keys.dashboardAll });
+      if (vars.tags) void queryClient.invalidateQueries({ queryKey: keys.tags });
     },
   });
 

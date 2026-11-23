@@ -78,7 +78,9 @@ export function SignUpForm() {
       toast.error(error.message ?? "We couldn't create your account.");
       return;
     }
-    router.replace("/onboarding");
+    // Keep a "refer a business" code (C-25) for the business set-up step.
+    const ref = new URLSearchParams(window.location.search).get("ref");
+    router.replace(ref ? `/onboarding?ref=${encodeURIComponent(ref)}` : "/onboarding");
   });
 
   return (

@@ -10,15 +10,27 @@ import {
 } from "@leadanchor/contracts";
 import { and, asc, desc, eq, gte, inArray, ne, or, sql } from "drizzle-orm";
 import type { Tx } from "../../db/client";
-import { calls, customers, leadEvents, leads, mediaAssets, messages, tenants } from "../../db/schema";
+import { calls, conversations, customers, leadEvents, leads, mediaAssets, messages, tenants } from "../../db/schema";
 import { tenantWork } from "../../db/unit-of-work";
 import { withTenant } from "../../db/client";
 import { notFound } from "../../lib/errors";
-import { iso, isoOrNow } from "../../lib/time";
-import { createIntakeLink } from "../intake/intake.service";
+import { iso } from "../../lib/time";
+import { bookingForLead, closeBookingsForLead, setVisit } from "../booking/booking.service";
+import { stateOf } from "../chat/chat.service";
+import { createIntakeLink, noteLinkChannel } from "../intake/intake.service";
+import { toMessageItem } from "../messaging/message-item";
 import { requestMessage } from "../messaging/send-path";
+import { balanceOf } from "../payments/money";
+import { paymentsFor } from "../payments/payment.service";
+import { quotesFor } from "../quotes/quote.service";
+import { cancelReviewRequest, scheduleReviewRequest } from "../reviews/review-requests";
+import { profileLine } from "../profile/profile";
+import { assistantOn } from "../billing/access";
+import { latestHandoff, passedBy } from "../network/network.service";
+import { equipmentOf } from "./equipment";
 import { addLeadEvent, topPosition } from "./lead-capture";
 import { advanceLead } from "./pipeline";
+import { canonicalTags } from "./tags";
 
 type LeadRow = typeof leads.$inferSelect;
 type CustomerRow = typeof customers.$inferSelect;
@@ -29,7 +41,10 @@ const CLOSED_VISIBLE_DAYS = 30;
 /** Repeated taps on Call or Text within this window count as one attempt on the timeline. */
 const REPEAT_TAP_MS = 2 * 60 * 1000;
 
-function toCard(lead: LeadRow, customer: CustomerRow, photos: { count: number; coverId: string | null }, returning: boolean): LeadCard {
+type PhotoStats = { count: number; coverId: string | null; equipment: string | null };
+const NO_PHOTOS: PhotoStats = { count: 0, coverId: null, equipment: null };
+
+function toCard(lead: LeadRow, customer: CustomerRow, photos: PhotoStats, returning: boolean): LeadCard {
   return {
     id: lead.id,
     stage: lead.stage,
@@ -44,8 +59,10 @@ function toCard(lead: LeadRow, customer: CustomerRow, photos: { count: number; c
     needsCallback: lead.needsCallback,
     intakeStatus: lead.intakeStatus,
     scheduledFor: iso(lead.scheduledFor),
+    tags: lead.tags,
     photoCount: photos.count,
     coverPhotoId: photos.coverId,
+    equipment: photos.equipment,
     position: lead.position,
     createdAt: lead.createdAt.toISOString(),
     updatedAt: lead.updatedAt.toISOString(),
@@ -54,17 +71,19 @@ function toCard(lead: LeadRow, customer: CustomerRow, photos: { count: number; c
 }
 
 async function photoStats(tx: Tx, leadIds: string[]) {
-  const map = new Map<string, { count: number; coverId: string | null }>();
+  const map = new Map<string, PhotoStats>();
   if (leadIds.length === 0) return map;
   const rows = await tx
-    .select({ leadId: mediaAssets.leadId, id: mediaAssets.id })
+    .select({ leadId: mediaAssets.leadId, id: mediaAssets.id, aiTags: mediaAssets.aiTags })
     .from(mediaAssets)
     .where(and(inArray(mediaAssets.leadId, leadIds), eq(mediaAssets.kind, "photo")))
     .orderBy(asc(mediaAssets.createdAt));
   for (const row of rows) {
     if (!row.leadId) continue;
-    const entry = map.get(row.leadId) ?? { count: 0, coverId: row.id };
+    const entry = map.get(row.leadId) ?? { count: 0, coverId: row.id, equipment: null };
     entry.count += 1;
+    // The first photo the AI could name the equipment from.
+    entry.equipment ??= equipmentOf(row.aiTags);
     map.set(row.leadId, entry);
   }
   return map;
@@ -76,7 +95,7 @@ async function leadCountsByCustomer(tx: Tx, customerIds: string[]) {
   const rows = await tx
     .select({ customerId: leads.customerId, count: sql<number>`count(*)::int` })
     .from(leads)
-    .where(inArray(leads.customerId, customerIds))
+    .where(and(inArray(leads.customerId, customerIds), ne(leads.stage, "lost")))
     .groupBy(leads.customerId);
   for (const row of rows) map.set(row.customerId, row.count);
   return map;
@@ -96,7 +115,8 @@ export async function listBoard(tenantId: string): Promise<LeadCard[]> {
     const photos = await photoStats(tx, rows.map((r) => r.lead.id));
     const counts = await leadCountsByCustomer(tx, [...new Set(rows.map((r) => r.customer.id))]);
     return rows.map(({ lead, customer }) =>
-      toCard(lead, customer, photos.get(lead.id) ?? { count: 0, coverId: null }, (counts.get(customer.id) ?? 0) > 1),
+      // Returning: another job of theirs that wasn't lost (C-34).
+      toCard(lead, customer, photos.get(lead.id) ?? NO_PHOTOS, (counts.get(customer.id) ?? 0) - (lead.stage === "lost" ? 0 : 1) > 0),
     );
   });
 }
@@ -111,11 +131,11 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
       .where(eq(leads.id, leadId));
     if (!row) throw notFound("Lead");
 
-    const [events, callRows, messageRows, mediaRows, otherRows] = await Promise.all([
+    const [events, callRows, messageRows, mediaRows, otherRows, quoteItems, paymentItems, booking, [chat], [tenant], handoff, from] = await Promise.all([
       // Events saved together share a timestamp; their time-ordered ids keep them in the order they happened.
       tx.select().from(leadEvents).where(eq(leadEvents.leadId, leadId)).orderBy(desc(leadEvents.createdAt), desc(leadEvents.id)),
       tx.select().from(calls).where(eq(calls.leadId, leadId)).orderBy(desc(calls.startedAt)),
-      tx.select().from(messages).where(eq(messages.leadId, leadId)).orderBy(desc(messages.createdAt)),
+      tx.select().from(messages).where(eq(messages.leadId, leadId)).orderBy(desc(messages.createdAt), desc(messages.id)),
       tx.select().from(mediaAssets).where(eq(mediaAssets.leadId, leadId)).orderBy(asc(mediaAssets.createdAt)),
       tx
         .select({ id: leads.id, title: leads.title, stage: leads.stage, createdAt: leads.createdAt, valueCents: leads.valueCents })
@@ -123,20 +143,43 @@ export async function getLeadDetail(tenantId: string, leadId: string): Promise<L
         .where(and(eq(leads.customerId, row.customer.id), ne(leads.id, leadId)))
         .orderBy(desc(leads.createdAt))
         .limit(20),
+      quotesFor(tx, [leadId]),
+      paymentsFor(tx, [leadId]),
+      bookingForLead(tx, leadId),
+      tx.select().from(conversations).where(eq(conversations.leadId, leadId)).orderBy(desc(conversations.lastMessageAt)).limit(1),
+      tx
+        .select({ assistantEnabled: tenants.assistantEnabled, status: tenants.status, tier: tenants.tier, trialEndsAt: tenants.trialEndsAt, isDemo: tenants.isDemo })
+        .from(tenants)
+        .where(eq(tenants.id, tenantId)),
+      latestHandoff(tenantId, leadId),
+      row.lead.source === "network" ? passedBy(leadId) : null,
     ]);
 
     const photos = mediaRows.filter((m) => m.kind === "photo");
-    const card = toCard(row.lead, row.customer, { count: photos.length, coverId: photos[0]?.id ?? null }, otherRows.length > 0);
+    const card = toCard(
+      row.lead,
+      row.customer,
+      { count: photos.length, coverId: photos[0]?.id ?? null, equipment: photos.map((photo) => equipmentOf(photo.aiTags)).find(Boolean) ?? null },
+      otherRows.some((other) => other.stage !== "lost"),
+    );
 
     return {
       ...card,
       lostReason: row.lead.lostReason,
+      handoff,
+      passedBy: from,
       events: events.map((e) => ({ id: e.id, type: e.type, actor: e.actor, data: e.data, createdAt: e.createdAt.toISOString() })),
       calls: callRows.map((c) => toCallItem(c, null)),
       messages: messageRows.map(toMessageItem),
       media: mediaRows.map(toMediaItem),
       otherLeads: otherRows.map((o) => ({ ...o, createdAt: o.createdAt.toISOString() })),
       intakeUrl: null,
+      quotes: quoteItems,
+      payments: paymentItems,
+      // The job's price is the owner's own figure: set by a sent quote, or by hand.
+      balance: balanceOf(row.lead.valueCents, paymentItems),
+      booking,
+      chat: chat ? { id: chat.id, channel: chat.channel, state: stateOf(chat, tenant ? assistantOn(tenant) : true) } : null,
     };
   });
 }
@@ -155,6 +198,14 @@ export async function updateLead(tenantId: string, userId: string, leadId: strin
       patch.needsCallback = input.stage === "new" ? lead.needsCallback : false;
       patch.position = input.position ?? (await topPosition(tx, tenantId, input.stage));
       await addLeadEvent(tx, { tenantId, leadId, type: "stage.changed", actor, data: { from: lead.stage, to: input.stage } });
+      // Won: the visit is done. Lost: its slot is freed for someone else.
+      if (input.stage === "won" || input.stage === "lost") {
+        const [tenant] = await tx.select().from(tenants).where(eq(tenants.id, tenantId));
+        await closeBookingsForLead(tx, fx, { tenant: tenant!, leadId, outcome: input.stage, actor });
+      }
+      // Every completed job gets a review request (C-46); one moved back out of Won before it went keeps it waiting.
+      if (input.stage === "won") await scheduleReviewRequest(tx, fx, { tenantId, leadId, customerId: lead.customerId });
+      else if (lead.stage === "won") await cancelReviewRequest(tx, leadId);
     } else if (input.position !== undefined) {
       patch.position = input.position;
     }
@@ -171,15 +222,19 @@ export async function updateLead(tenantId: string, userId: string, leadId: strin
     }
     if (input.scheduledFor !== undefined) {
       const scheduledFor = input.scheduledFor === null ? null : new Date(input.scheduledFor);
-      if (scheduledFor?.getTime() !== lead.scheduledFor?.getTime()) {
-        patch.scheduledFor = scheduledFor;
-        await addLeadEvent(tx, {
-          tenantId,
-          leadId,
-          type: scheduledFor ? "visit.booked" : "visit.cleared",
-          actor,
-          data: scheduledFor ? { at: scheduledFor.toISOString() } : {},
-        });
+      // Visits are bookings now (module 8): this keeps the slot, the calendar and the waitlist in step.
+      if (scheduledFor?.getTime() !== lead.scheduledFor?.getTime()) await setVisit(tx, fx, { tenantId, leadId, startsAt: scheduledFor, actor });
+    }
+    if (input.tags !== undefined) {
+      const tags = await canonicalTags(tx, tenantId, input.tags);
+      const before = new Set(lead.tags.map((tag) => tag.toLowerCase()));
+      const after = new Set(tags.map((tag) => tag.toLowerCase()));
+      const added = tags.filter((tag) => !before.has(tag.toLowerCase()));
+      const removed = lead.tags.filter((tag) => !after.has(tag.toLowerCase()));
+      // A spelling fix or a new order is saved quietly; only real additions and removals reach the timeline.
+      if (tags.join("\n") !== lead.tags.join("\n")) patch.tags = tags;
+      if (added.length > 0 || removed.length > 0) {
+        await addLeadEvent(tx, { tenantId, leadId, type: "tags.changed", actor, data: { added, removed } });
       }
     }
     if (input.lostReason !== undefined) patch.lostReason = input.lostReason;
@@ -191,7 +246,7 @@ export async function updateLead(tenantId: string, userId: string, leadId: strin
 
     // A new visit or price moves the card along by itself, unless the owner picked a stage in this same change.
     if (input.stage === undefined) {
-      const reason = patch.scheduledFor ? "visit_booked" : patch.valueCents != null ? "price_set" : null;
+      const reason = patch.valueCents != null ? "price_set" : null;
       if (reason) await advanceLead(tx, fx, { tenantId, leadId, reason });
     }
     fx.publish({ type: "lead.updated", leadId });
@@ -229,8 +284,11 @@ export async function addNote(tenantId: string, userId: string, leadId: string, 
   });
 }
 
-/** Owner asks for details: creates a fresh request link and tries to text it through the governed path. */
-export async function requestDetails(tenantId: string, userId: string, leadId: string) {
+/**
+ * Owner asks for details: creates a fresh request link and tries to text it through the governed path.
+ * The profile link (C-41) is added by default when this is the first text the lead gets.
+ */
+export async function requestDetails(tenantId: string, userId: string, leadId: string, options: { includeProfile?: boolean } = {}) {
   return tenantWork(tenantId, async (tx, fx) => {
     const [row] = await tx
       .select({ lead: leads, customer: customers, tenant: tenants })
@@ -240,11 +298,18 @@ export async function requestDetails(tenantId: string, userId: string, leadId: s
       .where(eq(leads.id, leadId));
     if (!row) throw notFound("Lead");
 
-    const url = await createIntakeLink(tx, { tenantId, leadId, customerId: row.customer.id });
+    const link = await createIntakeLink(tx, { tenantId, leadId, customerId: row.customer.id });
+    const url = link.url;
     await addLeadEvent(tx, { tenantId, leadId, type: "intake.link_created", actor: `user:${userId}` });
 
     let message: MessageItem | null = null;
     if (row.customer.phoneE164) {
+      const [earlier] = await tx
+        .select({ id: messages.id })
+        .from(messages)
+        .where(and(eq(messages.leadId, leadId), eq(messages.direction, "outbound"), ne(messages.channel, "email")))
+        .limit(1);
+      const withProfile = options.includeProfile ?? (row.tenant.profileLinkInTexts && !earlier);
       const greeting = row.customer.name ? `Hi ${row.customer.name.split(" ")[0]}` : "Hi";
       const created = await requestMessage(tx, fx, {
         tenant: row.tenant,
@@ -252,9 +317,10 @@ export async function requestDetails(tenantId: string, userId: string, leadId: s
         leadId,
         to: row.customer.phoneE164,
         purpose: "transactional",
-        body: `${greeting}, it's ${row.tenant.name}. Share the details of your job (photos help): ${url}\nReply STOP to opt out.`,
+        body: `${greeting}, it's ${row.tenant.name}. Share the details of your job (photos help): ${url}\n${withProfile ? `${profileLine(row.tenant)}\n` : ""}Reply STOP to opt out.`,
       });
       message = toMessageItem(created);
+      await noteLinkChannel(tx, link.id, created);
       // The owner reached out — but only if the text was allowed to go.
       if (created.status !== "blocked") await advanceLead(tx, fx, { tenantId, leadId, reason: "form_sent" });
     }
@@ -280,20 +346,6 @@ export function toCallItem(c: typeof calls.$inferSelect, customer: CustomerRow |
   };
 }
 
-export function toMessageItem(m: typeof messages.$inferSelect): MessageItem {
-  return {
-    id: m.id,
-    direction: m.direction,
-    channel: m.channel,
-    purpose: m.purpose,
-    status: m.status,
-    body: m.body,
-    blockedReason: m.blockedReason,
-    provider: m.provider,
-    createdAt: isoOrNow(m.createdAt),
-  };
-}
-
 function toMediaItem(m: typeof mediaAssets.$inferSelect): MediaItem {
   return {
     id: m.id,
@@ -302,6 +354,7 @@ function toMediaItem(m: typeof mediaAssets.$inferSelect): MediaItem {
     width: m.width,
     height: m.height,
     aiStatus: m.aiStatus,
+    showcase: m.showcase,
     aiTags: (m.aiTags as MediaItem["aiTags"]) ?? null,
     createdAt: m.createdAt.toISOString(),
   };

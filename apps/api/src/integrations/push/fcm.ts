@@ -1,39 +1,34 @@
 import { getMessaging } from "firebase-admin/messaging";
 import { logger } from "../../lib/logger";
 import { firebaseApp } from "../firebase/app";
-import type { PushMessage, PushProvider } from "./types";
+import type { PushMessage, PushProvider, PushResult } from "./types";
 
-/** Topic every device of a business subscribes to when the owner enables notifications. */
-export const tenantTopic = (tenantId: string) => `tenant_${tenantId.replaceAll("-", "")}`;
+/** Error codes meaning a token will never work again. */
+const DEAD_TOKEN = new Set(["messaging/registration-token-not-registered", "messaging/invalid-registration-token"]);
 
 /**
  * Firebase Cloud Messaging (named in the spec for C-05). High priority so the
  * "tap to call back" alert lands within seconds on Android and the installed web app.
+ * The web app's service worker (public/sw.js) shows it and adds the Call back button.
  */
 export class FcmPush implements PushProvider {
   readonly name = "fcm" as const;
 
-  async send(message: PushMessage) {
+  async send(message: PushMessage, tokens: string[]): Promise<PushResult> {
     try {
-      await getMessaging(firebaseApp()).send({
-        topic: tenantTopic(message.tenantId),
+      const response = await getMessaging(firebaseApp()).sendEachForMulticast({
+        tokens,
         notification: { title: message.title, body: message.body },
+        data: { link: message.link, callbackPhone: message.callbackPhone ?? "", tag: message.tag ?? "" },
         android: { priority: "high" },
         apns: { headers: { "apns-priority": "10" } },
         webpush: { headers: { Urgency: "high" }, fcmOptions: { link: message.link } },
       });
-      return "fcm_sent" as const;
+      const invalidTokens = response.responses.flatMap((result, index) => (result.error && DEAD_TOKEN.has(result.error.code) ? [tokens[index]!] : []));
+      return { status: response.successCount > 0 ? "fcm_sent" : "fcm_failed", invalidTokens };
     } catch (error) {
       logger.warn({ err: error }, "fcm push failed");
-      return "fcm_failed" as const;
+      return { status: "fcm_failed", invalidTokens: [] };
     }
-  }
-}
-
-/** Used until Firebase is configured: alerts appear in the app in real time only. */
-export class InAppOnlyPush implements PushProvider {
-  readonly name = "in_app" as const;
-  async send() {
-    return "in_app" as const;
   }
 }

@@ -2,7 +2,7 @@
 
 import { LEAD_STAGE_LABELS, LEAD_STAGES, type LeadStage } from "@leadanchor/contracts";
 import { IconCheck } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { ResponsiveSheet } from "@/components/responsive-sheet";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldLabel } from "@/components/ui/field";
@@ -35,20 +35,16 @@ export function MoveLeadSheet({
   initialStage?: LeadStage | null;
   onClose: () => void;
 }) {
-  const update = useUpdateLead();
-  const [stage, setStage] = useState<LeadStage | null>(null);
-  const [value, setValue] = useState("");
-  const [reason, setReason] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (target) {
-      setStage(initialStage ?? null);
-      setValue(target.valueCents ? String(Math.round(target.valueCents / 100)) : "");
-      setReason(null);
-    }
-  }, [target, initialStage]);
-
   if (!target) return null;
+  // A fresh sheet each time it opens, starting from the card as it is now.
+  return <MoveSheet key={`${target.id}:${initialStage ?? ""}`} target={target} initialStage={initialStage ?? null} onClose={onClose} />;
+}
+
+function MoveSheet({ target, initialStage, onClose }: { target: MoveTarget; initialStage: LeadStage | null; onClose: () => void }) {
+  const update = useUpdateLead();
+  const [stage, setStage] = useState<LeadStage | null>(initialStage);
+  const [value, setValue] = useState(target.valueCents ? String(Math.round(target.valueCents / 100)) : "");
+  const [reason, setReason] = useState<string | null>(null);
 
   const needsDetails = stage === "won" || stage === "lost";
   const valueNumber = Number(value);

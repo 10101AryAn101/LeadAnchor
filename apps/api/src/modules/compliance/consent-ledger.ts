@@ -5,7 +5,8 @@ import { consentLedger } from "../../db/schema";
 import { sha256 } from "../../lib/crypto";
 
 /** Version of the words the caller agreed to. Bump whenever the consent prompt changes (C-27). */
-export const CONSENT_TEXT_VERSION = "dispatcher-sms-v1";
+/** Bumped whenever the spoken question changes, so each ledger entry proves which wording the caller heard. */
+export const CONSENT_TEXT_VERSION = "dispatcher-sms-v2";
 
 export interface ConsentInput {
   tenantId: string;
@@ -31,7 +32,7 @@ export interface ConsentRecord extends ConsentInput {
  * under which wording. Every send checks it (modules/messaging/policy.ts).
  */
 export interface ConsentLedger {
-  readonly backend: "local" | "firestore";
+  readonly backend: "local" | "firestore" | "local-and-firestore";
   /** Appends a record. Pass `tx` to write inside the caller's transaction (local backend only). */
   record(input: ConsentInput, tx?: Tx): Promise<{ id: string }>;
   /** The most recent record for this phone + consent type, or null. */
@@ -89,6 +90,14 @@ export class LocalConsentLedger implements ConsentLedger {
       return row ? toRecord(row) : null;
     };
     return tx ? read(tx) : withTenant(tenantId, read);
+  }
+
+  /** One record, once its transaction has committed (null before then, or if it rolled back). */
+  async byId(tenantId: string, id: string) {
+    const [row] = await withTenant(tenantId, (tx) =>
+      tx.select().from(consentLedger).where(eq(consentLedger.id, id)).limit(1),
+    );
+    return row ? toRecord(row) : null;
   }
 
   async list(tenantId: string, filter: { phoneE164?: string; limit?: number } = {}) {

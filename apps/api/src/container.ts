@@ -1,12 +1,37 @@
-import { env } from "./config/env";
+import { resolve } from "node:path";
+import { env, linkBaseUrl } from "./config/env";
 import { GeminiProvider } from "./integrations/ai/gemini";
+import { SimulatorBilling } from "./integrations/billing/simulator";
+import { StripeBilling } from "./integrations/billing/stripe";
+import type { BillingProvider } from "./integrations/billing/types";
 import type { AiProvider } from "./integrations/ai/types";
-import { FirestoreConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
+import { GoogleCalendar } from "./integrations/calendar/google";
+import { SimulatorCalendar } from "./integrations/calendar/simulator";
+import type { CalendarProvider } from "./integrations/calendar/types";
+import { SimulatorHolidays } from "./integrations/holidays/simulator";
+import type { HolidayProvider } from "./integrations/holidays/types";
+import { SimulatorListings } from "./integrations/listings/simulator";
+import type { ListingProvider } from "./integrations/listings/types";
+import { ChromiumPdf, type PdfRenderer, findBrowser } from "./integrations/documents/pdf";
+import { FirestoreConsentLedger, MirroredConsentLedger } from "./integrations/firebase/firestore-consent-ledger";
+import { OutboxEmail } from "./integrations/messaging/email";
+import { ResendEmail } from "./integrations/messaging/resend";
 import { SimulatorSms, TelnyxSms } from "./integrations/messaging/sms";
-import type { ChannelAdapter } from "./integrations/messaging/types";
-import { MetaWhatsApp } from "./integrations/messaging/whatsapp";
-import { FcmPush, InAppOnlyPush } from "./integrations/push/fcm";
+import type { ChannelAdapter, WhatsAppAdapter } from "./integrations/messaging/types";
+import { MetaWhatsApp, SimulatorWhatsApp } from "./integrations/messaging/whatsapp";
+import { WebChat } from "./integrations/messaging/web-chat";
+import { SimulatorPayments } from "./integrations/payments/simulator";
+import { StripePayments } from "./integrations/payments/stripe";
+import type { PaymentsProvider } from "./integrations/payments/types";
+import { FcmPush } from "./integrations/push/fcm";
+import { SimulatedPush } from "./integrations/push/simulator";
 import type { PushProvider } from "./integrations/push/types";
+import { NationalWeatherService } from "./integrations/weather/nws";
+import { SimulatorWeather } from "./integrations/weather/simulator";
+import type { WeatherProvider } from "./integrations/weather/types";
+import { SimulatorRegistry } from "./integrations/registry/simulator";
+import { TelnyxRegistry } from "./integrations/registry/telnyx";
+import type { CarrierRegistry } from "./integrations/registry/types";
 import { LocalBlobStorage } from "./integrations/storage/local";
 import { SimulatorTelephony } from "./integrations/telephony/simulator";
 import { TelnyxTelephony } from "./integrations/telephony/telnyx";
@@ -25,32 +50,122 @@ export const simulatorTelephony = new SimulatorTelephony();
 export const telephony: TelephonyProvider =
   env.TELEPHONY_PROVIDER === "telnyx"
     ? new TelnyxTelephony({
-        apiKey: requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY),
-        connectionId: requireSetting("TELNYX_CONNECTION_ID", env.TELNYX_CONNECTION_ID),
+        apiKey: requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx"),
+        connectionId: requireSetting("TELNYX_CONNECTION_ID", env.TELNYX_CONNECTION_ID, "Telnyx"),
         messagingProfileId: env.TELNYX_MESSAGING_PROFILE_ID,
-        ringbackUrl: `${env.PUBLIC_API_URL}/static/ringback.wav`,
+        // Telnyx fetches it, so it must be reachable from the internet (the tunnel, locally).
+        ringbackUrl: `${env.TUNNEL_URL ?? env.PUBLIC_API_URL}/static/ringback.wav`,
       })
     : simulatorTelephony;
 
-export const consentLedger: ConsentLedger =
-  env.CONSENT_LEDGER === "firestore" ? new FirestoreConsentLedger() : new LocalConsentLedger();
+export const simulatorRegistry = new SimulatorRegistry();
 
-export const push: PushProvider = env.FCM_ENABLED ? new FcmPush() : new InAppOnlyPush();
+/**
+ * Carrier registration (C-43) follows the texting provider (Telnyx texts need a Telnyx-filed
+ * registration) unless CARRIER_REGISTRY says otherwise: a Telnyx trial keeps the simulator.
+ */
+export const registry: CarrierRegistry =
+  (env.CARRIER_REGISTRY ?? env.SMS_PROVIDER) === "telnyx"
+    ? new TelnyxRegistry(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx"))
+    : simulatorRegistry;
+
+export const consentLedger: ConsentLedger =
+  env.CONSENT_LEDGER === "firestore"
+    ? new FirestoreConsentLedger()
+    : env.CONSENT_LEDGER === "local-and-firestore"
+      ? new MirroredConsentLedger(new LocalConsentLedger(), new FirestoreConsentLedger())
+      : new LocalConsentLedger();
+
+/** Phone alerts (C-05): Firebase Cloud Messaging once a Firebase project is connected. */
+export const push: PushProvider = env.FCM_ENABLED ? new FcmPush() : new SimulatedPush();
 
 export const storage = new LocalBlobStorage(env.STORAGE_DIR);
 
-export const channels: { sms: ChannelAdapter; whatsapp: ChannelAdapter | null } = {
+/** Quote PDFs (C-45): headless Chrome or Edge renders the branded HTML. */
+export const pdf: PdfRenderer = new ChromiumPdf(findBrowser(env.PDF_BROWSER_PATH));
+
+export const simulatorPayments = new SimulatorPayments(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "payments.json"), linkBaseUrl);
+
+/**
+ * Card payments (module 7). Stripe Connect is the named provider (test mode with an sk_test_
+ * key); without a key the simulator plays its part with the same objects.
+ */
+export const payments: PaymentsProvider = env.STRIPE_SECRET_KEY
+  ? new StripePayments(env.STRIPE_SECRET_KEY, env.STRIPE_WEBHOOK_SECRET)
+  : simulatorPayments;
+
+export const simulatorBilling = new SimulatorBilling(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "billing.json"));
+
+/**
+ * LeadAnchor's own subscriptions: businesses paying for Starter, Pro or Growth, on LeadAnchor's
+ * Stripe account (the same key, no connected account). Without a key the simulator plays its part.
+ */
+export const billing: BillingProvider = env.STRIPE_SECRET_KEY
+  ? new StripeBilling(env.STRIPE_SECRET_KEY, env.STRIPE_BILLING_WEBHOOK_SECRET)
+  : simulatorBilling;
+
+export const simulatorCalendar = new SimulatorCalendar(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "calendar.json"));
+
+/**
+ * Calendar sync (module 8), one adapter per provider a business can connect: Google Calendar once
+ * its OAuth client is set, and the simulator for development. Outlook joins later.
+ */
+export const calendarProviders: Partial<Record<CalendarProvider["name"], CalendarProvider>> = {
+  ...(env.GOOGLE_OAUTH_CLIENT_ID && env.GOOGLE_OAUTH_CLIENT_SECRET
+    ? { google: new GoogleCalendar(env.GOOGLE_OAUTH_CLIENT_ID, env.GOOGLE_OAUTH_CLIENT_SECRET) }
+    : {}),
+  simulator: simulatorCalendar,
+};
+
+export const simulatorListings = new SimulatorListings(
+  resolve(process.cwd(), env.STORAGE_DIR, "simulator", "google.json"),
+  (account) => `${linkBaseUrl}/sim/google/${account}`,
+);
+
+/**
+ * The business listing (module 9): Google Business Profile joins in step 2 (free, but Google
+ * must approve API access and each business signs in); until then the simulator stands in.
+ */
+export const listingProviders: Partial<Record<ListingProvider["name"], ListingProvider>> = { simulator: simulatorListings };
+
+export const simulatorWeather = new SimulatorWeather(resolve(process.cwd(), env.STORAGE_DIR, "simulator", "weather.json"));
+
+/**
+ * Seasonal offers (C-30) watch the forecast and the holiday calendar. The forecast comes from the
+ * US National Weather Service when WEATHER_PROVIDER=nws; a holiday API (free, no key) joins in
+ * step 2. Until then simulators stand in.
+ */
+export const weather: WeatherProvider =
+  env.WEATHER_PROVIDER === "nws"
+    ? new NationalWeatherService(`LeadAnchor (${env.WEATHER_CONTACT ?? env.PUBLIC_WEB_URL})`)
+    : simulatorWeather;
+export const holidays: HolidayProvider = new SimulatorHolidays();
+
+/**
+ * Message channels (module 5). WhatsApp is Meta's Cloud API once its keys are set; until then a
+ * simulator stands in during development (C-11). The website chat is LeadAnchor's own (C-16).
+ */
+export const channels: { sms: ChannelAdapter; whatsapp: WhatsAppAdapter | null; email: ChannelAdapter; web: ChannelAdapter } = {
+  email:
+    env.EMAIL_TRANSPORT === "resend"
+      ? new ResendEmail(requireSetting("RESEND_API_KEY", env.RESEND_API_KEY, "Resend"), env.EMAIL_TEST_RECIPIENT)
+      : new OutboxEmail(),
   sms:
     env.SMS_PROVIDER === "telnyx"
-      ? new TelnyxSms(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY), env.TELNYX_MESSAGING_PROFILE_ID)
+      ? new TelnyxSms(requireSetting("TELNYX_API_KEY", env.TELNYX_API_KEY, "Telnyx"), env.TELNYX_MESSAGING_PROFILE_ID)
       : new SimulatorSms(),
   whatsapp:
     env.WHATSAPP_ACCESS_TOKEN && env.WHATSAPP_PHONE_NUMBER_ID
-      ? new MetaWhatsApp(env.WHATSAPP_ACCESS_TOKEN, env.WHATSAPP_PHONE_NUMBER_ID)
-      : null,
+      ? new MetaWhatsApp(env.WHATSAPP_ACCESS_TOKEN, env.WHATSAPP_PHONE_NUMBER_ID, {
+          testMode: Boolean(env.WHATSAPP_TEST_BUSINESS),
+        })
+      : env.NODE_ENV === "production"
+        ? null
+        : new SimulatorWhatsApp(linkBaseUrl),
+  web: new WebChat(),
 };
 
-function requireSetting(name: string, value: string | undefined): string {
-  if (!value) throw new Error(`${name} must be set when the Telnyx provider is selected.`);
+function requireSetting(name: string, value: string | undefined, provider: string): string {
+  if (!value) throw new Error(`${name} must be set when the ${provider} provider is selected.`);
   return value;
 }

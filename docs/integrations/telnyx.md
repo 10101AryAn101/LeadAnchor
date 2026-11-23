@@ -483,6 +483,12 @@ Webhooks can arrive in any order. Keep per-`call_session_id` state, deduplicate 
    3. On `call.gather.ended` with `digits:"1"`, `bridge` A↔B. Otherwise `hangup` B and run the fallback.
    - Whether A must be answered before it can be bridged, and what the caller hears meanwhile, are UNVERIFIED. The safest option is to `answer` A and play a ringback file with `playback_start` and `loop:"infinity"`.
 
+### 4.5 Calls forwarded from the owner's own cell (C-01)
+
+- **A missed call forwarded here** arrives with a `Diversion` SIP header naming the owner's cell, in `sip_headers[]` on `call.initiated` (for example `<sip:+15125550199@…>;reason=no-answer`). The exact format varies by carrier and is UNVERIFIED. LeadAnchor doesn't ring the owner again: the call goes straight to the AI Dispatcher or voicemail.
+- **Our own ring coming back.** If the owner's phone is off or busy and forwards calls here, LeadAnchor's ring to it (shown with the caller's number) comes straight back as a new incoming call.
+- **What the app does:** while the first call is still ringing the owner, it turns that echo away with `reject` (`cause: USER_BUSY`). The owner's leg then ends, and the first call moves on instead of ringing the owner again and again.
+
 ---
 
 ## 5. Webhook security and delivery

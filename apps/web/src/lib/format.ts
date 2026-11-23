@@ -5,11 +5,18 @@ export { formatPhone } from "@leadanchor/contracts";
 const usd = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 });
 const usdCompact = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", notation: "compact", maximumFractionDigits: 1 });
 
+const usdCents = new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", minimumFractionDigits: 2 });
+
 /** "$4,820" — whole dollars; owners think in job prices. "$12.9K" from $10k up when space is tight. */
 export const money = (cents: number | null | undefined) => (cents == null ? "—" : usd.format(cents / 100));
+/** Money that was actually charged: "$42" or "$42.50", never rounded. */
+export const amount = (cents: number) => (cents % 100 === 0 ? usd.format(cents / 100) : usdCents.format(cents / 100));
 export const moneyCompact = (cents: number) => (cents >= 1_000_000 ? usdCompact.format(cents / 100) : money(cents));
 
 const minutesSince = (iso: string) => Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 60_000));
+
+/** True while `iso` is less than `ms` old (e.g. to animate a card that just arrived). */
+export const isWithin = (iso: string, ms: number) => Date.now() - new Date(iso).getTime() < ms;
 
 /** "just now", "12 min ago", "3 hr ago", "Yesterday 3:14 PM", "Mar 4". */
 export function timeAgo(iso: string) {
@@ -61,6 +68,15 @@ export function duration(secs: number | null | undefined) {
 }
 
 export const percent = (value: number) => `${Math.round(value * 100)}%`;
+
+/** How long a job takes: "45 min", "1 hr", "2 hr 30 min". */
+export function jobLength(mins: number | null | undefined) {
+  if (mins == null) return null;
+  const hours = Math.floor(mins / 60);
+  const rest = mins % 60;
+  if (hours === 0) return `${rest} min`;
+  return rest === 0 ? `${hours} hr` : `${hours} hr ${rest} min`;
+}
 
 export const initials = (name: string | null | undefined) =>
   (name ?? "")

@@ -1,6 +1,6 @@
 "use client";
 
-import { type DashboardRange, type DashboardSummary, type LeadCard, dashboardRange } from "@leadanchor/contracts";
+import { type DashboardRange, type DashboardSummary, type LeadCard, type Urgency, dashboardRange } from "@leadanchor/contracts";
 import NumberFlow from "@number-flow/react";
 import { IconFlask, IconInfoCircle, IconMessage, IconPhone, IconRefresh } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -14,9 +14,11 @@ import { Button } from "@/components/ui/button";
 import { type ChartConfig, ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { Skeleton } from "@/components/ui/skeleton";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import { WaitingChip, isWaiting } from "@/features/leads/lead-meta";
+import { UrgencyChip, WaitingChip, isWaiting } from "@/features/leads/lead-meta";
 import { useRecordContact } from "@/features/leads/use-lead-actions";
-import { formatPhone, money, smsHref, telHref, timeAgo } from "@/lib/format";
+import { AiVisibilityCard } from "@/features/discovery/ai-visibility-card";
+import { ReviewsCard } from "@/features/reviews/reviews-card";
+import { formatPhone, money, percent, smsHref, telHref, timeAgo } from "@/lib/format";
 import { useHydrated } from "@/hooks/use-hydrated";
 import { keys, useDashboard, useLeads, useMe } from "@/lib/queries";
 
@@ -109,12 +111,18 @@ function DashboardContent() {
               <Tile
                 label="Open jobs (est.)"
                 value={money(data.pipelineCents)}
-                detail={`${data.leadsCreated} new lead${data.leadsCreated === 1 ? "" : "s"}, ${data.leadsWon} won in the last ${RANGE_LABEL[range]}`}
+                detail={`${data.leadsCreated} new lead${data.leadsCreated === 1 ? "" : "s"}, ${data.leadsWon} won${data.convertedCents > 0 ? ` (${money(data.convertedCents)})` : ""} in the last ${RANGE_LABEL[range]}`}
               />
             </div>
           </div>
 
+          {data.leadsCreated > 0 && <UrgencyStrip data={data} />}
+
           <NeedsYouNow leads={waiting} />
+
+          <ReviewsCard />
+
+          <AiVisibilityCard />
 
           <p className="rounded-lg border bg-card p-4 text-[15px] leading-6">
             <span className="font-semibold">{data.valueProof.headline}</span> <span className="text-muted-foreground">{data.valueProof.detail}</span>
@@ -130,6 +138,7 @@ function DashboardContent() {
           </p>
           <p>We never count estimates there. Open jobs use your typical job value until you set a real amount, and they&apos;re always labelled “est.”</p>
           <p>Calls you answered yourself are not counted as recovered.</p>
+          <p>The jobs won under Open jobs count every lead you won, wherever it came from, with the values you entered.</p>
         </div>
       </ResponsiveSheet>
     </div>
@@ -145,8 +154,8 @@ function HeroCard({ data, range, onExplain }: { data: DashboardSummary; range: D
         <NumberFlow value={data.recoveredCents / 100} format={{ style: "currency", currency: "USD", maximumFractionDigits: 0 }} />
       </div>
       <p className="mt-2 text-[15px] text-muted-foreground">
-        {data.leadsWon > 0
-          ? `${data.leadsWon} job${data.leadsWon === 1 ? "" : "s"} won from calls you would have missed.`
+        {data.wonFromCalls > 0
+          ? `${data.wonFromCalls} job${data.wonFromCalls === 1 ? "" : "s"} won from calls you would have missed.`
           : "Mark a lead as won with its value and it shows up here."}
       </p>
       <button type="button" onClick={onExplain} className="mt-1 inline-flex min-h-11 items-center gap-1 self-start text-[15px] font-semibold text-primary">
@@ -190,6 +199,28 @@ function Tile({ label, value, detail }: { label: string; value: number | string;
       <p className="text-[15px] text-muted-foreground">{label}</p>
       <p className="tabular mt-1 font-display text-[34px] leading-tight font-semibold">{value}</p>
       <p className="mt-1 text-sm text-muted-foreground">{detail}</p>
+    </section>
+  );
+}
+
+const URGENCY_ORDER: Urgency[] = ["emergency", "high", "normal", "low"];
+
+/** C-14: how urgent the new leads were, and how many turned into won jobs. */
+function UrgencyStrip({ data }: { data: DashboardSummary }) {
+  return (
+    <section className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center sm:gap-4">
+      <p className="text-[15px] font-semibold">
+        {data.leadsCreated} new lead{data.leadsCreated === 1 ? "" : "s"}
+      </p>
+      <ul className="flex flex-1 flex-wrap items-center gap-x-4 gap-y-2" aria-label="By urgency">
+        {URGENCY_ORDER.filter((level) => data.urgency[level] > 0).map((level) => (
+          <li key={level} className="inline-flex items-center gap-1.5">
+            <UrgencyChip urgency={level} showRoutine />
+            <span className="tabular text-[15px] font-semibold">{data.urgency[level]}</span>
+          </li>
+        ))}
+      </ul>
+      <p className="text-[15px] text-muted-foreground">Win rate {percent(data.winRate)}</p>
     </section>
   );
 }

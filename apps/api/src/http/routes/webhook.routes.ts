@@ -7,10 +7,16 @@ import { webhookInbox } from "../../db/schema";
 import { HttpError } from "../../lib/errors";
 import { logger } from "../../lib/logger";
 import { serial } from "../../lib/serial";
-import { telephony } from "../../container";
+import { billing, channels, payments, telephony } from "../../container";
+import { StripeBilling } from "../../integrations/billing/stripe";
+import { verifyResendSignature } from "../../integrations/messaging/resend";
+import { StripePayments } from "../../integrations/payments/stripe";
 import { TelnyxTelephony, type TelnyxWebhook, verifyTelnyxSignature } from "../../integrations/telephony/telnyx";
 import { callEngine } from "../../modules/calls";
-import { handleInboundMessage } from "../../modules/messaging/inbound";
+import { applyEmailReport } from "../../modules/messaging/email-feedback";
+import { handleInboundMessage, whatsappTestBusinessNumber } from "../../modules/messaging/inbound";
+import { receivePaymentEvent } from "../../modules/payments/payment.service";
+import { receiveBillingEvent } from "../../modules/billing/billing.service";
 
 /**
  * Provider webhooks. Each delivery is verified, stored once in webhook_inbox
@@ -48,6 +54,77 @@ export async function webhookRoutes(app: FastifyInstance) {
     void serial(key, () => processTelnyx(stored.id, webhook));
   });
 
+  /**
+   * Stripe (modules 7 and 12): events from the businesses' own accounts (Connect). The current
+   * state is read from Stripe before answering, so if that fails Stripe delivers the event again.
+   */
+  app.post("/api/webhooks/stripe", async (req, reply) => {
+    if (!(payments instanceof StripePayments)) throw new HttpError(503, "not_configured", "Stripe is not connected.");
+    const event = (() => {
+      try {
+        return payments.verifyWebhook(req.rawBody ?? "", header(req.headers["stripe-signature"]));
+      } catch {
+        return null;
+      }
+    })();
+    if (!event) throw new HttpError(400, "invalid_signature", "Webhook signature check failed.");
+    for (const paymentEvent of await payments.eventsFrom(event)) {
+      // A failure is kept in the webhook inbox; the next event about the same object catches up.
+      await receivePaymentEvent(paymentEvent).catch((error) =>
+        logger.error({ err: error, eventId: event.id }, "stripe event failed"),
+      );
+    }
+    return reply.status(200).send({ received: true });
+  });
+
+  /**
+   * Stripe, LeadAnchor's own account: businesses' subscriptions to their tier. A separate endpoint
+   * because Stripe signs "your account" events with a different secret from connected accounts'.
+   */
+  app.post("/api/webhooks/stripe-billing", async (req, reply) => {
+    if (!(billing instanceof StripeBilling)) throw new HttpError(503, "not_configured", "Stripe is not connected.");
+    if (!env.STRIPE_BILLING_WEBHOOK_SECRET) throw new HttpError(503, "not_configured", "Stripe billing webhooks aren't set up.");
+    const stripe = billing;
+    const event = (() => {
+      try {
+        return stripe.verifyWebhook(req.rawBody ?? "", header(req.headers["stripe-signature"]) ?? "");
+      } catch {
+        return null;
+      }
+    })();
+    if (!event) throw new HttpError(400, "invalid_signature", "Webhook signature check failed.");
+    await receiveBillingEvent(
+      event,
+      () => stripe.subscriptionFrom(event),
+      () => stripe.addonFrom(event),
+    );
+    return reply.status(200).send({ received: true });
+  });
+
+  /** Resend: delivered, bounced and spam-complaint reports on the emails we sent (module 5). */
+  app.post("/api/webhooks/resend", async (req, reply) => {
+    if (!env.RESEND_WEBHOOK_SECRET) throw new HttpError(503, "not_configured", "Resend webhooks aren't set up.");
+    const valid = verifyResendSignature({
+      rawBody: req.rawBody ?? "",
+      id: header(req.headers["svix-id"]),
+      timestamp: header(req.headers["svix-timestamp"]),
+      signature: header(req.headers["svix-signature"]),
+      secret: env.RESEND_WEBHOOK_SECRET,
+    });
+    if (!valid) throw new HttpError(401, "invalid_signature", "Webhook signature check failed.");
+    const event = req.body as { type?: string; data?: { email_id?: string } };
+    const report =
+      event.type === "email.delivered"
+        ? "delivered"
+        : event.type === "email.bounced"
+          ? "bounce"
+          : event.type === "email.complained"
+            ? "complaint"
+            : null;
+    if (report && event.data?.email_id) await applyEmailReport(event.data.email_id, report);
+    return reply.status(200).send({ received: true });
+  });
+
   /** WhatsApp Cloud API: verification handshake (GET) and inbound messages (POST). */
   app.get("/api/webhooks/whatsapp", async (req, reply) => {
     const query = req.query as Record<string, string | undefined>;
@@ -67,19 +144,29 @@ export async function webhookRoutes(app: FastifyInstance) {
     reply.status(200).send({ received: true });
 
     const body = req.body as WhatsAppWebhook;
+    // Test mode: Meta's test number stands in for one business's own number.
+    const testNumber = await whatsappTestBusinessNumber();
     for (const entry of body.entry ?? []) {
       for (const change of entry.changes ?? []) {
-        const businessNumber = change.value?.metadata?.display_phone_number;
+        const businessNumber = testNumber ?? change.value?.metadata?.display_phone_number;
+        const profiles = new Map((change.value?.contacts ?? []).map((contact) => [contact.wa_id, contact.profile?.name ?? null]));
         for (const message of change.value?.messages ?? []) {
-          if (message.type !== "text" || !businessNumber) continue;
-          void handleInboundMessage({
-            from: `+${message.from}`,
-            to: `+${businessNumber.replace(/\D/g, "")}`,
-            text: message.text?.body ?? "",
-            channel: "whatsapp",
-            provider: "meta",
-            providerMessageId: message.id,
-          }).catch((error) => logger.error({ err: error }, "whatsapp inbound failed"));
+          // Texts and photos (C-11); other kinds (voice notes, stickers…) aren't read yet.
+          if ((message.type !== "text" && message.type !== "image") || !businessNumber) continue;
+          void (async () => {
+            const photo = message.type === "image" && message.image?.id ? await channels.whatsapp?.downloadMedia?.(message.image.id) : null;
+            await handleInboundMessage({
+              from: `+${message.from}`,
+              to: `+${businessNumber.replace(/\D/g, "")}`,
+              // A photo whose download failed still arrives, so the owner knows to ask again.
+              text: message.type === "image" ? (message.image?.caption ?? "") || (photo ? "" : "Sent a photo") : (message.text?.body ?? ""),
+              channel: "whatsapp",
+              provider: "meta",
+              providerMessageId: message.id,
+              profileName: profiles.get(message.from) ?? null,
+              photos: photo ? [{ buffer: photo }] : undefined,
+            });
+          })().catch((error) => logger.error({ err: error }, "whatsapp inbound failed"));
         }
       }
     }
@@ -118,7 +205,8 @@ interface WhatsAppWebhook {
     changes?: Array<{
       value?: {
         metadata?: { display_phone_number?: string };
-        messages?: Array<{ id: string; from: string; type: string; text?: { body?: string } }>;
+        contacts?: Array<{ wa_id: string; profile?: { name?: string } }>;
+        messages?: Array<{ id: string; from: string; type: string; text?: { body?: string }; image?: { id?: string; caption?: string } }>;
       };
     }>;
   }>;

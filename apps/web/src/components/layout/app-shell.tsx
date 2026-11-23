@@ -14,8 +14,10 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetTrigger } from "@/co
 import { Skeleton } from "@/components/ui/skeleton";
 import { useRealtime } from "@/hooks/use-realtime";
 import { ApiError } from "@/lib/api";
+import { onAlertLink } from "@/lib/push";
 import { useLeads, useMe } from "@/lib/queries";
 import { cn } from "@/lib/utils";
+import { AccountBanner } from "./account-banner";
 import { CommandMenu, openCommandMenu } from "./command-menu";
 import { type NavItem, PRIMARY_NAV, SECONDARY_NAV } from "./nav-items";
 import { NotificationsButton } from "./notifications-button";
@@ -46,6 +48,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         <MobileHeader me={me.data} />
         <DesktopTopBar />
         <main className="mx-auto w-full max-w-[1360px] flex-1 px-4 pt-5 pb-28 sm:px-6 lg:px-10 lg:pt-2 lg:pb-16">
+          {me.data?.tenant && <AccountBanner account={me.data.tenant.account} />}
           {needsOnboarding ? <MainSkeleton /> : children}
         </main>
       </div>
@@ -81,6 +84,8 @@ function LiveUpdates() {
       action: event.leadId ? { label: "Open", onClick: () => router.push(`/leads/${event.leadId}`) } : undefined,
     }),
   );
+  // A phone alert tapped while this tab is open brings its page here.
+  useEffect(() => onAlertLink((path) => router.push(path)), [router]);
   return null;
 }
 
@@ -162,13 +167,14 @@ function Sidebar({ me }: { me: MeResponse | undefined }) {
           </>
         )}
       </div>
-      <div className="mt-6">
+      {/* On a short screen the links scroll, so the account menu below always stays in view. */}
+      <div className="-mx-4 mt-6 min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-3 [scrollbar-width:thin]">
         <Nav items={PRIMARY_NAV} label="Main" showWaiting />
+        <div className="mt-6 mb-1.5 px-3 text-sm text-muted-foreground">Business</div>
+        <Nav items={SECONDARY_NAV} label="Business" />
       </div>
-      <div className="mt-6 mb-1.5 px-3 text-sm text-muted-foreground">Business</div>
-      <Nav items={SECONDARY_NAV} label="Business" />
-      <div className="mt-auto border-t border-sidebar-border pt-3">
-        {me?.tenant ? <UserMenu name={me.user.name} email={me.user.email} business={me.tenant.name} /> : <Skeleton className="h-12 w-full" />}
+      <div className="border-t border-sidebar-border pt-3">
+        {me?.tenant ? <UserMenu name={me.user.name} email={me.user.email} business={me.tenant.name} operator={me.operator} /> : <Skeleton className="h-12 w-full" />}
       </div>
     </aside>
   );
@@ -216,7 +222,7 @@ function MobileHeader({ me }: { me: MeResponse | undefined }) {
               <Nav items={SECONDARY_NAV} label="Business" />
               {me?.tenant && (
                 <div className="border-t pt-3">
-                  <UserMenu name={me.user.name} email={me.user.email} business={me.tenant.name} />
+                  <UserMenu name={me.user.name} email={me.user.email} business={me.tenant.name} operator={me.operator} />
                 </div>
               )}
             </div>
@@ -235,7 +241,7 @@ function BottomTabs() {
 
   return (
     <nav className="pb-safe fixed inset-x-0 bottom-0 z-40 border-t bg-background lg:hidden" aria-label="Main">
-      <div className="mx-auto grid h-14 max-w-md grid-cols-4">
+      <div className="mx-auto grid h-14 max-w-md grid-cols-5">
         {PRIMARY_NAV.map((item) => {
           const active = isActive(pathname, item.href);
           const Icon = active && item.activeIcon ? item.activeIcon : item.icon;

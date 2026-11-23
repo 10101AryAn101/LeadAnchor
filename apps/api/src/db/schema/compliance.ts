@@ -3,6 +3,7 @@ import {
   CONSENT_SOURCES,
   CONSENT_TYPES,
   REGISTRATION_PATHS,
+  REGISTRATION_STAGES,
   REGISTRATION_STATUSES,
 } from "@leadanchor/contracts";
 import { index, jsonb, pgTable, text, uniqueIndex, uuid } from "drizzle-orm/pg-core";
@@ -23,11 +24,20 @@ export const carrierRegistrations = pgTable(
     dateOfBirthEncrypted: text("date_of_birth_encrypted"),
     /** Non-sensitive submission details (address, contact, entity type). */
     details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
+    /** The registry holding the brand below ("telnyx" or "simulator"). */
+    provider: text("provider"),
     providerBrandId: text("provider_brand_id"),
     providerCampaignId: text("provider_campaign_id"),
+    /** The step the review is on, or the step that failed. */
+    stage: text("stage", { enum: REGISTRATION_STAGES }),
     statusReason: text("status_reason"),
     submittedAt: tsz("submitted_at"),
+    otpSentAt: tsz("otp_sent_at"),
+    otpVerifiedAt: tsz("otp_verified_at"),
+    lastCheckedAt: tsz("last_checked_at"),
     approvedAt: tsz("approved_at"),
+    /** Retention: when the encrypted tax ID / date of birth were deleted. */
+    idPurgedAt: tsz("id_purged_at"),
     createdAt: createdAt(),
     updatedAt: updatedAt(),
   },

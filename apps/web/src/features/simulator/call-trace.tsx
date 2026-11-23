@@ -36,8 +36,16 @@ const quote = (value: unknown) => (typeof value === "string" && value ? `“${va
 function describe(event: TraceEvent): { icon: Icon; title: string; detail?: string; tone?: "good" | "waiting" | "neutral" } {
   const d = event.data;
   switch (event.type) {
-    case "call.incoming":
-      return { icon: IconPhoneIncoming, title: "Call came in", detail: d.callerType === "known" ? "Returning caller" : "New caller" };
+    case "call.incoming": {
+      const who = d.callerType === "known" ? "Returning caller" : "New caller";
+      // C-01: they missed it on their own cell first, so it isn't rung through to them again.
+      const via = d.forwardedFromOwner
+        ? ", forwarded after you missed it on your cell"
+        : typeof d.forwardedFrom === "string"
+          ? `, forwarded from ${formatPhone(d.forwardedFrom)}`
+          : "";
+      return { icon: IconPhoneIncoming, title: "Call came in", detail: who + via };
+    }
     case "owner.answered":
       return { icon: IconPhoneCall, title: "You picked up", detail: "Call connected to your cell.", tone: "good" };
     case "owner.unavailable":
@@ -45,6 +53,13 @@ function describe(event: TraceEvent): { icon: Icon; title: string; detail?: stri
         icon: IconPhoneX,
         title: d.reason === "machine" ? "Your voicemail picked up" : d.reason === "busy" ? "Your line was busy" : "Your cell rang — no answer",
         detail: d.reason === "machine" ? "We took the call back so the lead isn't lost in your mailbox." : "LeadAnchor takes over.",
+        tone: "waiting",
+      };
+    case "owner.forwarded_back":
+      return {
+        icon: IconPhoneX,
+        title: "Your cell sent the call back",
+        detail: "It forwards calls to your LeadAnchor line, so we didn't ring you again.",
         tone: "waiting",
       };
     case "playback.finished":
@@ -60,7 +75,16 @@ function describe(event: TraceEvent): { icon: Icon; title: string; detail?: stri
         ? { icon: IconShieldCheck, title: "Caller answered", detail: quote(d.transcript), tone: "good" }
         : { icon: IconMessageCircleQuestion, title: "Caller said", detail: quote(d.transcript) };
     case "speech.timeout":
-      return { icon: IconMessageCircleQuestion, title: "Caller didn't answer" };
+      // C-39: still talking when the listening time ran out. What was heard so far is kept.
+      return typeof d.partial === "string" && d.partial
+        ? { icon: IconMessageCircleQuestion, title: "Caller kept talking past the time limit", detail: quote(d.partial) }
+        : { icon: IconMessageCircleQuestion, title: "Caller didn't answer" };
+    case "dispatcher.cut_in":
+      return { icon: IconHeadset, title: "AI Dispatcher cut in once", detail: quote(d.line) };
+    case "dtmf":
+      return d.digit === "1"
+        ? { icon: IconShieldCheck, title: "Caller pressed 1", detail: "That counts as yes to a text.", tone: "good" }
+        : { icon: IconMessageCircleQuestion, title: `Caller pressed ${String(d.digit ?? "")}` };
     case "recording.saved":
       return { icon: IconRecordMail, title: "Voicemail recorded", detail: typeof d.durationSecs === "number" ? `${d.durationSecs} seconds` : undefined };
     case "recording.transcribed":

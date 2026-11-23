@@ -20,8 +20,9 @@ describe("AI Dispatcher script (C-39)", () => {
     expect(line).toMatch(/automated assistant/i);
   });
 
-  it("asks for permission to text in plain words", () => {
+  it("asks for permission to text in plain words, by voice or keypad (C-06)", () => {
     expect(CONSENT_QUESTION).toMatch(/text you/i);
-    expect(CONSENT_QUESTION).toMatch(/yes or no/i);
+    expect(CONSENT_QUESTION).toMatch(/say yes or press 1/i);
+    expect(CONSENT_QUESTION).toMatch(/say no/i);
   });
 });
