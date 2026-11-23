@@ -4,6 +4,7 @@ import { LEAD_STAGE_LABELS } from "@leadanchor/contracts";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
+  Command,
   CommandDialog,
   CommandEmpty,
   CommandGroup,
@@ -51,32 +52,35 @@ export function CommandMenu() {
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen} title="Search" description="Find a page, customer or job">
-      <CommandInput placeholder="Search customers, numbers and jobs" />
-      <CommandList>
-        <CommandEmpty>Nothing matches that.</CommandEmpty>
-        {leads && leads.length > 0 && (
-          <CommandGroup heading="Customers and jobs">
-            {leads.slice(0, 60).map((lead) => (
-              <CommandItem
-                key={lead.id}
-                value={`${lead.title} ${lead.customer.name ?? ""} ${lead.customer.phone ?? ""} ${formatPhone(lead.customer.phone)}`}
-                onSelect={() => go(`/leads/${lead.id}`)}
-              >
-                <span className="truncate font-medium">{lead.customer.name ?? formatPhone(lead.customer.phone)}</span>
-                <span className="truncate text-muted-foreground">{lead.title}</span>
-                <CommandShortcut>{LEAD_STAGE_LABELS[lead.stage]}</CommandShortcut>
+      {/* cmdk's root: the input, list and items read their shared state from it and crash without it. */}
+      <Command>
+        <CommandInput placeholder="Search customers, numbers and jobs" />
+        <CommandList>
+          <CommandEmpty>Nothing matches that.</CommandEmpty>
+          {leads && leads.length > 0 && (
+            <CommandGroup heading="Customers and jobs">
+              {leads.slice(0, 60).map((lead) => (
+                <CommandItem
+                  key={lead.id}
+                  value={`${lead.title} ${lead.customer.name ?? ""} ${lead.customer.phone ?? ""} ${formatPhone(lead.customer.phone)}`}
+                  onSelect={() => go(`/leads/${lead.id}`)}
+                >
+                  <span className="truncate font-medium">{lead.customer.name ?? formatPhone(lead.customer.phone)}</span>
+                  <span className="truncate text-muted-foreground">{lead.title}</span>
+                  <CommandShortcut>{LEAD_STAGE_LABELS[lead.stage]}</CommandShortcut>
+                </CommandItem>
+              ))}
+            </CommandGroup>
+          )}
+          <CommandGroup heading="Go to">
+            {[...PRIMARY_NAV, ...SECONDARY_NAV].map((item) => (
+              <CommandItem key={item.href} value={`page ${item.label}`} onSelect={() => go(item.href)}>
+                <item.icon /> {item.label}
               </CommandItem>
             ))}
           </CommandGroup>
-        )}
-        <CommandGroup heading="Go to">
-          {[...PRIMARY_NAV, ...SECONDARY_NAV].map((item) => (
-            <CommandItem key={item.href} value={`page ${item.label}`} onSelect={() => go(item.href)}>
-              <item.icon /> {item.label}
-            </CommandItem>
-          ))}
-        </CommandGroup>
-      </CommandList>
+        </CommandList>
+      </Command>
     </CommandDialog>
   );
 }

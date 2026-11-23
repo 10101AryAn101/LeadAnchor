@@ -28,6 +28,8 @@ export interface NavItem {
   /** Filled variant shown for the active tab. */
   activeIcon?: Icon;
   badge?: "dev";
+  /** Left out of the menus (sidebar, phone menu, Ctrl K); the page itself still opens at its address. */
+  hidden?: boolean;
 }
 
 /** The five destinations of the phone tab bar and the desktop sidebar (brief §4.1). */
@@ -39,7 +41,8 @@ export const PRIMARY_NAV: NavItem[] = [
   { href: "/settings", label: "Settings", icon: IconSettings, activeIcon: IconSettingsFilled },
 ];
 
-export const SECONDARY_NAV: NavItem[] = [
+/** Every business destination, hidden ones included. */
+const BUSINESS_NAV: NavItem[] = [
   { href: "/chats", label: "Chats", icon: IconMessages },
   { href: "/reviews", label: "Reviews", icon: IconStar },
   { href: "/reports", label: "Reports", icon: IconChartBar },
@@ -49,5 +52,9 @@ export const SECONDARY_NAV: NavItem[] = [
   { href: "/compliance", label: "Texting and consent", icon: IconShieldCheck },
   { href: "/integrations", label: "Integrations", icon: IconPlug },
   { href: "/simulator", label: "Call simulator", icon: IconFlask, badge: "dev" },
-  { href: "/outbox", label: "Email outbox", icon: IconMail, badge: "dev" },
+  // Hidden while emails really go out through Resend, so the menu doesn't suggest they're simulated.
+  // The page still works at /outbox; remove `hidden` to show the link again.
+  { href: "/outbox", label: "Email outbox", icon: IconMail, badge: "dev", hidden: true },
 ];
+
+export const SECONDARY_NAV: NavItem[] = BUSINESS_NAV.filter((item) => !item.hidden);
