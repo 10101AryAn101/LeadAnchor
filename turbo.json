@@ -13,6 +13,8 @@
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
-    "test": {}
+    "test": {
+      "passThroughEnv": ["BETTER_AUTH_SECRET", "DATA_ENCRYPTION_KEY", "NODE_ENV"]
+    }
   }
 }
