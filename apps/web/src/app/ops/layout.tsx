@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Logo } from "@/components/brand/logo";
+import { OpsAccount } from "@/features/ops/ops-account";
 
 export const metadata: Metadata = {
   title: { template: "%s · Operator console", default: "Operator console" },
@@ -20,12 +21,7 @@ export default function OpsLayout({ children }: { children: ReactNode }) {
           <span className="rounded-full bg-muted px-2 py-0.5 text-[13px] font-semibold text-muted-foreground">
             Staff
           </span>
-          <Link
-            href="/dashboard"
-            className="ml-auto text-[15px] font-medium text-muted-foreground hover:text-foreground"
-          >
-            Back to the app
-          </Link>
+          <OpsAccount />
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-5 py-6">{children}</main>

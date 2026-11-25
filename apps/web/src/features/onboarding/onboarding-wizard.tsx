@@ -26,6 +26,7 @@ import {
   IconHome,
   IconPaw,
   IconScissors,
+  IconShieldLock,
   IconTemperature,
   IconTrees,
 } from "@tabler/icons-react";
@@ -40,13 +41,14 @@ import { Field, FieldDescription, FieldError, FieldGroup, FieldLabel } from "@/c
 import { Input } from "@/components/ui/input";
 import { InputGroup, InputGroupAddon, InputGroupInput, InputGroupText } from "@/components/ui/input-group";
 import { Spinner } from "@/components/ui/spinner";
+import { useSignOut } from "@/features/auth/use-sign-out";
 import { ForwardingGuide } from "@/features/settings/forwarding-guide";
 import { ProfileSetup } from "./profile-setup";
 import { TextingSetup } from "./texting-setup";
 import { api } from "@/lib/api";
 import { formatPhone } from "@/lib/format";
 import { showFormError } from "@/lib/forms";
-import { keys } from "@/lib/queries";
+import { keys, useMe } from "@/lib/queries";
 import { cn } from "@/lib/utils";
 
 const TRADE_ICONS: Record<Trade, Icon> = {
@@ -73,6 +75,8 @@ export function OnboardingWizard() {
   const queryClient = useQueryClient();
   const [step, setStep] = useState(0);
   const [tenant, setTenant] = useState<TenantSummary | null>(null);
+  const { data: me } = useMe();
+  const signOut = useSignOut();
 
   const form = useForm<Values, unknown, Output>({
     resolver: zodResolver(onboardingInput),
@@ -134,6 +138,19 @@ export function OnboardingWizard() {
           </li>
         ))}
       </ol>
+
+      {/* LeadAnchor staff (module 14): their console needs no business, so setting one up is optional. */}
+      {me?.operator && step < 2 && (
+        <div className="mt-8 flex flex-col gap-3 rounded-lg border bg-card p-4 sm:flex-row sm:items-center">
+          <IconShieldLock className="size-5 shrink-0 text-primary" />
+          <p className="flex-1 text-[15px]">
+            You&apos;re LeadAnchor staff, so you don&apos;t need a business to use the Operator console.
+          </p>
+          <Button variant="outline" nativeButton={false} render={<Link href="/ops" />}>
+            Open the Operator console
+          </Button>
+        </div>
+      )}
 
       {step < 2 && (
         <form className="mt-10 flex flex-1 flex-col" onSubmit={form.handleSubmit((values) => create.mutate(values))} noValidate>
@@ -293,6 +310,16 @@ export function OnboardingWizard() {
             </Button>
           </div>
         </div>
+      )}
+
+      {/* Until a business exists the app's account menu isn't reachable, so signing out lives here too. */}
+      {me && (
+        <p className="mt-8 text-center text-sm break-words text-muted-foreground">
+          Signed in as <span className="font-medium text-foreground">{me.user.email}</span>.{" "}
+          <button type="button" onClick={signOut} className="min-h-11 font-semibold text-primary underline-offset-4 hover:underline">
+            Sign out
+          </button>
+        </p>
       )}
     </div>
   );
