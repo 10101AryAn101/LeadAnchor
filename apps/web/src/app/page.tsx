@@ -14,6 +14,7 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import type { Metadata } from "next";
+import { cacheLife } from "next/cache";
 import Link from "next/link";
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
@@ -305,7 +306,9 @@ export default function HomePage() {
 
       <footer className="border-t">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-5 py-8 text-sm text-muted-foreground">
-          <p>© {new Date().getFullYear()} LeadAnchor</p>
+          <p>
+            © <CopyrightYear /> LeadAnchor
+          </p>
           <nav className="flex gap-4" aria-label="Legal">
             <Link href="/privacy" className="hover:text-foreground">
               Privacy
@@ -321,4 +324,15 @@ export default function HomePage() {
       </footer>
     </div>
   );
+}
+
+/**
+ * This page is built once and served to everyone (Cache Components), so reading the clock here
+ * would stop the build. The year is cached with the page instead and checked daily, so it turns
+ * over within a day of New Year.
+ */
+async function CopyrightYear() {
+  "use cache";
+  cacheLife("days");
+  return new Date().getFullYear();
 }
