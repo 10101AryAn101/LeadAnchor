@@ -38,7 +38,7 @@ const isPushedScreen = (pathname: string) => /^\/leads\/[^/]+$/.test(pathname);
  */
 export function AppShell({ children }: { children: ReactNode }) {
   const me = useMe();
-  // Signed in but no business yet: hold the page while we redirect to onboarding.
+  // Signed in but no business yet: hold the page while we redirect (see noBusinessHome).
   const needsOnboarding = Boolean(me.data && !me.data.tenant);
 
   return (
@@ -56,22 +56,28 @@ export function AppShell({ children }: { children: ReactNode }) {
         <BottomTabs />
       </Suspense>
       <CommandMenu />
-      <SessionRedirect error={me.error} needsOnboarding={needsOnboarding} />
+      <SessionRedirect error={me.error} to={needsOnboarding ? noBusinessHome(me.data) : null} />
       {me.data?.tenant && <LiveUpdates />}
     </div>
   );
 }
 
-/** Sends signed-out users to sign-in and new users to onboarding. */
-function SessionRedirect({ error, needsOnboarding }: { error: Error | null; needsOnboarding: boolean }) {
+/**
+ * Where a login with no business belongs: LeadAnchor staff (module 14) to their console, which
+ * needs no business; everyone else to set one up.
+ */
+const noBusinessHome = (me: MeResponse | undefined) => (me?.operator ? "/ops" : "/onboarding");
+
+/** Sends signed-out users to sign-in, and logins with no business on to where they belong. */
+function SessionRedirect({ error, to }: { error: Error | null; to: string | null }) {
   const router = useRouter();
   useEffect(() => {
     if (error instanceof ApiError && error.status === 401) {
       router.replace(`/sign-in?next=${encodeURIComponent(window.location.pathname)}`);
-    } else if (needsOnboarding) {
-      router.replace("/onboarding");
+    } else if (to) {
+      router.replace(to);
     }
-  }, [error, needsOnboarding, router]);
+  }, [error, to, router]);
   return null;
 }
 
